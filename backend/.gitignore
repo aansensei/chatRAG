@@ -1,0 +1,108 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env_local/
+ENV/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+site-packages/
+
+# Type checking
+.mypy_cache/
+.pytype/
+.pyre/
+
+# Environment & Secrets
+.env
+.env.prod
+.env.staging
+.env.local
+*.env
+secrets.json
+credentials.json
+
+# Database
+*.sqlite3
+*.db
+
+# Alembic
+alembic/versions/*.pyc
+
+# Vector Store (Qdrant local data)
+qdrant_storage/
+qdrant_snapshots/
+
+# Storage (uploaded documents & MinIO local data)
+storage/
+uploads/
+minio_data/
+
+# Logs
+*.log
+logs/
+celery*.log
+worker*.log
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+.tox/
+nosetests.xml
+test-results/
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+docker/volumes/
+
+# Monitoring data
+monitoring/grafana/data/
+prometheus_data/
+
+# ML Models & Large Files
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+models/
+model_cache/
+.paddleocr/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Claude
+.claude/
+
+# Misc
+*.bak
+*.tmp
+*.temp
+.cache/
+tmp/
