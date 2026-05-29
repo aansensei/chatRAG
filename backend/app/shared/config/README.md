@@ -1,5 +1,5 @@
 ## shared/config
 
-App configuration. Dùng Pydantic Settings để load và validate environment variables từ `.env`.
+App configuration. Uses Pydantic Settings to load and validate environment variables from `.env`.
 
-Sẽ có: `settings.py` với class `Settings(BaseSettings)` chứa DB URL, Qdrant host, embedding model path, JWT secret, storage backend, queue backend. Import ở bất kỳ đâu cần config.
+Planned: `settings.py` with a `Settings(BaseSettings)` class containing DB URL, Qdrant host, embedding model path, JWT secret, storage backend, and queue backend. Import from here wherever config is needed.

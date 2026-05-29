@@ -1,16 +1,16 @@
 ## infrastructure
 
-Concrete implementations của các interfaces từ domain/repositories. Layer này được phép import bất kỳ thư viện nào (SQLAlchemy, httpx, boto3, ...). Application layer không import từ đây trực tiếp.
+Concrete implementations of domain repository interfaces. This layer is free to import any third-party library (SQLAlchemy, httpx, boto3, ...). The application layer never imports from here directly.
 
-Tất cả các implementation đều pluggable: swap Kafka → Redis, Qdrant → Milvus, local storage → MinIO mà không đụng application logic.
+All implementations are pluggable: swap Kafka → Redis, Qdrant → Milvus, or local storage → MinIO without touching application logic.
 
 ### Subdirectories
 
-`classifier/` - ML model để assign sensitivity label
+`classifier/` - ML model for assigning sensitivity labels
 
 `database/` - PostgreSQL + Alembic migrations
 
-`embedding/` - embedding model để vector hóa text
+`embedding/` - embedding model for vectorizing text
 
 `llm/` - LLM client (Ollama)
 

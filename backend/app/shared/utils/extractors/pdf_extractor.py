@@ -14,7 +14,7 @@ def extract_pdf(file_path: str, image_output_dir: str = "extracted_images") -> E
     tables = []
     image_paths = []
 
-    # text + images dùng pymupdf
+    # text and images via pymupdf
     doc = fitz.open(file_path)
     for page_index, page in enumerate(doc):
         text_parts.append(page.get_text())
@@ -31,7 +31,7 @@ def extract_pdf(file_path: str, image_output_dir: str = "extracted_images") -> E
 
     doc.close()
 
-    # tables dùng pdfplumber (chính xác hơn pymupdf cho bảng)
+    # tables via pdfplumber — more accurate than pymupdf for complex table layouts
     with pdfplumber.open(file_path) as pdf:
         for page_index, page in enumerate(pdf.pages):
             for table_index, table in enumerate(page.extract_tables()):

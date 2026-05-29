@@ -1,5 +1,5 @@
 ## shared/logger
 
-Logging setup. Dùng structured JSON logging để dễ parse bằng Grafana Loki hoặc các log aggregation tools.
+Logging setup. Uses structured JSON logging for easy parsing by Grafana Loki or other log aggregation tools.
 
-Sẽ có: `setup_logging()` function, logger factory theo module name. Log format bao gồm timestamp, level, module, message, và extra fields (request_id, user_id, document_id khi có).
+Planned: `setup_logging()` function, logger factory by module name. Log format includes timestamp, level, module, message, and extra fields (request_id, user_id, document_id when available).

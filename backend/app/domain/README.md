@@ -1,15 +1,15 @@
 ## domain
 
-Core business layer. Không import gì từ infrastructure, không có I/O, không có HTTP. Đây là phần duy nhất của codebase có thể test hoàn toàn mà không cần DB hoặc network.
+Core business layer. No imports from infrastructure, no I/O, no HTTP. The only part of the codebase that can be tested completely without a database or network connection.
 
-Mọi thứ còn lại phụ thuộc vào layer này, layer này không phụ thuộc vào bất cứ thứ gì ngoài stdlib và pydantic.
+Everything else depends on this layer; this layer depends on nothing outside stdlib and pydantic.
 
 ### Subdirectories
 
-`entities/` - các business objects (Document, Chunk, User, ...)
+`entities/` - business objects (Document, Chunk, User, ...)
 
-`enums/` - shared enums dùng chung giữa entities
+`enums/` - shared enums used across entities
 
-`events/` - domain events, tín hiệu "đã xảy ra việc X"
+`events/` - domain events signaling that something happened
 
-`repositories/` - abstract interfaces cho data access, implemented ở infrastructure
+`repositories/` - abstract interfaces for data access, implemented in infrastructure

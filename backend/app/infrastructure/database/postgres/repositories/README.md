@@ -1,8 +1,8 @@
 ## infrastructure/database/postgres/repositories
 
-Concrete repository implementations dùng SQLAlchemy async. Mỗi file implement một interface từ `domain/repositories/`.
+Concrete repository implementations using SQLAlchemy async. Each file implements one interface from `domain/repositories/`.
 
-Quy tắc ở đây: nhận SQLAlchemy session qua constructor, dùng ORM models để query, convert kết quả về domain entities trước khi trả ra.
+Convention: receive a SQLAlchemy session via constructor, use ORM models to query, convert results to domain entities before returning.
 
 ### Files
 

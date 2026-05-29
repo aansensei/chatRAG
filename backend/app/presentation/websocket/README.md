@@ -1,7 +1,7 @@
 ## presentation/websocket
 
-WebSocket handlers cho real-time features.
+WebSocket handlers for real-time features.
 
 ### Files
 
-`chat_ws.py` - WebSocket endpoint cho streaming chat. Nhận câu hỏi qua WS message, stream LLM tokens về client theo từng token thay vì đợi response đầy đủ. Dùng cho UI chat có typing effect.
+`chat_ws.py` - WebSocket endpoint for streaming chat. Receives a question as a WS message, streams LLM tokens back to the client one by one instead of waiting for the full response. Used for UI chat with a typing effect.

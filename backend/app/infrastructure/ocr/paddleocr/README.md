@@ -4,4 +4,4 @@ PaddleOCR implementation.
 
 ### Files
 
-`ocr.py` - nhận image path (hoặc bytes), chạy PaddleOCR, trả về text đã extract. Được gọi bởi `workers/ocr_worker.py` trên từng trang scan.
+`ocr.py` - receives an image path (or bytes), runs PaddleOCR, returns the extracted text. Called by `workers/ocr_worker.py` on each scanned page.

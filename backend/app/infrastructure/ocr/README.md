@@ -1,7 +1,7 @@
 ## infrastructure/ocr
 
-OCR implementations cho tài liệu scan. Pluggable - có thể thêm implementation khác (Tesseract, ...) bằng cách tạo subfolder mới và implement cùng interface.
+OCR implementations for scanned documents. Pluggable — add another implementation (Tesseract, ...) by creating a new subfolder that satisfies the same interface.
 
 ### Subdirectories
 
-`paddleocr/` - OCR bằng PaddleOCR, hỗ trợ tiếng Việt tốt
+`paddleocr/` - OCR via PaddleOCR, handles Vietnamese text well

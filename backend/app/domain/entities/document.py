@@ -13,21 +13,21 @@ class Document(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     title: str
     original_filename: str
-    # relative path trong storage, không phải absolute path trên disk
+    # relative path within storage, not an absolute path on disk
     file_path: str
     file_type: str
     file_size: int
     owner_id: UUID
-    # default INTERNAL thay vì PUBLIC để an toàn hơn khi chưa classify xong
+    # default INTERNAL rather than PUBLIC — safer before classification completes
     sensitivity: SensitivityLevel = SensitivityLevel.INTERNAL
     status: DocumentStatus = DocumentStatus.PROCESSING
     page_count: int | None = None
     language: str | None = None
-    # dùng để lưu extra info mà không cần thêm column DB
+    # store extra info without adding new DB columns
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    # frozen=True nên updated_at không tự update - phải tạo instance mới ở repo layer
+    # frozen=True means updated_at won't auto-update — create a new instance at the repo layer
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # frozen: không mutate trực tiếp, tạo instance mới để update field
+    # frozen: never mutate in place, create a new instance to update a field
     model_config = {"frozen": True}

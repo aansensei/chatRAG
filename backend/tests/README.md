@@ -1,11 +1,11 @@
 ## tests
 
-Test suite. Chạy toàn bộ: `pytest tests/`
+Test suite. Run all: `pytest tests/`
 
 ### Subdirectories
 
-`unit/` - pure unit tests, không có I/O. Test domain entities, enum logic, utility functions. Không cần DB hay Docker. Chạy nhanh.
+`unit/` - pure unit tests, no I/O. Tests domain entities, enum logic, and utility functions. No DB or Docker required. Fast.
 
-`integration/` - test với real services (PostgreSQL, Qdrant, Redis). Yêu cầu docker-compose đang chạy. Verify các repository implementations thực sự hoạt động với DB thật.
+`integration/` - tests against real services (PostgreSQL, Qdrant, Redis). Requires docker-compose to be running. Verifies that repository implementations actually work with a real database.
 
-`e2e/` - end-to-end tests qua HTTP API. Upload document → poll job → query → verify response. Test toàn bộ pipeline từ đầu đến cuối.
+`e2e/` - end-to-end tests over the HTTP API. Upload a document → poll the job → query → verify the response. Tests the full pipeline from start to finish.

@@ -1,9 +1,9 @@
 ## infrastructure/database/migrations
 
-Alembic migration scripts. Mỗi migration là một bước thay đổi schema không thể đảo ngược - không sửa migration đã chạy, chỉ thêm migration mới.
+Alembic migration scripts. Each migration is a forward-only schema change — never edit a migration that has already run, only add new ones.
 
-Chạy migration: `alembic upgrade head`
+Apply migrations: `alembic upgrade head`
 
-Tạo migration mới: `alembic revision --autogenerate -m "mô tả ngắn"`
+Generate a new migration: `alembic revision --autogenerate -m "short description"`
 
-Rollback 1 bước: `alembic downgrade -1`
+Roll back one step: `alembic downgrade -1`

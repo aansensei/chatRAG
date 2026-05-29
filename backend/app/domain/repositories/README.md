@@ -1,19 +1,19 @@
 ## domain/repositories
 
-Abstract interfaces (Protocol hoặc ABC) cho data access. Application layer phụ thuộc vào những interfaces này, không phụ thuộc vào implementation cụ thể. Infrastructure implement chúng.
+Abstract interfaces (Protocol or ABC) for data access. The application layer depends on these interfaces, not on concrete implementations. Infrastructure implements them.
 
-Giúp swap DB hoặc queue mà không sửa application logic - ví dụ đổi từ Qdrant sang Milvus chỉ cần implement `vector_repo.py` với adapter mới.
+This makes it possible to swap the database or queue without touching application logic — switching from Qdrant to Milvus only requires a new implementation of `vector_repo.py`.
 
 ### Files
 
-`document_repo.py` - CRUD cho Document entity (lưu, lấy theo id, list, update status).
+`document_repo.py` - CRUD for Document (save, get by id, list, update status).
 
-`user_repo.py` - CRUD cho User, lookup theo email.
+`user_repo.py` - CRUD for User, lookup by email.
 
-`ingest_job_repo.py` - CRUD cho IngestJob, query theo document_id và status.
+`ingest_job_repo.py` - CRUD for IngestJob, query by document_id and status.
 
-`review_repo.py` - CRUD cho Review, query pending reviews.
+`review_repo.py` - CRUD for Review, query pending reviews.
 
-`vector_repo.py` - interface cho vector DB: upsert embeddings, similarity search, delete by document.
+`vector_repo.py` - interface for vector DB: upsert embeddings, similarity search, delete by document.
 
-`queue_repo.py` - interface publish domain events ra message queue (Kafka hoặc Redis).
+`queue_repo.py` - interface for publishing domain events to the message queue (Kafka or Redis).

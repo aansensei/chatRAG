@@ -1,9 +1,9 @@
 ## application/ingestion
 
-Use cases điều phối ingestion pipeline.
+Use cases that orchestrate the ingestion pipeline.
 
 ### Files
 
-`start_ingestion.py` - tạo IngestJob mới cho document, publish `DocumentUploaded` event để kick off pipeline. Đây là trigger điểm đầu tiên.
+`start_ingestion.py` - creates a new IngestJob for a document and publishes the `DocumentUploaded` event to kick off the pipeline. This is the first trigger point.
 
-`retry_job.py` - retry một IngestJob đang ở trạng thái FAILED. Reset về trạng thái trước bước bị fail thay vì chạy lại từ đầu.
+`retry_job.py` - retries an IngestJob in FAILED state. Resets to the step before the failure rather than restarting from scratch.

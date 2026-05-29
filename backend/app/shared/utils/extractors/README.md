@@ -1,17 +1,17 @@
 ## shared/utils/extractors
 
-File content extractors. Tất cả đi qua `dispatcher.py` - caller không cần biết file type, chỉ cần pass path và nhận `ExtractResult`.
+File content extractors. All calls go through `dispatcher.py` — the caller doesn't need to know the file type, just passes a path and gets back an `ExtractResult`.
 
 ### Files
 
-`base.py` - `ExtractResult` dataclass: unified output format với `text`, `tables` (list of dict), `images` (list of paths), `metadata`.
+`base.py` - `ExtractResult` dataclass: unified output format with `text`, `tables` (list of dicts), `images` (list of file paths), `metadata`.
 
-`dispatcher.py` - single entry point. Route theo file extension đến đúng extractor. Raise `ValueError` với unsupported type.
+`dispatcher.py` - single entry point. Routes by file extension to the correct extractor. Raises `ValueError` for unsupported types.
 
-`pdf_extractor.py` - dùng pymupdf cho text và images, pdfplumber cho tables (chính xác hơn pymupdf với bảng phức tạp).
+`pdf_extractor.py` - pymupdf for text and images, pdfplumber for tables (more accurate than pymupdf for complex table layouts).
 
-`docx_extractor.py` - python-docx cho text và tables, zipfile để extract embedded images (docx về bản chất là file zip).
+`docx_extractor.py` - python-docx for text and tables, zipfile to extract embedded images (a docx file is essentially a zip archive).
 
-`xlsx_extractor.py` - openpyxl đọc từng sheet, mỗi sheet thành table dict và flat text để embed. Bỏ qua sheet trống.
+`xlsx_extractor.py` - openpyxl reads each sheet; each sheet becomes a table dict and a flat text string for embedding. Empty sheets are skipped.
 
-`pptx_extractor.py` - python-pptx đọc từng slide, extract text frame, tables, và images. Text được prefix bằng `[Slide N]` để retain context sau khi chunk.
+`pptx_extractor.py` - python-pptx reads each slide, extracting text frames, tables, and images. Text is prefixed with `[Slide N]` to retain positional context after chunking.

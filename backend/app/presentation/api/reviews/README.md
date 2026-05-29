@@ -2,4 +2,4 @@
 
 Human review workflow routes.
 
-Sẽ có: `GET /reviews/pending` list documents đang chờ review, `POST /reviews/{id}/approve`, `POST /reviews/{id}/reject`. Chỉ reviewer và admin có thể thao tác.
+Planned: `GET /reviews/pending` lists documents awaiting review, `POST /reviews/{id}/approve`, `POST /reviews/{id}/reject`. Accessible by reviewers and admins only.

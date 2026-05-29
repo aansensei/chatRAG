@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-# (str, Enum) để serialize thành string trong JSON, không phải int
+# (str, Enum) serializes as a string in JSON, not an integer
 class IngestJobStatus(str, Enum):
     PENDING = "pending"
     EXTRACTING = "extracting"
@@ -9,7 +9,7 @@ class IngestJobStatus(str, Enum):
     EMBEDDING = "embedding"
     INDEXING = "indexing"
     COMPLETED = "completed"
-    # FAILED có thể xảy ra ở bất kỳ bước nào, retry từ bước bị fail chứ không từ đầu
+    # FAILED can occur at any step — retry from the failed step, not from scratch
     FAILED = "failed"
 
 

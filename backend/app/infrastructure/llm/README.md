@@ -4,4 +4,4 @@ LLM client implementations.
 
 ### Files
 
-`ollama.py` - client gọi Ollama local LLM server. Nhận context string + câu hỏi, trả về response stream. Dùng trong `application/retrieval/ask_question.py`.
+`ollama.py` - client for the Ollama local LLM server. Receives a context string and a question, returns a response stream. Called from `application/retrieval/ask_question.py`.

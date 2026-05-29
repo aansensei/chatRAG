@@ -1,11 +1,11 @@
 ## presentation/middleware
 
-FastAPI middleware chạy trước mỗi request.
+FastAPI middleware that runs before each request.
 
 ### Files
 
-`auth.py` - validate JWT token từ Authorization header, decode và populate `request.state.user`. Trả 401 nếu token không hợp lệ hoặc hết hạn.
+`auth.py` - validates the JWT token from the Authorization header, decodes it, and populates `request.state.user`. Returns 401 if the token is invalid or expired.
 
-`permission.py` - sau khi auth, kiểm tra user có quyền trên resource cụ thể không (document-level). Gọi validate_access use case.
+`permission.py` - after auth, checks whether the user has the required right on the target resource (document-level). Calls the validate_access use case.
 
-`rate_limit.py` - giới hạn số request per IP hoặc per user trong khoảng thời gian nhất định, chống abuse.
+`rate_limit.py` - limits the number of requests per IP or per user within a time window to prevent abuse.

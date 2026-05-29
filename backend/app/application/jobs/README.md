@@ -1,7 +1,7 @@
 ## application/jobs
 
-Use cases quản lý trạng thái ingest jobs.
+Use cases for ingest job management.
 
 ### Files
 
-`get_job_status.py` - lấy IngestJob theo id, trả về status và progress (embedded_chunks / total_chunks). Frontend dùng endpoint này để poll tiến trình upload.
+`get_job_status.py` - fetches an IngestJob by id and returns its status and progress (embedded_chunks / total_chunks). Used by the frontend to poll upload progress.

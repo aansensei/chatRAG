@@ -2,4 +2,4 @@
 
 Authentication routes.
 
-Sẽ có: `POST /auth/login` trả JWT, `POST /auth/logout`, `POST /auth/refresh` để gia hạn access token.
+Planned: `POST /auth/login` returns JWT, `POST /auth/logout`, `POST /auth/refresh` to renew an access token.

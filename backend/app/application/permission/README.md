@@ -1,7 +1,7 @@
 ## application/permission
 
-Use cases kiểm soát quyền truy cập.
+Use cases for access control.
 
 ### Files
 
-`validate_access.py` - kiểm tra user có quyền thao tác cụ thể (read/edit/delete) trên một document không. Xem xét cả Permission entity lẫn expiry. Raise exception nếu không có quyền.
+`validate_access.py` - checks whether a user has a specific right (read/edit/delete) on a document. Considers both the Permission entity and its expiry. Raises an exception if access is denied.

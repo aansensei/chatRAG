@@ -1,11 +1,11 @@
 ## application/review
 
-Use cases cho human review workflow. Áp dụng với document có SensitivityLevel >= CONFIDENTIAL.
+Use cases for the human review workflow. Applies to documents with SensitivityLevel >= CONFIDENTIAL.
 
 ### Files
 
-`get_pending.py` - lấy danh sách Review đang ở trạng thái PENDING, dùng cho reviewer dashboard.
+`get_pending.py` - returns a list of Reviews in PENDING state, used for the reviewer dashboard.
 
-`approve_review.py` - reviewer duyệt document: cập nhật Review sang APPROVED, chuyển Document sang READY, publish `ReviewApproved` event.
+`approve_review.py` - reviewer approves a document: updates Review to APPROVED, transitions Document to READY, publishes `ReviewApproved` event.
 
-`reject_review.py` - reviewer từ chối: cập nhật Review sang REJECTED, document không được deploy vào search index.
+`reject_review.py` - reviewer rejects a document: updates Review to REJECTED, document is not deployed to the search index.

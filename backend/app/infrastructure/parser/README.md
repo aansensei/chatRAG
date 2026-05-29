@@ -1,7 +1,7 @@
 ## infrastructure/parser
 
-Document structure parsers. Khác với extractors ở `shared/utils/extractors/` - parsers hiểu cấu trúc tài liệu (headings, sections, tables) để hỗ trợ chunking thông minh hơn. Extractors chỉ lấy raw text.
+Document structure parsers. Different from the extractors in `shared/utils/extractors/` — parsers understand document structure (headings, sections, tables) to support smarter chunking. Extractors only pull raw text.
 
 ### Subdirectories
 
-`unstructured/` - parser dùng Unstructured.io library
+`unstructured/` - parser using the Unstructured.io library

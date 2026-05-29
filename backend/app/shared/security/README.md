@@ -1,5 +1,5 @@
 ## shared/security
 
-Security utilities dùng chung.
+Security utilities shared across layers.
 
-Sẽ có: `create_access_token()` / `decode_token()` với JWT (python-jose), `hash_password()` / `verify_password()` với bcrypt. Không chứa business logic - chỉ là crypto helpers.
+Planned: `create_access_token()` / `decode_token()` with JWT (python-jose), `hash_password()` / `verify_password()` with bcrypt. No business logic here — pure crypto helpers.

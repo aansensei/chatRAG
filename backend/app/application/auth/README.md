@@ -1,7 +1,7 @@
 ## application/auth
 
-Use cases liên quan đến authentication.
+Authentication use cases.
 
 ### Files
 
-`login.py` - xác thực credentials (email + password), trả về JWT access token và refresh token nếu hợp lệ.
+`login.py` - validates credentials (email + password), returns a JWT access token and refresh token on success.

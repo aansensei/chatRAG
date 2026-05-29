@@ -1,7 +1,7 @@
 ## application/retrieval
 
-Use cases cho RAG retrieval pipeline.
+Use cases for the RAG retrieval pipeline.
 
 ### Files
 
-`ask_question.py` - luồng chính của RAG: embed câu hỏi → tìm chunks liên quan từ vector DB → build context từ chunks → gọi LLM với context → stream response về. Document-level permission check xảy ra trước khi search.
+`ask_question.py` - the main RAG flow: embed the question → search for relevant chunks in the vector DB → build context from chunks → call the LLM with context → stream response back. Document-level permission check happens before the vector search.

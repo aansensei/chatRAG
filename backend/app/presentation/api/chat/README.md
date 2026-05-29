@@ -2,4 +2,4 @@
 
 RAG chat routes.
 
-Sẽ có: `POST /chat/ask` nhận câu hỏi, chạy full RAG pipeline, trả response. Streaming response qua SSE hoặc WebSocket.
+Planned: `POST /chat/ask` receives a question, runs the full RAG pipeline, returns a response. Streaming response via SSE or WebSocket.

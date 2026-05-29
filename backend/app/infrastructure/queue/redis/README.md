@@ -1,9 +1,9 @@
 ## infrastructure/queue/redis
 
-Redis Streams implementation cho message queue. Dùng cho local dev và môi trường nhỏ không cần Kafka.
+Redis Streams implementation for the message queue. Used for local dev and small environments that don't need Kafka.
 
 ### Files
 
-`publisher.py` - publish domain event vào Redis Stream tương ứng dùng XADD.
+`publisher.py` - publishes a domain event to the corresponding Redis Stream using XADD.
 
-`consumer.py` - base consumer wrapper: XREADGROUP để consume, ack sau khi xử lý xong. Subclassed bởi từng consumer trong `consumers/`.
+`consumer.py` - base consumer wrapper: XREADGROUP to consume, ACK after successful processing. Subclassed by each consumer in `consumers/`.

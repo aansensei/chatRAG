@@ -1,5 +1,5 @@
 ## presentation/api/chunks
 
-Chunk inspection routes. Dùng để debug và đánh giá chất lượng chunking.
+Chunk inspection routes. Used to debug and evaluate chunking quality.
 
-Sẽ có: `GET /chunks/{document_id}` list tất cả chunks của document, `GET /chunks/{chunk_id}` xem nội dung chunk cụ thể.
+Planned: `GET /chunks/{document_id}` lists all chunks for a document, `GET /chunks/{chunk_id}` views a specific chunk's content.

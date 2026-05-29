@@ -1,19 +1,19 @@
 ## application
 
-Use cases layer. Mỗi folder là một bounded context, mỗi file là một use case. Không import trực tiếp từ infrastructure - chỉ dùng repository interfaces từ domain.
+Use cases layer. Each folder is a bounded context; each file is a single use case. Never imports directly from infrastructure — only uses repository interfaces from domain.
 
-Use case nhận input, gọi repositories/services, publish events nếu cần, trả về result. Không có HTTP, không có SQL, không có ORM ở đây.
+A use case receives input, calls repositories or services, publishes events if needed, and returns a result. No HTTP, no SQL, no ORM here.
 
 ### Subdirectories
 
-`auth/` - đăng nhập và JWT
+`auth/` - login and JWT issuance
 
-`ingestion/` - khởi động và retry ingestion pipeline
+`ingestion/` - start and retry the ingestion pipeline
 
-`jobs/` - theo dõi trạng thái ingest job
+`jobs/` - track ingest job status
 
-`permission/` - validate quyền truy cập document
+`permission/` - validate document access rights
 
-`retrieval/` - RAG pipeline: nhận câu hỏi, trả lời
+`retrieval/` - RAG pipeline: receive a question, return an answer
 
-`review/` - human review workflow cho sensitive documents
+`review/` - human review workflow for sensitive documents

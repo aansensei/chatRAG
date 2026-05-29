@@ -14,7 +14,7 @@ def extract_xlsx(file_path: str) -> ExtractResult:
         ws = wb[sheet_name]
         rows = list(ws.iter_rows(values_only=True))
 
-        # bỏ qua sheet trống
+        # skip empty sheets
         non_empty = [r for r in rows if any(c is not None for c in r)]
         if not non_empty:
             continue
@@ -29,7 +29,7 @@ def extract_xlsx(file_path: str) -> ExtractResult:
             "data": data
         })
 
-        # text: mỗi sheet ghép thành chuỗi để dễ embed sau này
+        # flat text per sheet for embedding
         for row in non_empty:
             line = " | ".join(str(c) for c in row if c is not None)
             if line.strip():

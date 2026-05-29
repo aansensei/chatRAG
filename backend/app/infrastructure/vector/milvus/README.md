@@ -1,7 +1,7 @@
 ## infrastructure/vector/milvus
 
-Milvus vector DB implementation. Cùng interface với Qdrant, dùng khi cần horizontal scaling hoặc đã có Milvus cluster sẵn.
+Milvus vector DB implementation. Same interface as Qdrant, used when horizontal scaling is needed or a Milvus cluster is already available.
 
 ### Files
 
-`repository.py` - implements `VectorRepository` với Milvus Python SDK.
+`repository.py` - implements `VectorRepository` using the Milvus Python SDK.

@@ -15,12 +15,12 @@ def extract_docx(file_path: str, image_output_dir: str = "extracted_images") -> 
     tables = []
     image_paths = []
 
-    # text: đọc từng paragraph
+    # text: iterate paragraphs
     for para in doc.paragraphs:
         if para.text.strip():
             text_parts.append(para.text.strip())
 
-    # tables: mỗi bảng thành list of dict, row đầu tiên làm header
+    # tables: first row as header, remaining rows as list of dicts
     for table_index, table in enumerate(doc.tables):
         rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
         if not rows:
@@ -35,7 +35,7 @@ def extract_docx(file_path: str, image_output_dir: str = "extracted_images") -> 
             "data": data
         })
 
-    # images: docx thực ra là file zip, ảnh nằm trong word/media/
+    # images: a docx file is a zip archive, images live under word/media/
     with zipfile.ZipFile(file_path, "r") as z:
         for name in z.namelist():
             if name.startswith("word/media/"):

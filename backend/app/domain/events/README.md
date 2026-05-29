@@ -1,19 +1,19 @@
 ## domain/events
 
-Domain events - payload cho message queue. Mỗi event đánh dấu một việc đã xảy ra trong pipeline và trigger bước tiếp theo. Consumers ở `consumers/` subscribe vào từng event này.
+Domain events — payloads for the message queue. Each event marks that something happened in the pipeline and triggers the next step. Consumers in `consumers/` subscribe to these events.
 
-Pipeline flow theo thứ tự: document_uploaded → ocr_completed → chunk_created → embedding_completed → label_assigned → review_approved (nếu cần)
+Pipeline flow in order: document_uploaded → ocr_completed → chunk_created → embedding_completed → label_assigned → review_approved (if required)
 
 ### Files
 
-`document_uploaded.py` - document đã được lưu vào storage, sẵn sàng để extract text.
+`document_uploaded.py` - document has been saved to storage and is ready for text extraction.
 
-`ocr_completed.py` - OCR đã xong trên các trang scan. Trigger chunking.
+`ocr_completed.py` - OCR finished on scanned pages. Triggers chunking.
 
-`chunk_created.py` - text đã được cắt thành chunks. Trigger embedding.
+`chunk_created.py` - text has been split into chunks. Triggers embedding.
 
-`embedding_completed.py` - toàn bộ chunks đã được vector hóa. Trigger indexing vào Qdrant.
+`embedding_completed.py` - all chunks have been vectorized. Triggers indexing into Qdrant.
 
-`label_assigned.py` - sensitivity label đã được assign. Nếu CONFIDENTIAL+, trigger tạo Review.
+`label_assigned.py` - sensitivity label has been assigned. If CONFIDENTIAL+, triggers Review creation.
 
-`review_approved.py` - reviewer đã duyệt document. Document chuyển sang READY.
+`review_approved.py` - reviewer approved the document. Document transitions to READY.

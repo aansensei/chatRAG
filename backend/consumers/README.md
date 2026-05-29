@@ -1,18 +1,18 @@
 ## consumers
 
-Event consumer entry points. Mỗi file subscribe vào một domain event và kích hoạt bước tiếp theo trong pipeline. Mỗi consumer chạy như một process độc lập (hoặc coroutine riêng).
+Event consumer entry points. Each file subscribes to one domain event and triggers the next step in the pipeline. Each consumer runs as an independent process (or coroutine).
 
 Pipeline event chain:
 `DocumentUploaded` → `OcrCompleted` → `ChunkCreated` → `EmbeddingCompleted` → `LabelAssigned` → `ReviewApproved`
 
 ### Files
 
-`document_uploaded_handler.py` - nhận `DocumentUploaded`, gọi extractor để lấy raw text. Nếu document có trang scan, trigger OCR. Nếu không, publish `ChunkCreated` luôn.
+`document_uploaded_handler.py` - receives `DocumentUploaded`, calls the extractor to get raw text. If the document has scanned pages, triggers OCR. Otherwise publishes `ChunkCreated` directly.
 
-`ocr_completed_handler.py` - nhận `OcrCompleted`, gộp text OCR vào document, publish `ChunkCreated`.
+`ocr_completed_handler.py` - receives `OcrCompleted`, merges the OCR text into the document, publishes `ChunkCreated`.
 
-`chunk_created_handler.py` - nhận `ChunkCreated`, gọi embedding model để vector hóa từng chunk, publish `EmbeddingCompleted`.
+`chunk_created_handler.py` - receives `ChunkCreated`, calls the embedding model to vectorize each chunk, publishes `EmbeddingCompleted`.
 
-`embedding_handler.py` - nhận `EmbeddingCompleted`, upsert vectors vào Qdrant, gọi classifier để assign sensitivity label, publish `LabelAssigned`.
+`embedding_handler.py` - receives `EmbeddingCompleted`, upserts vectors into Qdrant, calls the classifier to assign a sensitivity label, publishes `LabelAssigned`.
 
-`review_handler.py` - nhận `LabelAssigned`, nếu sensitivity >= CONFIDENTIAL thì tạo Review và chờ. Nếu < CONFIDENTIAL thì chuyển Document sang READY ngay.
+`review_handler.py` - receives `LabelAssigned`. If sensitivity >= CONFIDENTIAL, creates a Review and waits. If below CONFIDENTIAL, transitions Document to READY immediately.

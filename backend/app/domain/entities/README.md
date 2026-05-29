@@ -1,19 +1,19 @@
 ## domain/entities
 
-Pydantic models đại diện cho các business objects cốt lõi. Tất cả `frozen=True` - immutable sau khi tạo. Muốn update field thì tạo instance mới, không mutate trực tiếp.
+Pydantic models representing core business objects. All are `frozen=True` — immutable after creation. To update a field, create a new instance rather than mutating in place.
 
-Entities không biết gì về DB, storage, hay HTTP. Chuyển đổi giữa entity và ORM model xảy ra ở infrastructure/repositories.
+Entities have no knowledge of the database, storage, or HTTP. Conversion between entities and ORM models happens in infrastructure/repositories.
 
 ### Files
 
-`document.py` - đại diện cho một file tài liệu trong hệ thống. Có sensitivity level, trạng thái xử lý, và path đến file trong storage.
+`document.py` - a file document in the system. Carries sensitivity level, processing status, and a relative storage path.
 
-`chunk.py` - một đoạn text được cắt từ document. Có `embedding_id` là None cho đến khi Qdrant assign point ID sau khi embed.
+`chunk.py` - a text segment cut from a document. `embedding_id` is None until Qdrant assigns a point ID after embedding.
 
-`user.py` - người dùng hệ thống. Không chứa password hash - việc đó thuộc về auth service ở application layer.
+`user.py` - a system user. Does not contain the password hash — that belongs in the auth service.
 
-`ingest_job.py` - theo dõi tiến trình xử lý một document qua 7 bước pipeline. `total_chunks` và `embedded_chunks` dùng để tính % tiến độ.
+`ingest_job.py` - tracks progress of a document through the 7-step pipeline. `total_chunks` and `embedded_chunks` are used to compute percentage progress.
 
-`permission.py` - grant/restrict quyền truy cập document cho từng user. `expires_at = None` nghĩa là không hết hạn.
+`permission.py` - grants or restricts a user's access to a specific document. `expires_at = None` means the permission never expires.
 
-`review.py` - yêu cầu human review với document có sensitivity >= CONFIDENTIAL. `reviewer_id = None` khi chưa assign reviewer.
+`review.py` - a human review request for documents with sensitivity >= CONFIDENTIAL. `reviewer_id = None` when no reviewer has been assigned yet.

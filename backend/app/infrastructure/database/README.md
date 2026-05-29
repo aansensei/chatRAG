@@ -1,9 +1,9 @@
 ## infrastructure/database
 
-Toàn bộ database infrastructure. Hiện tại dùng PostgreSQL qua Supabase. Alembic quản lý schema migrations.
+All database infrastructure. Currently using PostgreSQL via Supabase. Alembic manages schema migrations.
 
 ### Subdirectories
 
-`migrations/` - Alembic migration scripts, tạo bằng `alembic revision --autogenerate`
+`migrations/` - Alembic migration scripts, generated with `alembic revision --autogenerate`
 
-`postgres/` - SQLAlchemy engine, session, ORM models, và repository implementations
+`postgres/` - SQLAlchemy engine, session factory, ORM models, and repository implementations

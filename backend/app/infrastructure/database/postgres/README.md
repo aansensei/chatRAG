@@ -1,13 +1,13 @@
 ## infrastructure/database/postgres
 
-SQLAlchemy implementation cho PostgreSQL.
+SQLAlchemy implementation for PostgreSQL.
 
 ### Files
 
-`connection.py` - tạo AsyncEngine và async session factory. Import ở đây để dùng làm dependency trong FastAPI routes.
+`connection.py` - creates the AsyncEngine and async session factory. Import this as a FastAPI dependency in routes that need a DB session.
 
 ### Subdirectories
 
-`models/` - SQLAlchemy ORM models (map DB tables), khác với domain entities
+`models/` - SQLAlchemy ORM models (map to DB tables), distinct from domain entities
 
-`repositories/` - concrete implementations của repository interfaces từ domain
+`repositories/` - concrete implementations of the repository interfaces from domain

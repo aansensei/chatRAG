@@ -1,9 +1,9 @@
 ## infrastructure/queue/kafka
 
-Kafka implementation cho message queue.
+Kafka implementation for the message queue.
 
 ### Files
 
-`publisher.py` - serialize domain event thành JSON, publish vào Kafka topic tương ứng.
+`publisher.py` - serializes a domain event to JSON and publishes it to the corresponding Kafka topic.
 
-`consumer.py` - base consumer wrapper: kết nối Kafka, listen topic, deserialize message, gọi handler function. Được subclass bởi từng consumer trong `consumers/`.
+`consumer.py` - base consumer wrapper: connects to Kafka, listens on a topic, deserializes messages, and calls a handler function. Subclassed by each consumer in `consumers/`.

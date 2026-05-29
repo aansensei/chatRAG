@@ -2,4 +2,4 @@
 
 Ingest job tracking routes.
 
-Sẽ có: `GET /jobs/{job_id}` trả status và progress (embedded_chunks / total_chunks). Frontend poll endpoint này sau khi upload để hiển thị progress bar.
+Planned: `GET /jobs/{job_id}` returns status and progress (embedded_chunks / total_chunks). The frontend polls this endpoint after upload to display a progress bar.

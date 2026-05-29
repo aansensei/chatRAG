@@ -1,7 +1,7 @@
 ## shared/utils
 
-General-purpose utilities không thuộc về layer nào cụ thể.
+General-purpose utilities that don't belong to any specific layer.
 
 ### Subdirectories
 
-`extractors/` - file content extractors cho PDF, DOCX, XLSX, PPTX
+`extractors/` - file content extractors for PDF, DOCX, XLSX, PPTX

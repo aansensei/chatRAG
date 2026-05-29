@@ -1,13 +1,13 @@
 ## monitoring
 
-Observability setup. Prometheus cho metrics collection, Grafana cho visualization.
+Observability setup. Prometheus for metrics collection, Grafana for visualization.
 
 ### Files
 
-`metrics.py` - định nghĩa custom Prometheus metrics: số documents được ingest, latency của từng pipeline step, số RAG queries, error rates.
+`metrics.py` - defines custom Prometheus metrics: documents ingested, latency per pipeline step, RAG query count, error rates.
 
-`prometheus.py` - Prometheus server config và middleware integration với FastAPI.
+`prometheus.py` - Prometheus server config and FastAPI middleware integration.
 
 ### Subdirectories
 
-`grafana/` - Grafana dashboard JSON configs (chưa có nội dung).
+`grafana/` - Grafana dashboard JSON configs (not yet populated).
