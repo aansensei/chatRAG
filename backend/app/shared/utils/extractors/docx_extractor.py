@@ -21,8 +21,18 @@ def extract_docx(file_path: str, image_output_dir: str = "extracted_images") -> 
             text_parts.append(para.text.strip())
 
     # tables: first row as header, remaining rows as list of dicts
+    # row.cells repeats merged cells — deduplicate by XML element identity
+    def _unique_cells(row):
+        seen = set()
+        cells = []
+        for cell in row.cells:
+            if id(cell._tc) not in seen:
+                seen.add(id(cell._tc))
+                cells.append(cell.text.strip())
+        return cells
+
     for table_index, table in enumerate(doc.tables):
-        rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+        rows = [_unique_cells(row) for row in table.rows]
         if not rows:
             continue
         header = rows[0]

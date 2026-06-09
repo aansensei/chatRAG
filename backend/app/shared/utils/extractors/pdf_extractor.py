@@ -1,7 +1,26 @@
+﻿import re
 import fitz  # pymupdf
 import pdfplumber
 from pathlib import Path
 from .base import ExtractResult
+
+# Unicode Private Use Area (U+E000–U+F8FF): unmapped math font glyphs, not readable text
+_PUA_RE = re.compile(r"[-]")
+
+
+def _is_meaningful_header(header: list) -> bool:
+    # a header cell is meaningful if it has more than 1 char and is not purely numeric
+    def meaningful(cell) -> bool:
+        if not cell or not cell.strip():
+            return False
+        h = cell.strip()
+        if len(h) <= 1:
+            return False
+        if h.replace(".", "").replace("-", "").replace(" ", "").isdigit():
+            return False
+        return True
+
+    return any(meaningful(cell) for cell in header)
 
 
 def extract_pdf(file_path: str, image_output_dir: str = "extracted_images") -> ExtractResult:
@@ -16,6 +35,7 @@ def extract_pdf(file_path: str, image_output_dir: str = "extracted_images") -> E
 
     # text and images via pymupdf
     doc = fitz.open(file_path)
+    page_count = len(doc)
     for page_index, page in enumerate(doc):
         text_parts.append(page.get_text())
 
@@ -38,6 +58,8 @@ def extract_pdf(file_path: str, image_output_dir: str = "extracted_images") -> E
                 if not table:
                     continue
                 header = table[0]
+                if not _is_meaningful_header(header):
+                    continue
                 rows = table[1:]
                 tables.append({
                     "page": page_index + 1,
@@ -48,9 +70,11 @@ def extract_pdf(file_path: str, image_output_dir: str = "extracted_images") -> E
                     ]
                 })
 
-    result.text = "\n".join(text_parts).strip()
+    raw_text = "\n".join(text_parts).strip()
+    result.text = _PUA_RE.sub("", raw_text)
     result.tables = tables
     result.images = image_paths
-    result.metadata = {"pages": len(fitz.open(file_path)), "source": str(path)}
+    result.metadata = {"pages": page_count, "source": str(path)}
 
     return result
+
