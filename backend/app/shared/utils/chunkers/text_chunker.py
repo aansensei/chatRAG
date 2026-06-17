@@ -52,26 +52,41 @@ def _split_into_sections(text: str) -> list[tuple[str | None, str]]:
     return sections
 
 
-def _sliding_window(
-    text: str, max_tokens: int, overlap_tokens: int
-) -> list[str]:
+def _split_by_paragraph(text: str, max_tokens: int) -> list[str]:
     """
-    Split a single long text into overlapping token windows.
-    Works at the word level — avoids splitting mid-word.
+    Greedily accumulate paragraphs until adding the next one would exceed max_tokens.
+    Falls back to word-level splitting only when a single paragraph is already over the limit.
+    This ensures chunks never break mid-paragraph.
     """
-    words = text.split()
-    # convert token limits to word counts (same 4-char heuristic)
-    words_per_chunk = max(1, max_tokens * 4 // 5)
-    overlap_words = max(0, overlap_tokens * 4 // 5)
-
+    paragraphs = [p.strip() for p in re.split(r"\n\n+", text) if p.strip()]
     chunks = []
-    start = 0
-    while start < len(words):
-        end = min(start + words_per_chunk, len(words))
-        chunks.append(" ".join(words[start:end]))
-        if end == len(words):
-            break
-        start = end - overlap_words
+    current_parts: list[str] = []
+    current_tokens = 0
+
+    for para in paragraphs:
+        para_tokens = _estimate_tokens(para)
+
+        if para_tokens > max_tokens:
+            # flush whatever we have accumulated first
+            if current_parts:
+                chunks.append("\n\n".join(current_parts))
+                current_parts = []
+                current_tokens = 0
+            # paragraph alone exceeds limit — split at word level as last resort
+            words = para.split()
+            words_per_chunk = max(1, max_tokens * 4 // 5)
+            for i in range(0, len(words), words_per_chunk):
+                chunks.append(" ".join(words[i: i + words_per_chunk]))
+        elif current_tokens + para_tokens > max_tokens:
+            chunks.append("\n\n".join(current_parts))
+            current_parts = [para]
+            current_tokens = para_tokens
+        else:
+            current_parts.append(para)
+            current_tokens += para_tokens
+
+    if current_parts:
+        chunks.append("\n\n".join(current_parts))
 
     return chunks
 
@@ -94,8 +109,8 @@ def chunk_text(
         if _estimate_tokens(body) <= config.max_tokens:
             raw_chunks.append((section_title, body))
         else:
-            for window in _sliding_window(body, config.max_tokens, config.overlap_tokens):
-                raw_chunks.append((section_title, window))
+            for part in _split_by_paragraph(body, config.max_tokens):
+                raw_chunks.append((section_title, part))
 
     return [
         Chunk(

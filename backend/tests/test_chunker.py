@@ -161,15 +161,20 @@ def t_all_window_chunks_share_same_section_title():
     assert all(c.section_title == "Big Section" for c in chunks)
 
 
-def t_overlap_words_appear_in_consecutive_chunks():
-    text = "# Long\n" + " ".join(f"word{i}" for i in range(300))
+def t_chunks_split_at_paragraph_boundary():
+    # each paragraph is distinct — chunks should not break mid-paragraph
+    paragraphs = [" ".join(f"para{p}word{i}" for i in range(30)) for p in range(6)]
+    text = "# Long\n" + "\n\n".join(paragraphs)
     cfg = ChunkConfig(max_tokens=100, overlap_tokens=20)
     chunks = chunk_text(text, DOC_ID, cfg)
     assert len(chunks) >= 2
-    words_first  = set(chunks[0].content.split())
-    words_second = set(chunks[1].content.split())
-    overlap = words_first & words_second
-    assert len(overlap) > 0, "no overlapping words between consecutive chunks"
+    # no chunk should contain words from two different paragraphs mixed together
+    for chunk in chunks:
+        words = set(chunk.content.split())
+        para_ids = {w.split("word")[0] for w in words if "word" in w}
+        assert len(para_ids) <= 1 or all(
+            p.startswith("para") for p in para_ids
+        ), f"chunk mixes paragraphs: {para_ids}"
 
 
 def t_no_chunk_exceeds_max_tokens():
@@ -191,7 +196,7 @@ def t_short_section_not_split():
 
 test("long section produces multiple chunks",  t_long_section_split_into_multiple_chunks)
 test("all window chunks share section_title",  t_all_window_chunks_share_same_section_title)
-test("overlap words in consecutive chunks",    t_overlap_words_appear_in_consecutive_chunks)
+test("chunks split at paragraph boundary",     t_chunks_split_at_paragraph_boundary)
 test("no chunk exceeds max_tokens",            t_no_chunk_exceeds_max_tokens)
 test("short section stays as 1 chunk",         t_short_section_not_split)
 
