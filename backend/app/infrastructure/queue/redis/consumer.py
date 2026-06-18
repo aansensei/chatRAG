@@ -22,7 +22,7 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 def _get_redis() -> redis.Redis:
-    return redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+    return redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True, protocol=2)
 
 
 def consume(queue_name: str, handler: Callable[[dict], None], block_timeout: int = 5) -> None:
