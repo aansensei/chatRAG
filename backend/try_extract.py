@@ -1,10 +1,11 @@
 """
-Manual test: extract a real file and print the result.
+Manual test: extract a real file, print and save results to test_results/.
 Usage: python try_extract.py <file_path>
 """
 import sys
 import json
 from pathlib import Path
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -17,6 +18,7 @@ if len(sys.argv) < 2:
     sys.exit(1)
 
 file_path = sys.argv[1]
+file_stem = Path(file_path).stem
 
 print(f"\nFile   : {file_path}")
 print(f"{'='*60}")
@@ -48,3 +50,33 @@ chunks = chunk_text(result.text, uuid4(), ChunkConfig(max_tokens=500, overlap_to
 print(f"Total chunks: {len(chunks)}")
 for c in chunks:
     print(f"  [{c.chunk_index}] title={c.section_title!r:30} tokens={c.token_count:4} | {c.content[:60]!r}")
+
+# save results to test_results/
+out_dir = Path("test_results")
+out_dir.mkdir(exist_ok=True)
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+out_file = out_dir / f"{file_stem}_{timestamp}.json"
+
+out_dir.mkdir(exist_ok=True)
+out_file.write_text(
+    json.dumps({
+        "file": file_path,
+        "meta": result.metadata,
+        "text_length": len(result.text),
+        "tables_count": len(result.tables),
+        "images_count": len(result.images),
+        "text_preview": result.text[:2000],
+        "tables": result.tables,
+        "chunks": [
+            {
+                "index": c.chunk_index,
+                "section_title": c.section_title,
+                "tokens": c.token_count,
+                "content": c.content,
+            }
+            for c in chunks
+        ],
+    }, ensure_ascii=False, indent=2, default=str),
+    encoding="utf-8",
+)
+print(f"\nResults saved to: {out_file}")

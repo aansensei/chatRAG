@@ -66,6 +66,8 @@ coverage.xml
 .tox/
 nosetests.xml
 test-results/
+test_results/
+extracted_images/
 
 # IDE & Editors
 .vscode/
