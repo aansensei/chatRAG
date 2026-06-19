@@ -4,18 +4,36 @@ from uuid import UUID
 from app.domain.entities.chunk import Chunk
 from .base import ChunkConfig
 
-# Three heading forms (all printable ASCII only — excludes unicode math symbols):
-# 1. Markdown: # / ## / ###
-# 2. Document section prefix: Chapter / Unit / Section / Part followed by number
-# 3. ALL-CAPS line: letters, digits, spaces and :&()- only, min 6 chars
-_HEADING_RE = re.compile(
-    r"^("
-    r"#{1,3}\s+[ -~]+"
-    r"|(?:Chapter|Unit|Section|Part)\s+[\w&]+[ -~]{0,80}"
-    r"|[A-Z][A-Z0-9 :&()-]{5,59}"
-    r")$",
-    re.MULTILINE,
+_MARKDOWN_HEADING_RE = re.compile(r"^#{1,3}\s+\S")
+# Capitalized prefix only — avoids false positives like "phần giả định..."
+_SECTION_PREFIX_RE = re.compile(
+    r"^(?:Chapter|Unit|Section|Part|Chương|Phần|Mục)\s+[\w&]"
 )
+
+
+def _is_heading(line: str) -> bool:
+    """
+    Detect a heading line.
+    Covers: Markdown (#/##/###), English/Vietnamese section prefixes,
+    and ALL-CAPS lines in any language (including Vietnamese accented uppercase).
+    Requires at least one space to avoid mistaking short IDs (CK-FIXED-01) for headings.
+    """
+    s = line.strip()
+    if not s:
+        return False
+    if _MARKDOWN_HEADING_RE.match(s):
+        return True
+    if _SECTION_PREFIX_RE.match(s):
+        return True
+    # ALL-CAPS check: works for both ASCII and Unicode (Vietnamese, etc.)
+    # Require: 6-80 chars, at least one space (2+ words), mostly alphabetic, all uppercase
+    letters = [c for c in s if c.isalpha()]
+    return (
+        6 <= len(s) <= 80
+        and " " in s
+        and len(letters) >= 4
+        and s.isupper()
+    )
 
 
 def _estimate_tokens(text: str) -> int:
@@ -29,22 +47,28 @@ def _split_into_sections(text: str) -> list[tuple[str | None, str]]:
     Returns list of (section_title, section_body) pairs.
     Paragraphs before the first heading get title=None.
     """
-    matches = list(_HEADING_RE.finditer(text))
+    lines = text.splitlines(keepends=True)
+    # store (char_pos, title, raw_line_len) so body_start uses the actual line length
+    heading_positions: list[tuple[int, str, int]] = []
+    pos = 0
+    for line in lines:
+        stripped = line.rstrip("\n\r")
+        if _is_heading(stripped):
+            heading_positions.append((pos, stripped.lstrip("#").strip(), len(line)))
+        pos += len(line)
 
-    if not matches:
+    if not heading_positions:
         return [(None, text.strip())]
 
     sections = []
 
-    # text before first heading
-    preamble = text[: matches[0].start()].strip()
+    preamble = text[: heading_positions[0][0]].strip()
     if preamble:
         sections.append((None, preamble))
 
-    for i, match in enumerate(matches):
-        title = match.group(0).lstrip("#").strip()
-        body_start = match.end()
-        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+    for i, (start, title, line_len) in enumerate(heading_positions):
+        body_start = start + line_len
+        body_end = heading_positions[i + 1][0] if i + 1 < len(heading_positions) else len(text)
         body = text[body_start:body_end].strip()
         if body:
             sections.append((title, body))
