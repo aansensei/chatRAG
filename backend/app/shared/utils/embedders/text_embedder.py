@@ -12,6 +12,10 @@ def _get_model(model_name: str) -> SentenceTransformer:
     return _MODEL_CACHE[model_name]
 
 
+def embed_text(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[float]:
+    return _get_model(model_name).encode(text).tolist()
+
+
 def embed_chunks(
     chunks: list[Chunk],
     model_name: str = "all-MiniLM-L6-v2",
