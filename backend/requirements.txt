@@ -30,6 +30,7 @@ passlib[bcrypt]>=1.7
 
 # Vector store
 qdrant-client>=1.9
+supabase>=2.0
 
 # Config / Utils
 python-dotenv>=1.0
