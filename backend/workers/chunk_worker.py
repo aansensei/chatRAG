@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from dotenv import load_dotenv; load_dotenv()
 
 from app.infrastructure.queue.redis.consumer import consume
 from app.infrastructure.queue.redis.publisher import publish, set_job_status
@@ -44,6 +45,7 @@ def handle(message: dict) -> None:
             "document_id": document_id,
             "chunks": [c.model_dump(mode="json") for c in chunks],
             "source_metadata": message.get("metadata", {}),
+            "collection": message.get("collection", "default"),
         })
 
     except Exception as exc:

@@ -108,3 +108,8 @@ model_cache/
 *.temp
 .cache/
 tmp/
+
+# Test PDFs & generators (junk)
+*.pdf
+gen_aanjsc_pdf.py
+gen_test_pdf.py

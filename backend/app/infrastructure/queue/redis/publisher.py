@@ -12,7 +12,13 @@ def publish(queue_name: str, message: dict) -> None:
     _get_redis().rpush(queue_name, json.dumps(message, default=str))
 
 
-def set_job_status(job_id: str, status: str, step: str | None = None, error: str | None = None) -> None:
+def set_job_status(
+    job_id: str,
+    status: str,
+    step: str | None = None,
+    error: str | None = None,
+    progress: int | None = None,
+) -> None:
     r = _get_redis()
     key = f"job:{job_id}"
     r.hset(key, "status", status)
@@ -20,6 +26,8 @@ def set_job_status(job_id: str, status: str, step: str | None = None, error: str
         r.hset(key, "step", step)
     if error is not None:
         r.hset(key, "error", error)
+    if progress is not None:
+        r.hset(key, "progress", str(progress))
 
 
 def get_job_status(job_id: str) -> dict:

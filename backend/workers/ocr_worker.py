@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from dotenv import load_dotenv; load_dotenv()
 
 from app.infrastructure.queue.redis.consumer import consume
 from app.infrastructure.queue.redis.publisher import publish, set_job_status
@@ -30,25 +31,38 @@ def handle(message: dict) -> None:
     languages = message.get("languages", ["en", "vi"])
 
     logger.info(f"job={job_id} file={file_path}")
-    set_job_status(job_id, status="extracting", step="ocr")
+    set_job_status(job_id, status="extracting", step="ocr", progress=5)
 
     try:
         from app.shared.utils.extractors.ocr_extractor import extract_ocr_image, extract_ocr_pdf
+        from app.shared.utils.extractors.office_extractor import extract_docx, extract_xlsx
+
+        def on_page(done: int, total: int) -> None:
+            pct = 5 + int(done / total * 45)
+            set_job_status(job_id, status="extracting", progress=pct)
 
         ext = Path(file_path).suffix.lower()
         if ext == ".pdf":
-            result = extract_ocr_pdf(file_path, languages)
+            result = extract_ocr_pdf(file_path, languages, on_page_done=on_page)
+        elif ext == ".docx":
+            result = extract_docx(file_path)
+        elif ext == ".xlsx":
+            result = extract_xlsx(file_path)
         else:
             result = extract_ocr_image(file_path, languages)
 
         logger.info(f"job={job_id} extracted {len(result.text)} chars")
-        set_job_status(job_id, status="chunking", step="chunk")
+        set_job_status(job_id, status="chunking", step="chunk", progress=50)
+
+        original_filename = message.get("original_filename") or Path(file_path).name
+        metadata = {**(result.metadata or {}), "source": original_filename}
 
         publish(QUEUE_OUT, {
             "job_id": job_id,
             "document_id": document_id,
             "text": result.text,
-            "metadata": result.metadata,
+            "metadata": metadata,
+            "collection": message.get("collection", "default"),
         })
 
     except Exception as exc:

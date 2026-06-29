@@ -29,12 +29,19 @@ def consume(queue_name: str, handler: Callable[[dict], None], block_timeout: int
     r = _get_redis()
     logger.info(f"Listening on {queue_name}")
     while _running:
-        result = r.blpop(queue_name, timeout=block_timeout)
-        if result is None:
-            continue
-        _, raw = result
         try:
-            message = json.loads(raw)
-            handler(message)
+            result = r.blpop(queue_name, timeout=block_timeout)
+            if result is None:
+                continue
+            _, raw = result
+            try:
+                message = json.loads(raw)
+                handler(message)
+            except Exception:
+                logger.exception(f"Handler error for message: {raw[:200]}")
+        except (redis.exceptions.TimeoutError, redis.exceptions.ConnectionError):
+            pass
         except Exception:
-            logger.exception(f"Handler error for message: {raw[:200]}")
+            logger.exception("Unexpected error in consumer loop")
+            import time
+            time.sleep(1)
