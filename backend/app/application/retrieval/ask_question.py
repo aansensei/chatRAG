@@ -30,35 +30,46 @@ except Exception:
         return None
 
 
-_MEM_PATS_FULL = [
+_MEM_PERSONAL_PATS = [
     re.compile(r"\b(?:tôi\s+tên|tên\s+(?:tôi|mình)\s+là|mình\s+tên|i'?m\s+called|my\s+name\s+is)\s+([^.,\n!?]{2,60})", re.IGNORECASE),
     re.compile(r"\b(?:tôi\s+là|mình\s+là|i\s+am\s+a|i'?m\s+a|i\s+work\s+as)\s+([^.,\n!?]{3,80})", re.IGNORECASE),
     re.compile(r"\b(?:tôi\s+(?:thích|ưa|ghét|không\s+thích)|i\s+prefer|i\s+like|i\s+hate)\s+([^.,\n!?]{3,100})", re.IGNORECASE),
     re.compile(r"\b(?:tôi\s+(?:làm|đang\s+làm\s+tại|sống\s+ở|ở)|i\s+work\s+at|i\s+live\s+in)\s+([^.,\n!?]{2,80})", re.IGNORECASE),
-    # "từ nay / từ giờ / from now on" — instruction-type preferences
-    re.compile(r"\b(?:từ\s+nay(?:\s+trở\s+về\s+sau)?|từ\s+giờ(?:\s+trở\s+đi)?|from\s+now\s+on)\b(.{8,200}?)(?:\s+(?:nha|nhé|nhe|ok|okay))?$", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\b(?:hãy\s+nhớ\s+(?:là\s+|rằng\s+)?|nhớ\s+(?:giúp\s+(?:tôi\s+|mình\s+)?)?(?:là\s+|rằng\s+)?|remember\s+(?:that\s+)?|please\s+remember\s+)([^.\n!?]{5,200})", re.IGNORECASE),
 ]
 
-_MEM_PATS_CAPTURE = [
-    re.compile(r"\b(?:hãy\s+nhớ\s+(?:là\s+|rằng\s+)?|nhớ\s+(?:giúp\s+(?:tôi\s+|mình\s+)?)?(?:là\s+|rằng\s+)?|remember\s+(?:that\s+)?|please\s+remember\s+)([^.\n!?]{5,200})", re.IGNORECASE),
-    # "X nhé/nha" where X is a clear instruction (contains ưu tiên / luôn / hãy / always)
-    re.compile(r"((?:ưu\s+tiên|luôn\s+luôn|luôn|hãy\s+luôn|always|prioritize)[^.\n!?]{5,180})\s+(?:nha|nhé|nhe)\s*[.!]*$", re.IGNORECASE | re.MULTILINE),
-]
+_INSTRUCTION_TRIGGER = re.compile(
+    r'\b(?:từ\s+nay|từ\s+giờ|from\s+now\s+on|kể\s+từ\s+nay|starting\s+now)\b',
+    re.IGNORECASE
+)
+_PREFERENCE_SIGNAL = re.compile(
+    r'\b(?:ưu\s+tiên|luôn\s+(?:luôn\s+)?|hãy\s+luôn|always\s+(?:respond|answer|reply|use)|prioritize)\b',
+    re.IGNORECASE
+)
+_SOFT_ENDING = re.compile(
+    r'(?:nha|nhé|nhe|nhớ\s+nha|nhớ\s+nhé)\s*[.!]*\s*$',
+    re.IGNORECASE
+)
 
 
 def _auto_extract_memory(question: str) -> list[str]:
-    """Extract facts user states about themselves. Returns list of memory strings to save."""
-    if not question or len(question) < 6:
+    """Extract facts and instructions from user messages. Returns list of memory strings."""
+    if not question or len(question) < 8:
         return []
     extracted: list[str] = []
 
-    for pat in _MEM_PATS_FULL:
-        for m in pat.finditer(question):
-            fact = m.group(0).strip().rstrip(".!?,")
-            if "?" not in fact and len(fact) >= 4 and fact not in extracted:
-                extracted.append(fact)
+    # Instruction-type: "từ nay...", "from now on..." OR "ưu tiên/luôn ... nha/nhé"
+    # Save the whole message (no char-limit regex — avoids the {8,200} truncation bug)
+    is_instruction = bool(_INSTRUCTION_TRIGGER.search(question))
+    is_preference_soft = bool(_PREFERENCE_SIGNAL.search(question)) and bool(_SOFT_ENDING.search(question))
 
-    for pat in _MEM_PATS_CAPTURE:
+    if is_instruction or is_preference_soft:
+        content = question.strip()[:400].rstrip(".!?,")
+        if len(content) >= 8 and content not in extracted:
+            extracted.append(content)
+
+    # Personal facts: name, role, preference sentences
+    for pat in _MEM_PERSONAL_PATS:
         for m in pat.finditer(question):
             fact = m.group(1).strip().rstrip(".!?,")
             if "?" not in fact and len(fact) >= 4 and fact not in extracted:
