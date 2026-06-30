@@ -1352,10 +1352,10 @@ const GEMINI_MODELS = [
 ];
 
 const OPENROUTER_MODELS = [
-  { id: "meta-llama/llama-3.1-8b-instruct:free",  label: "Llama 3.1 8B",   note: "Free" },
-  { id: "meta-llama/llama-3.3-70b-instruct:free",  label: "Llama 3.3 70B",  note: "Free" },
-  { id: "deepseek/deepseek-r1:free",               label: "DeepSeek R1",     note: "Free" },
-  { id: "microsoft/phi-4-reasoning:free",          label: "Phi-4 Reasoning", note: "Free" },
+  { id: "meta-llama/llama-3.1-8b-instruct:free",  label: "Llama 3.1 8B",  note: "Free" },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B", note: "Free" },
+  { id: "deepseek/deepseek-r1:free",              label: "DeepSeek R1",    note: "Free" },
+  { id: "google/gemma-3-27b-it:free",             label: "Gemma 3 27B",    note: "Free" },
 ];
 
 const LOCAL_MODELS = [
@@ -1722,6 +1722,7 @@ export default function App() {
       "gemini-1.5-flash": "gemini-2.0-flash",
       "gemini-1.5-pro": "gemini-2.0-flash",
       "qwen/qwen-2.5-72b-instruct:free": "meta-llama/llama-3.3-70b-instruct:free",
+      "microsoft/phi-4-reasoning:free": "google/gemma-3-27b-it:free",
     };
     if (decommissioned[stored]) {
       localStorage.setItem("chatrag_model", decommissioned[stored]);
