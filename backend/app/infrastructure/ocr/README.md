@@ -1,7 +1,5 @@
-## infrastructure/ocr
+# infrastructure/ocr
 
-OCR implementations for scanned documents. Pluggable — add another implementation (Tesseract, ...) by creating a new subfolder that satisfies the same interface.
+OCR engine wrapper.
 
-### Subdirectories
-
-`paddleocr/` - OCR via PaddleOCR, handles Vietnamese text well
+**Not implemented as a layer.** PaddleOCR is wrapped in `app/shared/utils/extractors/ocr_extractor.py`.

@@ -1,7 +1,5 @@
-## infrastructure/ocr/paddleocr
+# infrastructure/ocr/paddleocr
 
-PaddleOCR implementation.
+PaddleOCR-specific config.
 
-### Files
-
-`ocr.py` - receives an image path (or bytes), runs PaddleOCR, returns the extracted text. Called by `workers/ocr_worker.py` on each scanned page.
+**Not implemented as a layer.** Initialization is inlined in `extract_ocr_image` / `extract_ocr_pdf` inside `shared/utils/extractors/ocr_extractor.py`.

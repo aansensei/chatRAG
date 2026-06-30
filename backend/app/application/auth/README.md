@@ -1,7 +1,5 @@
-## application/auth
+# application/auth
 
-Authentication use cases.
+Login / JWT issuance use cases.
 
-### Files
-
-`login.py` - validates credentials (email + password), returns a JWT access token and refresh token on success.
+**Not implemented.** Auth is API-key only today; see `presentation/api/auth/README.md`.

@@ -41,13 +41,16 @@ def handle(message: dict) -> None:
             pct = 5 + int(done / total * 45)
             set_job_status(job_id, status="extracting", progress=pct)
 
+        from app.shared.utils.extractors.office_extractor import extract_csv
         ext = Path(file_path).suffix.lower()
         if ext == ".pdf":
             result = extract_ocr_pdf(file_path, languages, on_page_done=on_page)
         elif ext == ".docx":
             result = extract_docx(file_path)
-        elif ext == ".xlsx":
+        elif ext in (".xlsx",):
             result = extract_xlsx(file_path)
+        elif ext == ".csv":
+            result = extract_csv(file_path)
         else:
             result = extract_ocr_image(file_path, languages)
 
@@ -55,7 +58,7 @@ def handle(message: dict) -> None:
         set_job_status(job_id, status="chunking", step="chunk", progress=50)
 
         original_filename = message.get("original_filename") or Path(file_path).name
-        metadata = {**(result.metadata or {}), "source": original_filename}
+        metadata = {**(result.metadata or {}), "source": original_filename, "file_path": file_path}
 
         publish(QUEUE_OUT, {
             "job_id": job_id,

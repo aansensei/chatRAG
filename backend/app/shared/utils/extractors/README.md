@@ -1,17 +1,46 @@
-## shared/utils/extractors
+# shared/utils/extractors
 
-File content extractors. All calls go through `dispatcher.py` — the caller doesn't need to know the file type, just passes a path and gets back an `ExtractResult`.
+Text extractors for every supported file type. Workers call these directly
+(no dispatcher — the worker switches on `Path(file_path).suffix`).
 
-### Files
+---
 
-`base.py` - `ExtractResult` dataclass: unified output format with `text`, `tables` (list of dicts), `images` (list of file paths), `metadata`.
+## Files
 
-`dispatcher.py` - single entry point. Routes by file extension to the correct extractor. Raises `ValueError` for unsupported types.
+| File | Handles | Notes |
+|---|---|---|
+| `base.py` | `ExtractResult` dataclass | Common output: `text`, `metadata`, `tables`, `images` |
+| `dispatcher.py` | dispatcher (legacy) | Not used by `ocr_worker.py` — it dispatches inline |
+| `pdf_extractor.py` | `.pdf` text layer | Falls back to OCR via `ocr_extractor` if needed |
+| `ocr_extractor.py` | `.png` `.jpg` `.jpeg` `.tiff` `.bmp`, and image-only PDFs | PaddleOCR. Supports per-page progress callback. |
+| `docx_extractor.py` | `.docx` | python-docx — paragraphs + tables joined with `  \|  ` |
+| `office_extractor.py` | `.docx` `.xlsx` `.csv` | Newer entry. `extract_docx`, `extract_xlsx`, `extract_csv` |
+| `xlsx_extractor.py` | `.xlsx` (legacy) | Now lives in `office_extractor.py` |
+| `pptx_extractor.py` | `.pptx` | python-pptx — text frames + tables + image refs |
 
-`pdf_extractor.py` - pymupdf for text and images, pdfplumber for tables (more accurate than pymupdf for complex table layouts).
+---
 
-`docx_extractor.py` - python-docx for text and tables, zipfile to extract embedded images (a docx file is essentially a zip archive).
+## `ExtractResult`
 
-`xlsx_extractor.py` - openpyxl reads each sheet; each sheet becomes a table dict and a flat text string for embedding. Empty sheets are skipped.
+```python
+class ExtractResult:
+    text: str               # concatenated for embedding
+    metadata: dict          # at minimum {"source": <filename>, "pages": N}
+    tables: list[dict]      # optional, structured table data
+    images: list[str]       # optional, extracted image paths
+```
 
-`pptx_extractor.py` - python-pptx reads each slide, extracting text frames, tables, and images. Text is prefixed with `[Slide N]` to retain positional context after chunking.
+---
+
+## CSV multi-encoding
+
+`extract_csv` tries these encodings in order until one succeeds:
+
+```
+utf-8-sig -> utf-8 -> cp1258 -> cp1252 -> latin-1
+```
+
+This handles Windows Excel exports (often cp1258 for Vietnamese) cleanly.
+Cells are joined with `  |  ` so the chunker keeps rows intact and the
+retrieval pipeline's tabular detector treats them as structured data
+(skips the LLM relevance filter to preserve numbers).

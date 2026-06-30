@@ -1,9 +1,5 @@
-## application/ingestion
+# application/ingestion
 
-Use cases that orchestrate the ingestion pipeline.
+Orchestrate the upload pipeline.
 
-### Files
-
-`start_ingestion.py` - creates a new IngestJob for a document and publishes the `DocumentUploaded` event to kick off the pipeline. This is the first trigger point.
-
-`retry_job.py` - retries an IngestJob in FAILED state. Resets to the step before the failure rather than restarting from scratch.
+**Not implemented as use cases.** Pipeline lives directly in `workers/{ocr,chunk,embedding}_worker.py`, triggered by `POST /ingest/upload`.

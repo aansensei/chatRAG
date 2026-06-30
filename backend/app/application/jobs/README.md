@@ -1,7 +1,5 @@
-## application/jobs
+# application/jobs
 
-Use cases for ingest job management.
+Track ingest job status.
 
-### Files
-
-`get_job_status.py` - fetches an IngestJob by id and returns its status and progress (embedded_chunks / total_chunks). Used by the frontend to poll upload progress.
+**Not implemented as use cases.** Job state is a Redis hash written by `infrastructure/queue/redis/publisher.set_job_status`; read by `GET /ingest/jobs/{id}`.

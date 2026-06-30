@@ -19,6 +19,7 @@ _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
 from app.presentation.api.chat import router as chat_router
 from app.presentation.api.ingest import router as ingest_router
+from app.presentation.api.memory import router as memory_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("chatrag")
@@ -84,6 +85,7 @@ app.add_middleware(
 
 app.include_router(chat_router)
 app.include_router(ingest_router)
+app.include_router(memory_router)
 
 
 @app.get("/")

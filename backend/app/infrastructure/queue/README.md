@@ -1,11 +1,11 @@
-## infrastructure/queue
+# infrastructure/queue
 
-Message queue implementations. Kafka for production (high throughput, persistent), Redis Streams for local dev (simple, no Kafka cluster required).
+Message queue backends. Only Redis is implemented today.
 
-Both implement the same interface from `domain/repositories/queue_repo.py`, so swapping only requires changing the DI binding.
+| Dir | Status |
+|---|---|
+| `redis/` | **Active** — `RPUSH` + `BLPOP` lists, no streams |
+| `kafka/` | Empty placeholder |
 
-### Subdirectories
-
-`kafka/` - Kafka producer and consumer
-
-`redis/` - Redis Streams producer and consumer
+The `redis/` module is used by the FastAPI app (publisher) and all three
+workers (consumer + status updates).

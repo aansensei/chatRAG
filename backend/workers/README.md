@@ -1,21 +1,63 @@
-## workers
+# workers
 
-Long-running background processes. Each worker handles one stage of the ingestion pipeline and runs independently alongside the API server.
+Long-running background processes that handle the document ingestion pipeline.
+Each worker reads from a Redis queue (`BLPOP`) and pushes the next stage onto
+the next queue.
 
-Each worker receives a message from the queue (Kafka or Redis), processes it, and publishes the next message. A worker crash does not affect other workers.
+`main.py` spawns all three as subprocesses on FastAPI startup and restarts
+them via a watchdog thread if they crash.
 
-### Files
+---
 
-`ingestion_worker.py` - orchestrator worker that drives the full pipeline for a document: receives an upload request, calls the other workers in sequence, updates IngestJob status at each step.
+## Pipeline
 
-`ocr_worker.py` - receives a scanned page image, runs PaddleOCR, returns the extracted text. Uses GPU if available.
+```
+POST /ingest/upload
+    |
+    | publish queue:ocr
+    v
+ocr_worker.py          extract text (PDF/OCR/DOCX/XLSX/CSV/image)
+    | publish queue:chunk
+    v
+chunk_worker.py        paragraph-aware split into chunks
+    | publish queue:embed
+    v
+embedding_worker.py    embed each chunk -> Supabase upsert
+```
 
-`chunk_worker.py` - receives raw text, splits it into chunks using a configured strategy (sentence, paragraph, or token-based). Creates Chunk entities and saves them to the DB.
+Job progress is tracked in Redis (`job:{id}` hash) via `set_job_status`
+so the frontend can poll `GET /ingest/jobs/{id}`.
 
-`embedding_worker.py` - receives a list of chunks, runs the embedding model, returns vectors. Batch-processes chunks to maximize throughput.
+---
 
-`vector_worker.py` - receives embeddings, upserts them into the Qdrant collection. Operation is idempotent — safe to upsert if a chunk already exists.
+## Files
 
-`classify_worker.py` - receives extracted text, runs the sensitivity classifier, updates Document.sensitivity, and triggers a review if needed.
+| Worker | Reads | Writes | Notes |
+|---|---|---|---|
+| `ocr_worker.py` | `queue:ocr` | `queue:chunk` | Routes by extension: PDF -> OCR, DOCX -> python-docx, XLSX -> openpyxl, CSV -> multi-encoding csv, image -> PaddleOCR |
+| `chunk_worker.py` | `queue:chunk` | `queue:embed` | Paragraph-aware splitter (`app/shared/utils/chunkers`) |
+| `embedding_worker.py` | `queue:embed` | Supabase `chunks` table | Uses `multilingual-e5-base` via sentence-transformers |
 
-`review_worker.py` - receives a review decision (approve/reject) and updates the Document status accordingly.
+---
+
+## Running manually
+
+Workers auto-start when `uvicorn main:app` runs. To run independently:
+
+```bash
+python -m workers.ocr_worker
+python -m workers.chunk_worker
+python -m workers.embedding_worker
+```
+
+Stop uvicorn cleanly (Ctrl+C, not kill -9) so the lifespan shutdown can
+terminate the child workers. Force-killing uvicorn leaves orphan workers
+holding the Redis BLPOP connection.
+
+---
+
+## CSV encoding
+
+`extract_csv` in `office_extractor.py` tries encodings in this order:
+`utf-8-sig` -> `utf-8` -> `cp1258` -> `cp1252` -> `latin-1`.
+This handles Windows Excel exports that often use cp1258 for Vietnamese.

@@ -1,9 +1,5 @@
-## infrastructure/database
+# infrastructure/database
 
-All database infrastructure. Currently using PostgreSQL via Supabase. Alembic manages schema migrations.
+Relational DB adapter.
 
-### Subdirectories
-
-`migrations/` - Alembic migration scripts, generated with `alembic revision --autogenerate`
-
-`postgres/` - SQLAlchemy engine, session factory, ORM models, and repository implementations
+**Not implemented.** Supabase is the database — accessed via REST in `infrastructure/vector/supabase/repository.py`, no SQLAlchemy.

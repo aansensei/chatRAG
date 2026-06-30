@@ -1,5 +1,5 @@
-## presentation/api/metrics
+# presentation/api/metrics
 
-Prometheus metrics exposure.
+Prometheus metrics.
 
-Planned: `GET /metrics` returns Prometheus text format. Grafana scrapes this endpoint on a configured interval. Custom metrics are defined in `monitoring/metrics.py`.
+**Not implemented.** Will expose `/metrics` for scraping.

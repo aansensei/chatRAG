@@ -1,5 +1,23 @@
+import csv
 from pathlib import Path
 from .base import ExtractResult
+
+
+def extract_csv(file_path: str) -> ExtractResult:
+    rows = []
+    for enc in ("utf-8-sig", "utf-8", "cp1258", "cp1252", "latin-1"):
+        try:
+            with open(file_path, newline="", encoding=enc) as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    rows.append("  |  ".join(cell.strip() for cell in row))
+            break
+        except (UnicodeDecodeError, Exception):
+            rows = []
+    result = ExtractResult()
+    result.text = "\n".join(rows)
+    result.metadata = {"source": str(Path(file_path).name), "pages": 1}
+    return result
 
 
 def extract_docx(file_path: str) -> ExtractResult:

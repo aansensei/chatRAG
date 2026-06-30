@@ -11,7 +11,7 @@ def _get_client() -> Client:
 
 def list_collections() -> list[dict]:
     client = _get_client()
-    result = client.table("chunks").select("collection, document_id").execute()
+    result = client.table("chunks").select("collection, document_id").limit(10000).execute()
     cols: dict[str, set] = {}
     for row in result.data:
         col = row.get("collection") or "default"
@@ -20,7 +20,7 @@ def list_collections() -> list[dict]:
             cols[col] = set()
         if doc_id:
             cols[col].add(doc_id)
-    return [{"name": k, "doc_count": len(v)} for k, v in sorted(cols.items())]
+    return [{"name": k, "doc_count": len(v)} for k, v in sorted(cols.items()) if k != "default"]
 
 
 def rename_collection(old_name: str, new_name: str) -> None:
@@ -36,7 +36,8 @@ def move_document_collection(document_id: str, new_collection: str) -> None:
 
 
 def list_documents(collections: list[str] | None = None) -> list[dict]:
-    q = _get_client().table("chunks").select("document_id, metadata, chunk_index, collection").order("chunk_index")
+    from pathlib import Path as _P
+    q = _get_client().table("chunks").select("document_id, metadata, chunk_index, collection").order("chunk_index").limit(10000)
     if collections:
         q = q.in_("collection", collections)
     result = q.execute()
@@ -45,9 +46,13 @@ def list_documents(collections: list[str] | None = None) -> list[dict]:
         doc_id = row["document_id"]
         if doc_id not in seen:
             meta = row.get("metadata") or {}
+            fp = meta.get("file_path") or ""
+            has_file = bool(fp) and _P(fp).exists()
             seen[doc_id] = {
                 "document_id": doc_id,
                 "source": meta.get("source", ""),
+                "file_path": fp,
+                "has_file": has_file,
                 "pages": meta.get("pages"),
                 "collection": row.get("collection", "default"),
                 "chunk_count": 0,
@@ -56,8 +61,35 @@ def list_documents(collections: list[str] | None = None) -> list[dict]:
     return list(seen.values())
 
 
+def relink_document_file(document_id: str, new_file_path: str) -> int:
+    """Update metadata.file_path for all chunks of document_id. Returns affected rows."""
+    client = _get_client()
+    rows = client.table("chunks").select("id, metadata").eq("document_id", document_id).execute().data or []
+    if not rows:
+        return 0
+    for r in rows:
+        meta = r.get("metadata") or {}
+        meta["file_path"] = new_file_path
+        client.table("chunks").update({"metadata": meta}).eq("id", r["id"]).execute()
+    return len(rows)
+
+
 def delete_document(document_id: str) -> None:
     _get_client().table("chunks").delete().eq("document_id", document_id).execute()
+
+
+def get_document_file_path(document_id: str) -> str | None:
+    result = (
+        _get_client().table("chunks")
+        .select("metadata")
+        .eq("document_id", document_id)
+        .limit(1)
+        .execute()
+    )
+    if result.data:
+        meta = result.data[0].get("metadata") or {}
+        return meta.get("file_path") or None
+    return None
 
 
 def upsert_chunks(rows: list[dict]) -> None:
@@ -66,6 +98,45 @@ def upsert_chunks(rows: list[dict]) -> None:
       id, document_id, chunk_index, content, section_title, token_count, metadata, embedding
     """
     _get_client().table("chunks").upsert(rows).execute()
+
+
+def filename_search_chunks(
+    name_tokens: list[str],
+    collections: list[str] | None = None,
+) -> list[dict]:
+    """
+    Fetch chunks from documents whose filename (metadata->source) matches a token.
+    Tries tokens from most specific (longest) to least specific (shortest).
+    Stops at the first token that returns results to avoid mixing unrelated docs.
+    E.g. 'Cam7 test 2 writing task 2' is tried before 'Cam7', so only the
+    specific file is returned, not all Cam7 documents.
+    """
+    client = _get_client()
+    for token in sorted(set(name_tokens), key=len, reverse=True):
+        if len(token) < 3:
+            continue
+        q = (
+            client.table("chunks")
+            .select("id, document_id, chunk_index, content, section_title, metadata, collection")
+            .filter("metadata->>source", "ilike", f"%{token}%")
+            .order("chunk_index")
+            .limit(500)
+        )
+        if collections:
+            q = q.in_("collection", collections)
+        rows = q.execute().data or []
+        if not rows:
+            continue
+        results = []
+        seen_ids: set = set()
+        for row in rows:
+            chunk_id = row.get("id")
+            if chunk_id and chunk_id not in seen_ids:
+                row["similarity"] = 0.88
+                results.append(row)
+                seen_ids.add(chunk_id)
+        return results
+    return []
 
 
 def keyword_search_chunks(

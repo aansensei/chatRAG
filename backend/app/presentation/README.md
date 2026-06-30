@@ -1,13 +1,9 @@
-## presentation
+# presentation
 
-HTTP layer. FastAPI routers, middleware, and WebSocket handlers. The only layer that handles HTTP concerns (status codes, request parsing, response serialization).
+HTTP layer. Mounted in `main.py` via `app.include_router`.
 
-This layer calls use cases from the application layer and never imports from infrastructure directly. No business logic here.
-
-### Subdirectories
-
-`api/` - REST API routers grouped by resource
-
-`middleware/` - request middleware (auth, permission, rate limiting)
-
-`websocket/` - WebSocket handlers
+| Folder | Status |
+|---|---|
+| `api/` | **Active** — see `api/README.md` for which routers are live |
+| `middleware/` | Empty (CORS configured directly in `main.py`) |
+| `websocket/` | Empty (chat uses SSE over HTTP, not WS) |

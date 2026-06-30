@@ -1,15 +1,5 @@
-## domain
+# domain
 
-Core business layer. No imports from infrastructure, no I/O, no HTTP. The only part of the codebase that can be tested completely without a database or network connection.
+Pure business rules — entities, value objects, repository interfaces.
 
-Everything else depends on this layer; this layer depends on nothing outside stdlib and pydantic.
-
-### Subdirectories
-
-`entities/` - business objects (Document, Chunk, User, ...)
-
-`enums/` - shared enums used across entities
-
-`events/` - domain events signaling that something happened
-
-`repositories/` - abstract interfaces for data access, implemented in infrastructure
+**No code here yet.** Domain logic is currently inlined in `application/retrieval` and `shared/utils`. When the system grows enough to need shared business invariants, move them here.

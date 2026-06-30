@@ -3,19 +3,21 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.infrastructure.queue.redis.publisher import publish, set_job_status, get_job_status
 from app.infrastructure.vector.supabase.repository import (
     list_documents, delete_document, list_collections,
     rename_collection, delete_collection_docs, move_document_collection,
+    get_document_file_path, relink_document_file,
 )
 from app.presentation.api.auth import get_collections
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 STORAGE_PATH = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage"))
-ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".docx", ".xlsx"}
+ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".docx", ".xlsx", ".csv"}
 
 
 @router.post("/upload")
@@ -99,3 +101,47 @@ def move_document_route(document_id: str, body: MoveDocumentBody):
         raise HTTPException(status_code=400, detail="collection cannot be empty")
     move_document_collection(document_id, body.collection.strip())
     return {"ok": True}
+
+
+_MIME_MAP = {
+    ".pdf": "application/pdf",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".tiff": "image/tiff", ".bmp": "image/bmp", ".gif": "image/gif",
+    ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+_INLINE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp", ".txt", ".csv"}
+
+
+@router.get("/documents/{document_id}/file")
+def serve_document_file(document_id: str):
+    file_path = get_document_file_path(document_id)
+    if not file_path:
+        raise HTTPException(status_code=410, detail="Source file was not preserved on upload — re-upload to enable viewing.")
+    if not Path(file_path).exists():
+        raise HTTPException(status_code=410, detail=f"File missing on disk: {Path(file_path).name}. Re-upload to restore.")
+    p = Path(file_path)
+    ext = p.suffix.lower()
+    media_type = _MIME_MAP.get(ext, "application/octet-stream")
+    disposition = "inline" if ext in _INLINE_EXTS else "attachment"
+    safe_name = p.name.replace('"', '')
+    headers = {"Content-Disposition": f'{disposition}; filename="{safe_name}"'}
+    return FileResponse(path=file_path, filename=safe_name, media_type=media_type, headers=headers)
+
+
+@router.post("/documents/{document_id}/relink")
+async def relink_document(document_id: str, file: UploadFile = File(...)):
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type {ext} not supported")
+    STORAGE_PATH.mkdir(parents=True, exist_ok=True)
+    safe_name = f"relink-{uuid.uuid4()}{ext}"
+    new_path = STORAGE_PATH / safe_name
+    new_path.write_bytes(await file.read())
+    affected = relink_document_file(document_id, str(new_path))
+    if affected == 0:
+        new_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"ok": True, "chunks_updated": affected, "file_path": str(new_path)}

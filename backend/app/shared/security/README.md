@@ -1,5 +1,5 @@
-## shared/security
+# shared/security
 
-Security utilities shared across layers.
+JWT, password hashing.
 
-Planned: `create_access_token()` / `decode_token()` with JWT (python-jose), `hash_password()` / `verify_password()` with bcrypt. No business logic here — pure crypto helpers.
+**Not implemented.** API-key auth only — see `presentation/api/auth/README.md`.

@@ -1,7 +1,5 @@
-## infrastructure/llm
+# infrastructure/llm
 
-LLM client implementations.
+LLM client abstraction.
 
-### Files
-
-`ollama.py` - client for the Ollama local LLM server. Receives a context string and a question, returns a response stream. Called from `application/retrieval/ask_question.py`.
+**Not implemented as a layer.** Ollama + Groq HTTP calls are inlined in `app/application/retrieval/ask_question.py` (`_stream_llm`, `_stream_groq`).

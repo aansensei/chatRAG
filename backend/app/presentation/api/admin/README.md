@@ -1,5 +1,5 @@
-## presentation/api/admin
+# presentation/api/admin
 
-Admin-only routes. All endpoints here require UserRole.ADMIN, enforced in middleware.
+Admin-only endpoints.
 
-Planned: user management (list, deactivate), system stats, re-trigger ingestion jobs, force review bypass.
+**Not implemented.** Will be added with multi-user mode.

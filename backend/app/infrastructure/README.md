@@ -1,25 +1,23 @@
-## infrastructure
+# infrastructure
 
-Concrete implementations of domain repository interfaces. This layer is free to import any third-party library (SQLAlchemy, httpx, boto3, ...). The application layer never imports from here directly.
+Concrete adapters for external systems. Most folders are placeholders —
+the live integrations are inlined where they're used.
 
-All implementations are pluggable: swap Kafka → Redis, Qdrant → Milvus, or local storage → MinIO without touching application logic.
+| Folder | Status | What actually lives there / where |
+|---|---|---|
+| `vector/supabase/` | **Active** | pgvector queries used by retrieval |
+| `queue/redis/` | **Active** | RPUSH/BLPOP wrapper used by /ingest + workers |
+| `vector/qdrant/`, `vector/milvus/` | Empty | scaffolding for future swap |
+| `queue/kafka/` | Empty | scaffolding for future swap |
+| `storage/local/` | Empty (logic is in `presentation/api/ingest`) | files written to `LOCAL_STORAGE_PATH` |
+| `storage/minio/` | Empty | planned for prod |
+| `embedding/` | Empty (logic in `shared/utils/embedders/text_embedder.py`) | |
+| `llm/` | Empty (logic in `application/retrieval/ask_question.py`) | Ollama + Groq calls inlined there |
+| `ocr/` | Empty (logic in `shared/utils/extractors/ocr_extractor.py`) | PaddleOCR |
+| `parser/` | Empty (logic in `shared/utils/extractors/`) | |
+| `classifier/` | Empty | document sensitivity labeling — planned |
+| `database/` | Empty | Supabase is queried directly via REST, no SQLAlchemy |
 
-### Subdirectories
-
-`classifier/` - ML model for assigning sensitivity labels
-
-`database/` - PostgreSQL + Alembic migrations
-
-`embedding/` - embedding model for vectorizing text
-
-`llm/` - LLM client (Ollama)
-
-`ocr/` - OCR engine (PaddleOCR)
-
-`parser/` - document structure parser (Unstructured.io)
-
-`queue/` - message queue (Kafka / Redis Streams)
-
-`storage/` - file storage (local / MinIO)
-
-`vector/` - vector database (Qdrant / Milvus)
+This violates a strict reading of clean architecture (some "infrastructure"
+lives in `shared/utils`), but it keeps the wiring obvious at small scale.
+When a folder gets real code, move logic into it and adjust callers.

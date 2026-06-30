@@ -1,15 +1,11 @@
-## shared
+# shared
 
-Cross-cutting utilities shared across all layers. No business logic here. Does not import from `application`, `domain`, or `infrastructure`.
+Cross-cutting utilities. Only `utils/` has real code today.
 
-### Subdirectories
-
-`config/` - app settings loaded from .env
-
-`exceptions/` - custom exception classes
-
-`logger/` - structured logging setup
-
-`security/` - JWT and password hashing
-
-`utils/` - general-purpose utilities
+| Folder | Status |
+|---|---|
+| `utils/` | **Active** — embedders, extractors, chunkers |
+| `config/` | Empty (env vars read inline via `os.environ`) |
+| `exceptions/` | Empty |
+| `logger/` | Empty (workers use `logging.basicConfig` inline) |
+| `security/` | Empty (no JWT yet — see `presentation/api/auth/README.md`) |

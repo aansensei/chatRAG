@@ -1,21 +1,15 @@
-## presentation/api
+# presentation/api
 
-FastAPI APIRouters grouped by resource. Each subfolder is one router with its own prefix, included in `main.py`.
+FastAPI routers. Mounted in `main.py`.
 
-### Subdirectories
-
-`admin/` - admin-only endpoints (prefix: `/admin`), guarded by UserRole.ADMIN
-
-`auth/` - login, logout, token refresh (prefix: `/auth`)
-
-`chat/` - RAG query endpoint (prefix: `/chat`)
-
-`chunks/` - view chunks for a document, useful for debugging retrieval (prefix: `/chunks`)
-
-`documents/` - upload, list, get, delete documents (prefix: `/documents`)
-
-`jobs/` - ingest job status polling (prefix: `/jobs`)
-
-`metrics/` - Prometheus metrics scraping endpoint (prefix: `/metrics`)
-
-`reviews/` - review queue for sensitive documents (prefix: `/reviews`)
+| Folder | Prefix | Status | Notes |
+|---|---|---|---|
+| `chat/` | `/chat` | **Active** | RAG endpoint + suggestions |
+| `ingest/` | `/ingest` | **Active** | Upload, KB management, file viewer |
+| `auth/` | none | **Active** (utility) | `get_collections` dependency for API-key -> folder list |
+| `admin/` | — | Empty | planned |
+| `chunks/` | — | Empty | planned (debug view of chunks) |
+| `documents/` | — | Empty | replaced by `/ingest/documents` |
+| `jobs/` | — | Empty | replaced by `/ingest/jobs/{id}` |
+| `metrics/` | — | Empty | Prometheus scraping planned |
+| `reviews/` | — | Empty | human-review workflow planned |

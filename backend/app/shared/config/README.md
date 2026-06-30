@@ -1,5 +1,5 @@
-## shared/config
+# shared/config
 
-App configuration. Uses Pydantic Settings to load and validate environment variables from `.env`.
+App settings loaded from .env.
 
-Planned: `settings.py` with a `Settings(BaseSettings)` class containing DB URL, Qdrant host, embedding model path, JWT secret, storage backend, and queue backend. Import from here wherever config is needed.
+**Not implemented.** Env vars are read inline via `os.environ` where needed.

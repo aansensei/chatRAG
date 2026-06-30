@@ -1,13 +1,5 @@
-## infrastructure/database/postgres
+# infrastructure/database/postgres
 
-SQLAlchemy implementation for PostgreSQL.
+PostgreSQL connection + session factory.
 
-### Files
-
-`connection.py` - creates the AsyncEngine and async session factory. Import this as a FastAPI dependency in routes that need a DB session.
-
-### Subdirectories
-
-`models/` - SQLAlchemy ORM models (map to DB tables), distinct from domain entities
-
-`repositories/` - concrete implementations of the repository interfaces from domain
+**Not implemented.** Supabase REST is used instead.

@@ -1,7 +1,5 @@
-## infrastructure/classifier
+# infrastructure/classifier
 
-Sensitivity classification for documents.
+ML model for document sensitivity labels.
 
-### Files
-
-`sensitivity_model.py` - receives extracted text and returns a SensitivityLevel. Can be rule-based (keyword matching) or an ML model. The result is used by the IngestJob to decide whether to trigger a human review.
+**Not implemented.** Planned: auto-tag uploads with `public / internal / restricted` and gate retrieval accordingly.

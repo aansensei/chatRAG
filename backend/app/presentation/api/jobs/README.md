@@ -1,5 +1,5 @@
-## presentation/api/jobs
+# presentation/api/jobs
 
-Ingest job tracking routes.
+Ingest job status.
 
-Planned: `GET /jobs/{job_id}` returns status and progress (embedded_chunks / total_chunks). The frontend polls this endpoint after upload to display a progress bar.
+**Empty.** Replaced by `/ingest/jobs/{id}`.
