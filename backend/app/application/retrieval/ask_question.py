@@ -1067,7 +1067,9 @@ def stream_ask(
         except Exception:
             chunks = []
 
-        if not chunks and not hybrid:
+        has_prior_context = any(h.get("role") == "assistant" for h in (history or []))
+
+        if not chunks and not hybrid and not has_prior_context:
             msg = (
                 "Không tìm thấy thông tin liên quan trong tài liệu."
                 if lang == "vi"
@@ -1077,20 +1079,26 @@ def stream_ask(
             return
 
         sources = []
-        for i, c in enumerate(chunks):
+        _seen_doc_ids: set[str] = set()
+        for c in chunks:
+            doc_id = c.get("document_id", "")
+            if doc_id and doc_id in _seen_doc_ids:
+                continue
+            if doc_id:
+                _seen_doc_ids.add(doc_id)
             meta = c.get("metadata") or {}
             raw_src = meta.get("source", "") if isinstance(meta, dict) else ""
-            filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {i+1}"
+            filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {len(sources)+1}"
             section = (c.get("section_title") or "").strip()
             if section.upper() in _GENERIC_SECTION_TITLES:
                 section = ""
             sources.append({
-                "id": i + 1,
+                "id": len(sources) + 1,
                 "content": c["content"][:200],
                 "section": section or None,
                 "similarity": round(c["similarity"], 3),
                 "filename": filename,
-                "document_id": c.get("document_id", ""),
+                "document_id": doc_id,
             })
 
         yield _sse({"type": "sources", "sources": sources})
@@ -1119,22 +1127,28 @@ def stream_ask(
                 if not filtered:
                     filtered = chunks
 
-            # Rebuild sources to match the final filtered chunks
+            # Rebuild sources — deduplicated by document_id
             sources = []
-            for i, c in enumerate(filtered):
+            _seen_doc_ids_f: set[str] = set()
+            for c in filtered:
+                doc_id = c.get("document_id", "")
+                if doc_id and doc_id in _seen_doc_ids_f:
+                    continue
+                if doc_id:
+                    _seen_doc_ids_f.add(doc_id)
                 meta = c.get("metadata") or {}
                 raw_src = meta.get("source", "") if isinstance(meta, dict) else ""
-                filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {i+1}"
+                filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {len(sources)+1}"
                 section = (c.get("section_title") or "").strip()
                 if section.upper() in _GENERIC_SECTION_TITLES:
                     section = ""
                 sources.append({
-                    "id": i + 1,
+                    "id": len(sources) + 1,
                     "content": c["content"][:200],
                     "section": section or None,
                     "similarity": round(c["similarity"], 3),
                     "filename": filename,
-                    "document_id": c.get("document_id", ""),
+                    "document_id": doc_id,
                 })
 
             parts = []
@@ -1161,6 +1175,19 @@ def stream_ask(
             else:
                 system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN
             prompt = f"{system}\n\n{memory_block}{history_block}Context:\n{context}\n\nQuestion: {question}\nAnswer:"
+        elif not chunks and has_prior_context:
+            continuation_system = (
+                f"{_CIEL_IDENTITY}"
+                "Câu hỏi này là tiếp nối cuộc hội thoại trước. "
+                "Dựa vào lịch sử hội thoại để trả lời — có thể tính toán, so sánh, hoặc tổng hợp từ các câu trả lời trước. "
+                "KHÔNG bịa đặt thông tin không có trong hội thoại. Ngắn gọn. Tiếng Việt."
+                if lang == "vi"
+                else f"{_CIEL_IDENTITY}"
+                     "This question continues the prior conversation. "
+                     "Use conversation history to answer — you may calculate, compare, or summarize from prior answers. "
+                     "Do NOT fabricate information not present in the conversation. Be concise."
+            )
+            prompt = f"{continuation_system}\n\n{memory_block}{history_block}Question: {question}\nAnswer:"
         else:
             hybrid_system = (
                 f"{_CIEL_IDENTITY}"
