@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 import os
@@ -5,6 +6,7 @@ import random
 import re
 import time
 import unicodedata
+import zoneinfo
 from typing import Generator
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,35 @@ _SOFT_ENDING = re.compile(
     r'(?:nha|nhé|nhe|nhớ\s+nha|nhớ\s+nhé|ね|ください|てください|でください)\s*[.!。]*\s*$',
     re.IGNORECASE
 )
+
+_DATETIME_PAT = re.compile(
+    r'\b(?:'
+    r'hôm\s+nay|ngày\s+(?:hôm\s+nay|nay|mấy|bao\s+nhiêu)|mấy\s+giờ|bây\s+giờ\s+là|hiện\s+tại\s+là|'
+    r'thứ\s+mấy|ngày\s+tháng|tháng\s+mấy|năm\s+nay|'
+    r"what(?:'s|\s+is)\s+(?:the\s+)?(?:date|time|day)|today(?:'s\s+date)?|current\s+(?:time|date)|'
+    r'what\s+day\s+is|now|'
+    r'今日|今|何時|いつ'
+    r')\b',
+    re.IGNORECASE
+)
+
+_VN_TZ = zoneinfo.ZoneInfo("Asia/Ho_Chi_Minh")
+_VN_DAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+
+
+def _get_vn_datetime_answer(lang: str) -> str:
+    now = datetime.datetime.now(_VN_TZ)
+    day = _VN_DAYS[now.weekday()]
+    date_str = f"{now.day:02d}/{now.month:02d}/{now.year}"
+    time_str = f"{now.hour:02d}:{now.minute:02d}"
+    if lang == "vi":
+        return f"Bây giờ là **{time_str}**, {day}, ngày **{date_str}** (giờ Việt Nam)."
+    elif lang == "ja":
+        jp_days = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"]
+        return f"現在は**{now.year}年{now.month}月{now.day}日**（{jp_days[now.weekday()]}）、**{time_str}**（ベトナム時間）です。"
+    else:
+        en_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        return f"It's **{time_str}** on **{en_days[now.weekday()]}, {now.strftime('%B %d, %Y')}** (Vietnam time)."
 
 
 def _auto_extract_memory(question: str) -> list[str]:
@@ -972,6 +1003,13 @@ def stream_ask(
             else "Got it! I'll keep this in mind going forward."
         )
         yield from _stream_text_gradually(ack)
+        yield _sse({"type": "done", "sources": [], "confidence": 1.0})
+        return
+
+    # Date/time query — answer instantly from system clock, no RAG needed
+    if _DATETIME_PAT.search(question) and len(question) < 120:
+        answer = _get_vn_datetime_answer(lang)
+        yield from _stream_text_gradually(answer)
         yield _sse({"type": "done", "sources": [], "confidence": 1.0})
         return
 
