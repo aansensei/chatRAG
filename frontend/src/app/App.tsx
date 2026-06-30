@@ -10,6 +10,7 @@ import {
   X,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Database,
   BookOpen,
   BarChart3,
@@ -635,21 +636,9 @@ function ChatMessage({
   );
 }
 
-function GeminiLoader() {
-  return (
-    <div className="relative w-3.5 h-3.5 shrink-0 flex items-center justify-center">
-      {/* Outer spinning gradient ring */}
-      <div 
-        className="absolute inset-0 rounded-full border-[1.5px] border-transparent border-t-[#3b82f6] border-r-[#8b5cf6] border-b-[#ec4899] animate-spin" 
-        style={{ animationDuration: '0.9s' }}
-      ></div>
-      {/* Inner pulsing core */}
-      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
-    </div>
-  );
-}
-
 function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
+
   const LABELS: Record<string, string> = {
     embedding: "Embedding query...",
     searching: "Searching knowledge base...",
@@ -659,10 +648,47 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
   const ORDER = ["embedding", "searching", "filtering", "generating"];
   const currentIdx = ORDER.indexOf(step);
 
+  const visibleSources = sourcesExpanded ? sources : sources.slice(0, 3);
+
   return (
-    <div className="flex gap-3 mb-8">
-      <LogoIcon size={24} />
-      <div className="flex flex-col gap-1.5 pt-1">
+    <div className="flex gap-4 mb-8 items-start">
+      {/* SVG gooey filter definition */}
+      <svg style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }} aria-hidden="true">
+        <defs>
+          <filter id="gooey-filter">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
+            <feColorMatrix 
+              in="blur" 
+              mode="matrix" 
+              values="
+                1 0 0 0 0  
+                0 1 0 0 0  
+                0 0 1 0 0  
+                0 0 0 20 -9
+              " 
+              result="goo" 
+            />
+            <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+          </filter>
+        </defs>
+      </svg>
+
+      {/* Neural Slime Core Loader on the left, scaled down */}
+      <div className="relative w-12 h-12 shrink-0 flex items-center justify-center overflow-visible mt-0.5">
+        <div className="slime-stage scale-[0.48] origin-center">
+          <div className="core-glow-aura"></div>
+          <div className="blobs-wrapper">
+            <div className="blob blob-core"></div>
+            <div className="blob sat sat-1"></div>
+            <div className="blob sat sat-2"></div>
+            <div className="blob sat sat-3"></div>
+            <div className="blob sat sat-4"></div>
+            <div className="blob sat sat-5"></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5 pt-1.5">
         {ORDER.slice(0, currentIdx + 1).map((s, i) => {
           const done = i < currentIdx;
           const active = i === currentIdx;
@@ -672,29 +698,42 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
               className="flex items-center gap-2 step-item-enter"
             >
               {done ? (
-                <CheckCircle size={12} style={{ color: "#10b981" }} />
-              ) : active ? (
-                <GeminiLoader />
+                <CheckCircle size={13} style={{ color: "#10b981" }} />
               ) : (
-                <Loader size={12} style={{ color: "#86868B" }} />
+                <div className="w-2.5 h-2.5 rounded-full bg-[#00e1fd] animate-pulse shrink-0" />
               )}
               <span 
-                className="text-sm transition-colors duration-300" 
-                style={{ color: done ? "#10b981" : active ? "#d1d1d6" : "#86868B" }}
+                className={`text-[13px] transition-all duration-300 ${active ? "status-text" : ""}`} 
+                style={{ color: done ? "#10b981" : "#86868b" }}
               >
                 {LABELS[s]}
               </span>
             </div>
           );
         })}
+        
         {sources.length > 0 && (
-          <div className="flex flex-col gap-1 ml-5 mt-1">
-            {sources.map((f, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <FileText size={10} style={{ color: "#3B82F6" }} />
+          <div className="flex flex-col gap-1 ml-5 mt-1.5 transition-all duration-300">
+            {visibleSources.map((f, i) => (
+              <div key={i} className="flex items-center gap-1.5 step-item-enter">
+                <FileText size={10} style={{ color: "#3b82f6" }} />
                 <span className="text-[11px]" style={{ color: "#93c5fd" }}>Reading {f}</span>
               </div>
             ))}
+
+            {sources.length > 3 && (
+              <button
+                onClick={() => setSourcesExpanded(!sourcesExpanded)}
+                className="flex items-center gap-1 mt-1 text-[10px] hover:text-[#93c5fd] transition-colors self-start cursor-pointer"
+                style={{ color: "#86868b" }}
+              >
+                {sourcesExpanded ? (
+                  <>Collapse <ChevronUp size={10} /></>
+                ) : (
+                  <>+ {sources.length - 3} more <ChevronDown size={10} /></>
+                )}
+              </button>
+            )}
           </div>
         )}
       </div>

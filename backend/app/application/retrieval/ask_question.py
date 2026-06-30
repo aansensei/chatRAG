@@ -570,11 +570,10 @@ def _stream_llm(
 
         # 2. Gemini
         if "gemini" in model_lower or api_key_str.startswith("AIzaSy"):
-            yield from _stream_openai_compatible(
+            yield from _stream_gemini_native(
                 prompt,
                 model_str or "gemini-2.5-flash",
-                api_key_str,
-                "https://generativelanguage.googleapis.com/v1beta/openai"
+                api_key_str
             )
             return
 
@@ -621,6 +620,48 @@ def _stream_llm(
     # Fallback when LLM is unreachable
     fb = fallback_vi or "Hiện tại tôi không thể kết nối model. Vui lòng thử lại hoặc cấu hình API key."
     yield from _stream_text_gradually(fb, delay=0.018)
+
+
+def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[str, None, None]:
+    model_clean = model.replace("models/", "")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_clean}:streamGenerateContent?alt=sse&key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    json_data = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "maxOutputTokens": 2048
+        }
+    }
+    try:
+        with httpx.stream(
+            "POST",
+            url,
+            headers=headers,
+            json=json_data,
+            timeout=httpx.Timeout(connect=15.0, read=60.0, write=10.0, pool=10.0),
+        ) as resp:
+            if resp.status_code != 200:
+                resp.read()
+                try:
+                    msg = resp.json().get("error", {}).get("message", resp.text)
+                except Exception:
+                    msg = resp.text
+                yield _sse({"type": "token", "token": f"Lỗi Gemini API ({resp.status_code}): {msg}"})
+                return
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                if line.startswith("data: "):
+                    try:
+                        data = json.loads(line[6:])
+                        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                        token = "".join(p.get("text", "") for p in parts)
+                        if token:
+                            yield _sse({"type": "token", "token": token})
+                    except Exception:
+                        pass
+    except Exception as e:
+        yield _sse({"type": "token", "token": f"Lỗi kết nối Gemini API: {e}"})
 
 
 def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: str) -> Generator[str, None, None]:
