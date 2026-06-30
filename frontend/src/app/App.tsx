@@ -638,6 +638,8 @@ function ChatMessage({
 
 function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
+  const [displayStep, setDisplayStep] = useState(step);
+  const [phase, setPhase] = useState<"active" | "done" | "exit">("active");
 
   const LABELS: Record<string, string> = {
     embedding: "Embedding query...",
@@ -645,35 +647,31 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
     filtering: "Evaluating relevance...",
     generating: "Generating answer...",
   };
-  const ORDER = ["embedding", "searching", "filtering", "generating"];
-  const currentIdx = ORDER.indexOf(step);
 
+  useEffect(() => {
+    if (step === displayStep) return;
+    setPhase("done");
+    const t1 = setTimeout(() => setPhase("exit"), 280);
+    const t2 = setTimeout(() => { setDisplayStep(step); setPhase("active"); }, 460);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [step]);
+
+  const isDone = phase === "done";
+  const isExit = phase === "exit";
   const visibleSources = sourcesExpanded ? sources : sources.slice(0, 3);
 
   return (
     <div className="flex gap-4 mb-8 items-start">
-      {/* SVG gooey filter definition */}
       <svg style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }} aria-hidden="true">
         <defs>
           <filter id="gooey-filter">
             <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
-            <feColorMatrix 
-              in="blur" 
-              mode="matrix" 
-              values="
-                1 0 0 0 0  
-                0 1 0 0 0  
-                0 0 1 0 0  
-                0 0 0 20 -9
-              " 
-              result="goo" 
-            />
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="goo" />
             <feComposite in="SourceGraphic" in2="goo" operator="atop" />
           </filter>
         </defs>
       </svg>
 
-      {/* Neural Slime Core Loader on the left, scaled down */}
       <div className="relative w-12 h-12 shrink-0 flex items-center justify-center overflow-visible mt-0.5">
         <div className="slime-stage scale-[0.48] origin-center">
           <div className="core-glow-aura"></div>
@@ -689,28 +687,29 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
       </div>
 
       <div className="flex flex-col gap-1.5 pt-1.5">
-        {ORDER.slice(0, currentIdx + 1).map((s, i) => {
-          const done = i < currentIdx;
-          const active = i === currentIdx;
-          return (
-            <div 
-              key={s} 
-              className="flex items-center gap-2 step-item-enter"
-            >
-              {done ? (
-                <CheckCircle size={13} style={{ color: "#10b981" }} />
-              ) : (
-                <div className="w-2.5 h-2.5 rounded-full bg-[#00e1fd] animate-pulse shrink-0" />
-              )}
-              <span 
-                className={`text-[13px] transition-all duration-300 ${active ? "status-text" : ""}`} 
-                style={{ color: done ? "#10b981" : "#86868b" }}
-              >
-                {LABELS[s]}
-              </span>
-            </div>
-          );
-        })}
+        <div
+          className="flex items-center gap-2"
+          style={{
+            opacity: isExit ? 0 : 1,
+            transform: isExit ? "translateY(-3px)" : "translateY(0)",
+            transition: "opacity 0.18s ease, transform 0.18s ease",
+          }}
+        >
+          {isDone || isExit ? (
+            <CheckCircle size={13} style={{ color: "#10b981", flexShrink: 0 }} />
+          ) : (
+            <div className="w-2.5 h-2.5 rounded-full bg-[#00e1fd] animate-pulse shrink-0" />
+          )}
+          <span
+            className="text-[13px]"
+            style={{
+              color: isDone || isExit ? "#10b981" : "#86868b",
+              transition: "color 0.15s ease",
+            }}
+          >
+            {LABELS[displayStep] ?? displayStep}
+          </span>
+        </div>
         
         {sources.length > 0 && (
           <div className="flex flex-col gap-1 ml-5 mt-1.5 transition-all duration-300">
@@ -1334,9 +1333,10 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 }
 
 const GROQ_MODELS = [
-  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 · 70B", note: "Best" },
-  { id: "llama-3.1-8b-instant",    label: "Llama 3.1 · 8B",  note: "Fast" },
-  { id: "gemma2-9b-it",            label: "Gemma 2 · 9B",    note: "Google" },
+  { id: "llama-3.3-70b-versatile",                   label: "Llama 3.3 · 70B",    note: "Best" },
+  { id: "meta-llama/llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout · 17B", note: "New" },
+  { id: "qwen/qwen3-32b",                            label: "Qwen3 · 32B",          note: "60 RPM" },
+  { id: "llama-3.1-8b-instant",                      label: "Llama 3.1 · 8B",       note: "Fast" },
 ];
 
 const OPENAI_MODELS = [
@@ -1359,9 +1359,10 @@ const OPENROUTER_MODELS_FALLBACK = [
 const OPENROUTER_MODELS = OPENROUTER_MODELS_FALLBACK;
 
 const CEREBRAS_MODELS = [
-  { id: "llama-3.3-70b",  label: "Llama 3.3 70B",  note: "Fast" },
-  { id: "llama3.1-70b",   label: "Llama 3.1 70B",   note: "Fast" },
-  { id: "llama3.1-8b",    label: "Llama 3.1 8B",    note: "Fastest" },
+  { id: "llama-3.3-70b",  label: "Llama 3.3 70B",  note: "Fast"    },
+  { id: "llama3.1-8b",    label: "Llama 3.1 8B",   note: "Fastest" },
+  { id: "gemma-4-31b",    label: "Gemma 4 31B",    note: "New"     },
+  { id: "gpt-oss-120b",   label: "GPT-OSS 120B",   note: "Prod"    },
 ];
 
 const LOCAL_MODELS = [
@@ -1392,7 +1393,7 @@ function isGeminiModel(id: string) {
 }
 
 function isOpenRouterModel(id: string) {
-  return id.includes("/");
+  return id.includes("/") && !GROQ_MODELS.some((m) => m.id === id) && !CEREBRAS_MODELS.some((m) => m.id === id);
 }
 
 function isCerebrasModel(id: string) {

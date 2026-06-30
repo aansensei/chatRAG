@@ -511,12 +511,27 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     t = httpx.Timeout(connect=10.0, read=30.0, write=5.0, pool=5.0)
     try:
-        if "/" in mod_lower or key.startswith("sk-or-"):
+        # Route by key prefix first — prevents Groq "/" models from being misrouted to OpenRouter
+        if key.startswith("gsk_"):
+            r = httpx.post("https://api.groq.com/openai/v1/chat/completions", headers=headers,
+                           json={"model": mod or "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
+                           timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+            return ""
+        if key.startswith("csk-"):
+            r = httpx.post("https://api.cerebras.ai/v1/chat/completions", headers=headers,
+                           json={"model": mod or "llama-3.3-70b", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
+                           timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+            logger.warning("Cerebras filter call %s: %s", r.status_code, r.text[:200])
+            return ""
+        if key.startswith("sk-or-") or (":free" in mod_lower and "/" in mod_lower):
             headers["HTTP-Referer"] = "https://github.com/aansensei/chatRAG"
             headers["X-Title"] = "chatRAG"
-            fast = "meta-llama/llama-3.1-8b-instruct:free" if ":free" in mod_lower else mod
             r = httpx.post("https://openrouter.ai/api/v1/chat/completions", headers=headers,
-                           json={"model": fast, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
+                           json={"model": mod, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
             logger.warning("OpenRouter filter call %s: %s", r.status_code, r.text[:200])
@@ -532,24 +547,9 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
                 return "".join(p.get("text", "") for p in parts).strip()
             logger.warning("Gemini filter call %s: %s", r.status_code, r.text[:200])
             return ""
-        if "gpt-" in mod_lower or "o1-" in mod_lower or key.startswith("sk-proj-") or (key.startswith("sk-") and not key.startswith("sk-or-")):
+        if "gpt-" in mod_lower or "o1-" in mod_lower or key.startswith("sk-proj-") or key.startswith("sk-"):
             r = httpx.post("https://api.openai.com/v1/chat/completions", headers=headers,
                            json={"model": mod or "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
-            return ""
-        if key.startswith("csk-"):
-            r = httpx.post("https://api.cerebras.ai/v1/chat/completions", headers=headers,
-                           json={"model": mod or "llama-3.3-70b", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
-                           timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
-            logger.warning("Cerebras filter call %s: %s", r.status_code, r.text[:200])
-            return ""
-        if key.startswith("gsk_") or "llama" in mod_lower or "gemma" in mod_lower:
-            r = httpx.post("https://api.groq.com/openai/v1/chat/completions", headers=headers,
-                           json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
-                           timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
     except Exception as exc:
@@ -608,42 +608,24 @@ def _stream_llm(
     fallback_vi: str | None = None,
     fallback_en: str | None = None,
 ) -> Generator[str, None, None]:
-    """Stream a prompt through Cloud API (Groq, OpenAI, Gemini, OpenRouter) or Ollama; yield static fallback on error."""
+    """Stream a prompt through Cloud API (Groq, OpenAI, Gemini, OpenRouter, Cerebras) or Ollama."""
     if api_key:
         api_key_str = str(api_key).strip()
         model_str = str(groq_model or "").strip()
         model_lower = model_str.lower()
-        
-        # 1. OpenRouter (Check first since model IDs like google/gemini-2.5-flash:free contain a slash)
-        if "/" in model_lower or api_key_str.startswith("sk-or-"):
+
+        # Route by API key prefix first — most reliable signal
+        # 1. Groq (gsk_ prefix — must come before "/" check since Groq has models with "/" in ID)
+        if api_key_str.startswith("gsk_"):
             yield from _stream_openai_compatible(
                 prompt,
-                model_str or "meta-llama/llama-3.3-70b-instruct:free",
+                model_str or "llama-3.3-70b-versatile",
                 api_key_str,
-                "https://openrouter.ai/api/v1"
+                "https://api.groq.com/openai/v1"
             )
             return
 
-        # 2. Gemini
-        if "gemini" in model_lower or api_key_str.startswith("AIzaSy"):
-            yield from _stream_gemini_native(
-                prompt,
-                model_str or "gemini-2.0-flash",
-                api_key_str
-            )
-            return
-
-        # 3. OpenAI
-        if "gpt-" in model_lower or "o1-" in model_lower or api_key_str.startswith("sk-proj-") or (api_key_str.startswith("sk-") and not api_key_str.startswith("sk-or-")):
-            yield from _stream_openai_compatible(
-                prompt,
-                model_str or "gpt-4o-mini",
-                api_key_str,
-                "https://api.openai.com/v1"
-            )
-            return
-
-        # 4. Cerebras
+        # 2. Cerebras
         if api_key_str.startswith("csk-"):
             yield from _stream_openai_compatible(
                 prompt,
@@ -653,8 +635,37 @@ def _stream_llm(
             )
             return
 
-        # 5. Groq
-        if api_key_str.startswith("gsk_") or "llama" in model_lower or "gemma2" in model_lower:
+        # 3. OpenRouter
+        if api_key_str.startswith("sk-or-") or ("/" in model_lower and ":free" in model_lower):
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "meta-llama/llama-3.3-70b-instruct:free",
+                api_key_str,
+                "https://openrouter.ai/api/v1"
+            )
+            return
+
+        # 4. Gemini
+        if "gemini" in model_lower or api_key_str.startswith("AIzaSy"):
+            yield from _stream_gemini_native(
+                prompt,
+                model_str or "gemini-2.0-flash",
+                api_key_str
+            )
+            return
+
+        # 5. OpenAI
+        if "gpt-" in model_lower or "o1-" in model_lower or api_key_str.startswith("sk-proj-") or api_key_str.startswith("sk-"):
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "gpt-4o-mini",
+                api_key_str,
+                "https://api.openai.com/v1"
+            )
+            return
+
+        # 6. Groq fallback by model name (no key prefix match above)
+        if "llama" in model_lower or "gemma2" in model_lower or "qwen" in model_lower:
             yield from _stream_openai_compatible(
                 prompt,
                 model_str or "llama-3.3-70b-versatile",
