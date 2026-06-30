@@ -1797,6 +1797,7 @@ export default function App() {
   const [kbBrowserFolder, setKbBrowserFolder] = useState<string | null>(null);
   const [kbBrowserSearch, setKbBrowserSearch] = useState("");
   const [kbViewerDoc, setKbViewerDoc] = useState<KBDocument | null>(null);
+  const [kbBrowserConfirmDeleteDoc, setKbBrowserConfirmDeleteDoc] = useState<string | null>(null);
   const [memories, setMemories] = useState<{ id: string; content: string; created_at: number }[]>([]);
   const [newMemory, setNewMemory] = useState("");
   const [memParticles, setMemParticles] = useState<string[]>([]);
@@ -3181,17 +3182,51 @@ export default function App() {
                           : docs.length;
                         if (kbBrowserSearch && matchCount === 0) return null;
                         return (
-                          <button
-                            key={name}
-                            onClick={() => setKbBrowserFolder(name)}
-                            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white/5 text-left"
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <FolderOpen size={14} style={{ color: "#fbbf24" }} />
-                              <span className="text-[12px] font-medium" style={{ color: "#f5f5f7" }}>{name}</span>
-                            </div>
-                            <span className="text-[10px]" style={{ color: "#86868B" }}>{matchCount} {matchCount === 1 ? "file" : "files"}</span>
-                          </button>
+                          <div key={name} className="group/kbf flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-white/5">
+                            <FolderOpen size={14} style={{ color: "#fbbf24", flexShrink: 0 }} />
+                            {renamingFolder === name ? (
+                              <input
+                                autoFocus
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                onFocus={(e) => e.target.select()}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation();
+                                  if (e.key === "Enter") { const v = renameValue.trim(); setRenamingFolder(null); if (v && v !== name) renameFolder(name, v); }
+                                  if (e.key === "Escape") setRenamingFolder(null);
+                                }}
+                                onBlur={() => setRenamingFolder(null)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex-1 text-[12px] bg-transparent outline-none"
+                                style={{ border: "0.5px solid rgba(59,130,246,0.4)", borderRadius: 4, padding: "1px 4px", color: "#f5f5f7" }}
+                              />
+                            ) : (
+                              <button
+                                className="flex-1 text-left text-[12px] font-medium truncate"
+                                style={{ color: "#f5f5f7" }}
+                                onClick={() => setKbBrowserFolder(name)}
+                              >
+                                {name}
+                              </button>
+                            )}
+                            <span className="text-[10px] shrink-0" style={{ color: "#86868B" }}>{matchCount} {matchCount === 1 ? "file" : "files"}</span>
+                            {confirmingDelete === name ? (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="text-[10px]" style={{ color: "#f87171" }}>Xóa?</span>
+                                <button onClick={(e) => { e.stopPropagation(); deleteFolder(name); setConfirmingDelete(null); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
+                                <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); }} className="px-1.5 py-0.5 rounded text-[10px]" style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}>✕</button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/kbf:opacity-100 transition-opacity">
+                                <button onClick={(e) => { e.stopPropagation(); setRenamingFolder(name); setRenameValue(name); }} className="p-1 rounded hover:bg-white/10" title="Rename">
+                                  <Pencil size={11} style={{ color: "#86868B" }} />
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(name); }} className="p-1 rounded hover:bg-white/10" title="Delete folder">
+                                  <Trash2 size={11} style={{ color: "#86868B" }} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                   </div>
@@ -3203,41 +3238,50 @@ export default function App() {
                         const filename = d.source.split("/").pop()?.split("\\").pop() || d.source;
                         const broken = d.has_file === false;
                         return (
-                          <div key={d.document_id} className="group flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/5">
+                          <div key={d.document_id} className="group/kbdoc flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/5">
                             <FileType2 size={12} style={{ color: broken ? "#f59e0b" : "#86868B", flexShrink: 0 }} />
                             <span className="flex-1 text-[12px] truncate" style={{ color: broken ? "#d4b48a" : "#d1d1d6" }} title={filename + (broken ? " (file missing)" : "")}>
                               {filename}{broken && <span className="ml-1.5 text-[9px]" style={{ color: "#f59e0b" }}>· no file</span>}
                             </span>
                             <span className="text-[10px] shrink-0" style={{ color: "#52525b" }}>{d.chunk_count} chunks</span>
-                            {broken ? (
-                              <label
-                                className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded text-[10px] transition-opacity cursor-pointer"
-                                style={{ background: "rgba(245,158,11,0.18)", color: "#fcd34d" }}
-                              >
-                                Re-upload
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const f = e.target.files?.[0];
-                                    if (!f) return;
-                                    const form = new FormData();
-                                    form.append("file", f);
-                                    const r = await fetch(`/ingest/documents/${d.document_id}/relink`, { method: "POST", body: form });
-                                    if (r.ok) { addToast(`Relinked "${filename}"`, "success"); loadKbDocs(); }
-                                    else { addToast("Re-upload failed", "error"); }
-                                    e.target.value = "";
-                                  }}
-                                />
-                              </label>
+                            {kbBrowserConfirmDeleteDoc === d.document_id ? (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="text-[10px]" style={{ color: "#f87171" }}>Xóa?</span>
+                                <button onClick={() => { deleteKbDoc(d.document_id, filename); setKbBrowserConfirmDeleteDoc(null); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
+                                <button onClick={() => setKbBrowserConfirmDeleteDoc(null)} className="px-1.5 py-0.5 rounded text-[10px]" style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}>✕</button>
+                              </div>
                             ) : (
-                              <button
-                                onClick={() => setKbViewerDoc(d)}
-                                className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded text-[10px] transition-opacity"
-                                style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}
-                              >
-                                View
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/kbdoc:opacity-100 transition-opacity">
+                                <select
+                                  value=""
+                                  onChange={(e) => { if (e.target.value) { moveDocument(d.document_id, e.target.value); setKbBrowserFolder(e.target.value); } }}
+                                  className="text-[10px] rounded px-1 py-0.5 outline-none cursor-pointer"
+                                  style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc", border: "1px solid rgba(255,255,255,0.1)" }}
+                                  title="Move to folder"
+                                >
+                                  <option value="">Move to…</option>
+                                  {Object.keys(folderMap).filter((f) => f !== kbBrowserFolder).map((f) => (
+                                    <option key={f} value={f}>{f}</option>
+                                  ))}
+                                </select>
+                                {broken ? (
+                                  <label className="px-2 py-1 rounded text-[10px] cursor-pointer" style={{ background: "rgba(245,158,11,0.18)", color: "#fcd34d" }}>
+                                    Re-upload
+                                    <input type="file" className="hidden" onChange={async (e) => {
+                                      const f = e.target.files?.[0]; if (!f) return;
+                                      const form = new FormData(); form.append("file", f);
+                                      const r = await fetch(`/ingest/documents/${d.document_id}/relink`, { method: "POST", body: form });
+                                      if (r.ok) { addToast(`Relinked "${filename}"`, "success"); loadKbDocs(); } else { addToast("Re-upload failed", "error"); }
+                                      e.target.value = "";
+                                    }} />
+                                  </label>
+                                ) : (
+                                  <button onClick={() => setKbViewerDoc(d)} className="px-2 py-1 rounded text-[10px]" style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}>View</button>
+                                )}
+                                <button onClick={() => setKbBrowserConfirmDeleteDoc(d.document_id)} className="p-1 rounded hover:bg-white/10" title="Delete document">
+                                  <Trash2 size={11} style={{ color: "#86868B" }} />
+                                </button>
+                              </div>
                             )}
                           </div>
                         );
