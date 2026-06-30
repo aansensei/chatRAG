@@ -31,9 +31,9 @@ def main():
     model = SentenceTransformer(MODEL_NAME)
     print("Model loaded.")
 
-    print("Fetching all chunks from Supabase...")
-    rows = client.table("chunks").select("id, content").limit(100000).execute().data or []
-    print(f"Found {len(rows)} chunks to re-embed.")
+    print("Fetching chunks with missing embeddings...")
+    rows = client.table("chunks").select("id, content").is_("embedding", "null").limit(100000).execute().data or []
+    print(f"Found {len(rows)} chunks to embed.")
 
     if not rows:
         print("Nothing to do.")
