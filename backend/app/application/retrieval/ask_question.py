@@ -85,6 +85,7 @@ _SYSTEM_EN = (
     "Example: 'An Nguyen is mentioned in [1], but their specific title is not stated in the document.' "
     "If context does not contain the answer at all: say 'The document does not specify this information.' — do NOT fabricate. "
     "Extract numbers and data from tables in the context when present. "
+    "CITATION RULE: When you use information from chunk [N], append [N] at the end of that sentence. Example: 'Revenue reached $28M [2].' "
     "If the user asks multiple questions in one message, answer EACH one separately, numbered 1/ 2/ "
     "Respond in English. Be concise."
 )
@@ -98,6 +99,7 @@ _SYSTEM_VI = (
     "Ví dụ đúng: 'An Nguyễn được đề cập trong tài liệu [1], nhưng chức vụ cụ thể không được nêu.' "
     "Nếu context không có câu trả lời: nói 'Tài liệu không nêu rõ thông tin này.' — KHÔNG bịa. "
     "Ngữ cảnh có thể chứa bảng dữ liệu — trích xuất số liệu từ đó khi cần. "
+    "QUY TẮC TRÍCH DẪN: Khi dùng thông tin từ chunk [N], thêm [N] vào cuối câu đó. Ví dụ: 'Doanh thu đạt 28 triệu [2].' "
     "Nếu user hỏi nhiều câu trong 1 message, trả lời TỪNG câu riêng, đánh số 1/ 2/ "
     "KHÔNG dùng emoji. "
     "Trả lời bằng tiếng Việt. Ngắn gọn, tự nhiên."

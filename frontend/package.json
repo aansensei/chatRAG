@@ -4,8 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "dev": "vite",
     "build": "vite build",
-    "dev": "vite"
+    "build:deploy": "vite build && xcopy /E /Y /I dist\\* ..\\backend\\app\\static\\"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

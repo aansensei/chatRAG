@@ -61,6 +61,8 @@ type Source = {
   page?: number;
   date: string;
   confidence: number;
+  documentId?: string;
+  filename?: string;
 };
 
 type Message = {
@@ -232,6 +234,7 @@ function ChatMessage({
   activeSource: string | null;
 }) {
   const [copied, setCopied] = useState(false);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const copyText = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -253,6 +256,44 @@ function ChatMessage({
 
   const lines = message.content.split("\n");
 
+  const renderInline = (text: string, lineKey: string) => {
+    const CITATION_RE = /(\[\d+\])/g;
+    const tokens = text.split(CITATION_RE);
+    return tokens.map((tok, ti) => {
+      const match = tok.match(/^\[(\d+)\]$/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        const src = message.sources?.[n - 1];
+        if (src) {
+          return (
+            <button
+              key={`${lineKey}-ci-${ti}`}
+              onClick={() => onSourceClick(src)}
+              title={src.title}
+              className="inline-flex items-center justify-center mx-0.5 px-1.5 rounded text-[10px] font-semibold transition-all"
+              style={{
+                background: "rgba(59,130,246,0.18)",
+                border: "1px solid rgba(59,130,246,0.35)",
+                color: "#93c5fd",
+                verticalAlign: "middle",
+                lineHeight: "1.4",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.32)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.18)"; }}
+            >
+              {tok}
+            </button>
+          );
+        }
+      }
+      if (!tok) return null;
+      if (tok.startsWith("**") && tok.endsWith("**")) {
+        return <strong key={`${lineKey}-b-${ti}`} style={{ color: "#F5F5F7", fontWeight: 600 }}>{tok.slice(2, -2)}</strong>;
+      }
+      return <span key={`${lineKey}-t-${ti}`}>{tok}</span>;
+    });
+  };
+
   return (
     <div className="flex gap-3 mb-8 msg-animate group/msg">
       <LogoIcon size={24} />
@@ -262,23 +303,24 @@ function ChatMessage({
           style={{ color: "#F5F5F7" }}
         >
           {lines.map((line, i) => {
+            const lineKey = `line-${i}`;
             if (line.startsWith("**") && line.endsWith("**")) {
               return (
-                <p key={i} className="font-semibold mb-1 mt-3 first:mt-0" style={{ color: "#F5F5F7" }}>
+                <p key={lineKey} className="font-semibold mb-1 mt-3 first:mt-0" style={{ color: "#F5F5F7" }}>
                   {line.slice(2, -2)}
                 </p>
               );
             }
-            const parts = line.split(/(\*\*[^*]+\*\*)/g);
+            const boldParts = line.split(/(\*\*[^*]+\*\*)/g);
             return (
-              <p key={i} className={line === "" ? "mb-2" : "mb-0"}>
-                {parts.map((part, j) =>
+              <p key={lineKey} className={line === "" ? "mb-2" : "mb-0"}>
+                {boldParts.map((part, j) =>
                   part.startsWith("**") && part.endsWith("**") ? (
-                    <strong key={j} style={{ color: "#F5F5F7", fontWeight: 600 }}>
+                    <strong key={`${lineKey}-bp-${j}`} style={{ color: "#F5F5F7", fontWeight: 600 }}>
                       {part.slice(2, -2)}
                     </strong>
                   ) : (
-                    <span key={j}>{part}</span>
+                    renderInline(part, `${lineKey}-${j}`)
                   )
                 )}
               </p>
@@ -286,13 +328,44 @@ function ChatMessage({
           })}
         </div>
 
-        {message.sources && message.sources.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-3">
-            {message.sources.map((src) => (
-              <SourceChip key={src.id} source={src} onClick={() => onSourceClick(src)} active={activeSource === src.id} />
-            ))}
-          </div>
-        )}
+        {message.sources && message.sources.length > 0 && (() => {
+          const SHOW = 3;
+          const visible = sourcesExpanded ? message.sources : message.sources.slice(0, SHOW);
+          const hidden = message.sources.length - SHOW;
+          return (
+            <div className="mt-3">
+              <div className="flex flex-wrap gap-2">
+                {visible.map((src) => (
+                  <SourceChip key={src.id} source={src} onClick={() => onSourceClick(src)} active={activeSource === src.id} />
+                ))}
+                {!sourcesExpanded && hidden > 0 && (
+                  <button
+                    onClick={() => setSourcesExpanded(true)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] transition-all"
+                    style={{ background: "rgba(28,28,30,0.9)", border: "1px solid rgba(255,255,255,0.07)", color: "#86868B" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
+                  >
+                    <ChevronDown size={10} />
+                    {hidden} more
+                  </button>
+                )}
+                {sourcesExpanded && hidden > 0 && (
+                  <button
+                    onClick={() => setSourcesExpanded(false)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] transition-all"
+                    style={{ background: "rgba(28,28,30,0.9)", border: "1px solid rgba(255,255,255,0.07)", color: "#86868B" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
+                  >
+                    <ChevronDown size={10} style={{ transform: "rotate(180deg)" }} />
+                    collapse
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <button
           onClick={() => copyText(message.content)}
@@ -314,9 +387,10 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
   const LABELS: Record<string, string> = {
     embedding: "Embedding query...",
     searching: "Searching knowledge base...",
+    filtering: "Evaluating relevance...",
     generating: "Generating answer...",
   };
-  const ORDER = ["embedding", "searching", "generating"];
+  const ORDER = ["embedding", "searching", "filtering", "generating"];
   const currentIdx = ORDER.indexOf(step);
 
   return (
@@ -385,7 +459,14 @@ function useTypewriter(phrases: string[], speed = 55, pause = 1800) {
   return displayed;
 }
 
-function SourcePanel({ source, onClose }: { source: Source; onClose: () => void }) {
+function SourcePanel({ source, onClose, onOpenDoc }: { source: Source; onClose: () => void; onOpenDoc?: (title: string) => void }) {
+  const [copied, setCopied] = useState(false);
+  const copyExcerpt = () => {
+    navigator.clipboard.writeText(source.excerpt || "").then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
   return (
     <div
       className="fixed inset-0 z-50 flex items-stretch justify-end"
@@ -474,6 +555,14 @@ function SourcePanel({ source, onClose }: { source: Source; onClose: () => void 
 
           <div className="mt-6 flex gap-2">
             <button
+              onClick={() => {
+                if (source.documentId) {
+                  window.open(`/ingest/documents/${source.documentId}/file`, "_blank");
+                } else {
+                  onOpenDoc?.(source.title);
+                  onClose();
+                }
+              }}
               className="flex-1 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
               style={{
                 background: "rgba(59,130,246,0.12)",
@@ -486,16 +575,17 @@ function SourcePanel({ source, onClose }: { source: Source; onClose: () => void 
               Open Full Document
             </button>
             <button
-              className="px-4 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
+              onClick={copyExcerpt}
+              className="px-4 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 flex items-center gap-1.5"
               style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                color: "#86868B",
+                background: copied ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${copied ? "rgba(16,185,129,0.25)" : "rgba(255,255,255,0.08)"}`,
+                color: copied ? "#10b981" : "#86868B",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
             >
-              Copy
+              {copied ? <><Check size={11} />Copied</> : <><Copy size={11} />Copy</>}
             </button>
           </div>
         </div>
@@ -505,11 +595,17 @@ function SourcePanel({ source, onClose }: { source: Source; onClose: () => void 
 }
 
 const TYPEWRITER_PHRASES = [
-  "What's on your mind?",
-  "Ask me anything...",
   "Search your documents...",
-  "What would you like to know?",
-  "Let's explore your knowledge base.",
+  "Hỏi tôi bất cứ điều gì về tài liệu của bạn...",
+  "What's in that PDF?",
+  "Tóm tắt tài liệu, trích dẫn nguồn...",
+  "Ask me anything...",
+  "ドキュメントについて何でも聞いてください...",
+  "Ciel sẵn sàng giúp bạn.",
+  "Find answers across all your files...",
+  "Khám phá kho tài liệu nội bộ...",
+  "What would you like to know today?",
+  "Ciel đây, bạn cần tôi giúp gì?",
 ];
 
 function TypewriterSubtitle() {
@@ -612,54 +708,97 @@ const STATUS_LABEL: Record<UploadJob["status"], string> = {
   failed: "Failed",
 };
 
-function SyncPanel({ onUploaded, onToast, targetCollection = "default" }: {
+function SyncPanel({ onUploaded, onToast, targetCollection = "default", collections = [] }: {
   onUploaded: (job: UploadJob) => void;
   onToast: (msg: string, type: Toast["type"]) => void;
   targetCollection?: string;
+  collections?: Collection[];
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const existingUploadRef = useRef<HTMLInputElement>(null);
+  const syncMenuRef = useRef<HTMLDivElement>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState({ done: 0, total: 0 });
+  const [syncMenu, setSyncMenu] = useState<null | "choose" | "existing">(null);
+  const [existingTarget, setExistingTarget] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [nameDialog, setNameDialog] = useState<{ open: boolean; value: string }>({ open: false, value: "" });
 
-  const uploadFiles = async (files: File[]) => {
+  useEffect(() => {
+    if (!syncMenu) return;
+    const close = (e: MouseEvent) => {
+      if (syncMenuRef.current && !syncMenuRef.current.contains(e.target as Node)) setSyncMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [syncMenu]);
+
+  const doUpload = async (files: File[], collection: string) => {
     for (const file of files) {
       const form = new FormData();
       form.append("file", file);
-      form.append("collection", targetCollection);
+      form.append("collection", collection);
       onToast(`Uploading "${file.name}"...`, "info");
       try {
         const res = await fetch("/ingest/upload", { method: "POST", body: form });
-        if (!res.ok) { onToast(`Failed to upload "${file.name}"`, "error"); continue; }
+        if (!res.ok) { onToast(`Failed: "${file.name}"`, "error"); continue; }
         const data = await res.json();
         onUploaded({ jobId: data.job_id, filename: file.name, status: "queued" });
         setSyncProgress((p) => ({ ...p, done: p.done + 1 }));
-      } catch { onToast(`Failed to upload "${file.name}"`, "error"); }
+      } catch { onToast(`Failed: "${file.name}"`, "error"); }
     }
   };
 
   const handleFiles = (files: FileList | null) => {
     if (!files) return;
-    const valid = Array.from(files).filter((f) => /\.(pdf|png|jpg|jpeg|docx|xlsx)$/i.test(f.name));
-    uploadFiles(valid);
+    const valid = Array.from(files).filter((f) => /\.(pdf|png|jpg|jpeg|docx|xlsx|csv)$/i.test(f.name));
+    doUpload(valid, targetCollection);
   };
 
-  const handleFolder = async (files: FileList | null) => {
-    if (!files) return;
-    const valid = Array.from(files).filter((f) => /\.(pdf|png|jpg|jpeg|docx|xlsx)$/i.test(f.name));
+  const handleFolderPicked = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const valid = Array.from(files).filter((f) => /\.(pdf|png|jpg|jpeg|docx|xlsx|csv)$/i.test(f.name));
+    if (!valid.length) { onToast("No supported files found in folder", "error"); return; }
+    const rawPath = (valid[0] as { webkitRelativePath?: string }).webkitRelativePath || "";
+    const folderName = rawPath.split("/")[0] || "New Folder";
+    setPendingFiles(valid);
+    setNameDialog({ open: true, value: folderName });
+  };
+
+  const confirmNewFolder = async () => {
+    const name = nameDialog.value.trim();
+    if (!name) return;
+    setNameDialog({ open: false, value: "" });
+    setSyncing(true);
+    setSyncProgress({ done: 0, total: pendingFiles.length });
+    await doUpload(pendingFiles, name);
+    setSyncing(false);
+    setPendingFiles([]);
+  };
+
+  const handleExistingUpload = async (files: FileList | null) => {
+    if (!files || !existingTarget) return;
+    const valid = Array.from(files).filter((f) => /\.(pdf|png|jpg|jpeg|docx|xlsx|csv)$/i.test(f.name));
     if (!valid.length) return;
     setSyncing(true);
     setSyncProgress({ done: 0, total: valid.length });
-    await uploadFiles(valid);
+    await doUpload(valid, existingTarget);
     setSyncing(false);
+    setSyncMenu(null);
+    setExistingTarget("");
   };
+
+  const otherCollections = collections.filter((c) => c.name !== "default");
 
   return (
     <div className="mx-3 mb-2 flex flex-col gap-1.5">
-      <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx" multiple className="hidden"
+      <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.csv" multiple className="hidden"
         onChange={(e) => handleFiles(e.target.files)} />
       <input ref={folderInputRef} type="file" className="hidden" {...({ webkitdirectory: "" } as object)}
-        onChange={(e) => handleFolder((e.target as HTMLInputElement).files)} />
+        onChange={(e) => handleFolderPicked((e.target as HTMLInputElement).files)} />
+      <input ref={existingUploadRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.csv" multiple className="hidden"
+        onChange={(e) => handleExistingUpload(e.target.files)} />
 
       {targetCollection !== "default" && (
         <p className="text-[10px] px-1 pb-0.5" style={{ color: "rgba(134,134,139,0.5)" }}>
@@ -678,22 +817,129 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default" }: {
         Upload files
       </button>
 
-      <button
-        onClick={() => folderInputRef.current?.click()}
-        disabled={syncing}
-        className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-medium transition-all duration-200"
-        style={{
-          border: "1px solid rgba(59,130,246,0.25)",
-          color: syncing ? "#86868B" : "#93c5fd",
-          background: "rgba(59,130,246,0.06)",
-          cursor: syncing ? "not-allowed" : "pointer",
-        }}
-      >
-        {syncing
-          ? <><RefreshCw size={12} className="animate-spin" />Syncing {syncProgress.done}/{syncProgress.total}...</>
-          : <><FolderOpen size={12} />Sync folder</>
-        }
-      </button>
+      <div className="relative" ref={syncMenuRef}>
+        <button
+          onMouseDown={() => { if (!syncing) setSyncMenu((m) => (m ? null : "choose")); }}
+          disabled={syncing}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-medium transition-all duration-200"
+          style={{
+            border: "1px solid rgba(59,130,246,0.25)",
+            color: syncing ? "#86868B" : "#93c5fd",
+            background: "rgba(59,130,246,0.06)",
+            cursor: syncing ? "not-allowed" : "pointer",
+          }}
+        >
+          {syncing
+            ? <><RefreshCw size={12} className="animate-spin" />Syncing {syncProgress.done}/{syncProgress.total}...</>
+            : <><FolderOpen size={12} />Sync folder</>
+          }
+        </button>
+
+        {syncMenu === "choose" && (
+          <div className="absolute bottom-full left-0 right-0 mb-1.5 rounded-xl overflow-hidden"
+            style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", zIndex: 60, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+            <button
+              onMouseDown={(e) => { e.stopPropagation(); setSyncMenu("existing"); setExistingTarget(""); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-[11px] transition-colors"
+              style={{ color: "#c7c7cc" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <FolderOpen size={12} style={{ color: "#93c5fd" }} />
+              Add to existing folder
+            </button>
+            <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+            <button
+              onMouseDown={(e) => { e.stopPropagation(); setSyncMenu(null); setTimeout(() => folderInputRef.current?.click(), 0); }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-[11px] transition-colors"
+              style={{ color: "#c7c7cc" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <Plus size={12} style={{ color: "#86efac" }} />
+              Create new folder
+            </button>
+          </div>
+        )}
+
+        {syncMenu === "existing" && (
+          <div className="absolute bottom-full left-0 right-0 mb-1.5 rounded-xl p-2"
+            style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", zIndex: 60, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+            <div className="flex items-center justify-between mb-1.5 px-1">
+              <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.7)" }}>Select target folder</p>
+              <button onMouseDown={() => setSyncMenu("choose")} className="text-[10px]" style={{ color: "rgba(134,134,139,0.5)" }}>← back</button>
+            </div>
+            <div className="flex flex-col gap-0.5 max-h-36 overflow-y-auto mb-2">
+              {otherCollections.length === 0
+                ? <p className="text-[10px] px-2 py-1" style={{ color: "rgba(134,134,139,0.4)" }}>No folders yet. Create one first.</p>
+                : otherCollections.map((c) => (
+                  <button
+                    key={c.name}
+                    onMouseDown={() => setExistingTarget(c.name)}
+                    className="flex items-center justify-between px-2 py-1.5 rounded-lg text-[11px] text-left transition-colors"
+                    style={{ background: existingTarget === c.name ? "rgba(59,130,246,0.2)" : "transparent", color: existingTarget === c.name ? "#93c5fd" : "#c7c7cc" }}
+                    onMouseEnter={(e) => { if (existingTarget !== c.name) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+                    onMouseLeave={(e) => { if (existingTarget !== c.name) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <span className="flex items-center gap-1.5"><FolderOpen size={10} />{c.name}</span>
+                    <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 9 }}>{c.doc_count} docs</span>
+                  </button>
+                ))
+              }
+            </div>
+            <button
+              disabled={!existingTarget}
+              onMouseDown={() => existingUploadRef.current?.click()}
+              className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all"
+              style={{
+                background: existingTarget ? "rgba(59,130,246,0.25)" : "rgba(255,255,255,0.04)",
+                color: existingTarget ? "#93c5fd" : "rgba(134,134,139,0.4)",
+                cursor: existingTarget ? "pointer" : "not-allowed",
+              }}
+            >
+              <Upload size={10} />
+              {existingTarget ? `Upload to "${existingTarget}"` : "Select a folder first"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {nameDialog.open && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", zIndex: 200 }}>
+          <div className="rounded-2xl p-5 w-72" style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 60px rgba(0,0,0,0.7)" }}>
+            <p className="text-[13px] font-semibold mb-1" style={{ color: "#f5f5f7" }}>Name this folder</p>
+            <p className="text-[11px] mb-4" style={{ color: "rgba(134,134,139,0.7)" }}>
+              {pendingFiles.length} file{pendingFiles.length !== 1 ? "s" : ""} will be uploaded
+            </p>
+            <input
+              value={nameDialog.value}
+              onChange={(e) => setNameDialog((d) => ({ ...d, value: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmNewFolder(); if (e.key === "Escape") { setNameDialog({ open: false, value: "" }); setPendingFiles([]); } }}
+              autoFocus
+              className="w-full text-[12px] rounded-xl px-3 py-2 mb-4 outline-none"
+              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#f5f5f7" }}
+              placeholder="Folder name..."
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setNameDialog({ open: false, value: "" }); setPendingFiles([]); }}
+                className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#86868B" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmNewFolder}
+                disabled={!nameDialog.value.trim()}
+                className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium transition-opacity"
+                style={{ background: "#3B82F6", color: "white", opacity: nameDialog.value.trim() ? 1 : 0.4 }}
+              >
+                Upload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -782,14 +1028,19 @@ const GROQ_MODELS = [
   { id: "llama-3.3-70b-versatile", label: "Llama 3.3 · 70B", note: "Best" },
   { id: "llama-3.1-8b-instant",    label: "Llama 3.1 · 8B",  note: "Fast" },
   { id: "gemma2-9b-it",            label: "Gemma 2 · 9B",    note: "Google" },
-  { id: "openai/gpt-oss-20b",      label: "GPT-OSS · 20B",   note: "OpenAI" },
 ];
 
-const MODELS = [
+const LOCAL_MODELS = [
   { id: "gemma3:4b",        label: "Gemma 3 · 4B",   note: "Fast" },
   { id: "qwen2.5-coder:7b", label: "Qwen 2.5 · 7B",  note: "Better" },
   { id: "gemma3:12b",       label: "Gemma 3 · 12B",   note: "OOM ⚠" },
 ];
+
+const MODELS = [...LOCAL_MODELS, ...GROQ_MODELS];
+
+function isGroqModel(id: string) {
+  return GROQ_MODELS.some((m) => m.id === id);
+}
 
 function fileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -905,6 +1156,118 @@ function ScopePicker({ scope, collections, onChange }: {
   );
 }
 
+function ContextBar({
+  scope, collections, hybridMode, totalDocs, onScopeChange, onHybridChange,
+}: {
+  scope: ChatScope;
+  collections: Collection[];
+  hybridMode: boolean;
+  totalDocs: number;
+  onScopeChange: (s: ChatScope) => void;
+  onHybridChange: (h: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const selectedNames = scope.type === "selected" ? scope.collections : [];
+  const label = scope.type === "all"
+    ? `All folders · ${totalDocs}`
+    : selectedNames.length === 1
+      ? `${selectedNames[0]} · ${collections.find(c => c.name === selectedNames[0])?.doc_count ?? 0}`
+      : `${selectedNames.length} folders selected`;
+
+  const toggle = (name: string) => {
+    const cur = scope.type === "selected" ? scope.collections : [];
+    const next = cur.includes(name) ? cur.filter((c) => c !== name) : [...cur, name];
+    onScopeChange(next.length === 0 ? { type: "all" } : { type: "selected", collections: next });
+  };
+
+  return (
+    <div className="flex items-center gap-2 pb-2">
+      <div className="relative" ref={ref}>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all"
+          style={{
+            background: scope.type === "all" ? "rgba(255,255,255,0.05)" : "rgba(59,130,246,0.12)",
+            border: `1px solid ${scope.type === "all" ? "rgba(255,255,255,0.1)" : "rgba(59,130,246,0.3)"}`,
+            color: scope.type === "all" ? "#86868B" : "#93c5fd",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {scope.type === "all" ? <Database size={10} /> : <FolderOpen size={10} />}
+          {label}
+          <ChevronDown size={9} style={{ opacity: 0.6, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+        </button>
+
+        {open && (
+          <div className="absolute bottom-full left-0 mb-1.5 rounded-xl overflow-hidden"
+            style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 -8px 32px rgba(0,0,0,0.5)", zIndex: 200, minWidth: 210 }}>
+            <div className="p-1">
+              <button
+                onClick={() => { onScopeChange({ type: "all" }); setOpen(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] text-left transition-colors"
+                style={{ background: scope.type === "all" ? "rgba(59,130,246,0.12)" : "transparent", color: scope.type === "all" ? "#93c5fd" : "#c7c7cc" }}
+                onMouseEnter={(e) => { if (scope.type !== "all") e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                onMouseLeave={(e) => { if (scope.type !== "all") e.currentTarget.style.background = "transparent"; }}
+              >
+                <Database size={11} style={{ flexShrink: 0 }} />
+                <span className="flex-1">All folders</span>
+                <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 10 }}>{totalDocs}</span>
+                {scope.type === "all" && <Check size={10} style={{ color: "#93c5fd", flexShrink: 0 }} />}
+              </button>
+              {collections.length > 0 && (
+                <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "2px 8px" }} />
+              )}
+              {collections.map((col) => {
+                const sel = selectedNames.includes(col.name);
+                return (
+                  <button
+                    key={col.name}
+                    onClick={() => toggle(col.name)}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] text-left transition-colors"
+                    style={{ background: sel ? "rgba(59,130,246,0.1)" : "transparent", color: sel ? "#93c5fd" : "#c7c7cc" }}
+                    onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                    onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <FolderOpen size={11} style={{ flexShrink: 0 }} />
+                    <span className="flex-1 truncate">{col.name}</span>
+                    <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 10 }}>{col.doc_count}</span>
+                    {sel && <Check size={10} style={{ color: "#93c5fd", flexShrink: 0 }} />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={() => onHybridChange(!hybridMode)}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all duration-200 shrink-0"
+        style={{
+          background: hybridMode ? "linear-gradient(135deg, #1e40af, #3b82f6)" : "rgba(255,255,255,0.04)",
+          border: `1px solid ${hybridMode ? "rgba(59,130,246,0.5)" : "rgba(255,255,255,0.08)"}`,
+          color: hybridMode ? "#fff" : "rgba(134,134,139,0.5)",
+          boxShadow: hybridMode ? "0 0 10px rgba(59,130,246,0.3)" : "none",
+        }}
+      >
+        <span style={{ fontSize: 9 }}>⚡</span>
+        Hybrid
+      </button>
+    </div>
+  );
+}
+
 // ── Main App ───────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -916,6 +1279,10 @@ export default function App() {
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null;
   const [activeSource, setActiveSource] = useState<Source | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const streamingChatIdRef = useRef<string | null>(null);
+  const activeChatIdRef = useRef<string | null>(null);
+  const chatsRef = useRef<Chat[]>(chats);
   const [processingStep, setProcessingStep] = useState("embedding");
   const [readingSources, setReadingSources] = useState<string[]>([]);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
@@ -945,6 +1312,7 @@ export default function App() {
     }
     return stored;
   });
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -959,6 +1327,10 @@ export default function App() {
   const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("chatrag_api_key") || "");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const kbSectionRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1024,7 +1396,9 @@ export default function App() {
   const stopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
     setIsProcessing(false);
+    setIsStreaming(false);
     setReadingSources([]);
+    streamingChatIdRef.current = null;
   }, []);
 
   const deleteKbDoc = useCallback(async (docId: string, name: string) => {
@@ -1094,6 +1468,9 @@ export default function App() {
     return map;
   }, [kbDocs, collections, pendingFolders]);
 
+  useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
@@ -1105,14 +1482,28 @@ export default function App() {
       setModelMenuOpen(false);
       setModelSettingsOpen(false);
     };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, [modelMenuOpen]);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const close = (e: MouseEvent) => {
+      if (profileRef.current?.contains(e.target as Node)) return;
+      setProfileOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [profileOpen]);
 
   useEffect(() => {
     fetchCollections();
     fetchSuggestions({ type: "all" });
     loadKbDocs();
+    fetch("/chat/models")
+      .then((r) => r.ok ? r.json() : { models: [] })
+      .then((data) => setOllamaModels(data.models ?? []))
+      .catch(() => {});
   }, []);
 
   const autoResize = () => {
@@ -1147,15 +1538,34 @@ export default function App() {
     if (!chatId) {
       chatId = Date.now().toString();
       const title = content.length > 48 ? content.slice(0, 48) + "…" : content;
-      const newChat: Chat = { id: chatId, title, createdAt: Date.now(), messages: nextMessages };
-      setChats((prev) => { const u = [newChat, ...prev]; saveChatsToStorage(u); return u; });
+      const newChatEntry: Chat = { id: chatId, title, createdAt: Date.now(), messages: nextMessages };
+      setChats((prev) => { const u = [newChatEntry, ...prev]; saveChatsToStorage(u); return u; });
       setActiveChatId(chatId);
+      activeChatIdRef.current = chatId;
     } else {
       persistChat(chatId, nextMessages);
     }
 
+    streamingChatIdRef.current = chatId;
     const aiId = (Date.now() + 1).toString();
     let finalSources: Source[] = [];
+
+    // Update messages for the streaming chat — if user has navigated away, update chats store directly
+    const updateStreamMsg = (updater: (prev: Message[]) => Message[]) => {
+      const cid = streamingChatIdRef.current;
+      if (!cid) return;
+      setChats((prevChats) => {
+        const chat = prevChats.find((c) => c.id === cid);
+        if (!chat) return prevChats;
+        const newMsgs = updater(chat.messages);
+        const updated = prevChats.map((c) => c.id === cid ? { ...c, messages: newMsgs } : c);
+        saveChatsToStorage(updated);
+        return updated;
+      });
+      if (activeChatIdRef.current === cid) {
+        setMessages(updater);
+      }
+    };
 
     try {
       const controller = new AbortController();
@@ -1169,57 +1579,69 @@ export default function App() {
           collections: chatScope.type === "selected" ? chatScope.collections : null,
           hybrid: hybridMode,
           model: activeModel,
-          ...(apiKey ? { api_key: apiKey } : {}),
+          history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          ...(isGroqModel(activeModel) && apiKey ? { api_key: apiKey } : {}),
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      // Read the full SSE response into a single string, then parse events.
-      // This is simpler and avoids closure/chunk-boundary bugs with streaming.
-      const raw = await res.text();
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      for (const line of raw.split("\n")) {
+      const mapSrc = (s: { id: string; content: string; section?: string; similarity: number; filename: string; document_id?: string }, i: number): Source => ({
+        id: `src-${Date.now()}-${i}`,
+        title: s.section ?? s.filename ?? `Source ${i + 1}`,
+        type: (s.filename?.endsWith(".pdf") ? "pdf" : "doc") as Source["type"],
+        excerpt: s.content,
+        date: new Date().toISOString().slice(0, 10),
+        confidence: Math.round(s.similarity * 100),
+        documentId: s.document_id,
+        filename: s.filename,
+      });
+
+      const handleLine = (line: string) => {
         const trimmed = line.trim();
-        if (!trimmed.startsWith("data: ")) continue;
+        if (!trimmed.startsWith("data: ")) return;
         let ev: Record<string, unknown>;
-        try { ev = JSON.parse(trimmed.slice(6)); } catch { continue; }
-
+        try { ev = JSON.parse(trimmed.slice(6)); } catch { return; }
         if (ev.type === "step") {
           setProcessingStep(ev.step as string);
         } else if (ev.type === "sources") {
           const srcs = ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>;
           setReadingSources(srcs.map((s) => s.filename));
-          finalSources = srcs.map((s, i) => ({
-            id: `src-${Date.now()}-${i}`,
-            title: s.section ?? s.filename ?? `Source ${i + 1}`,
-            type: (s.filename?.endsWith(".pdf") ? "pdf" : "doc") as Source["type"],
-            excerpt: s.content,
-            date: new Date().toISOString().slice(0, 10),
-            confidence: Math.round(s.similarity * 100),
-          }));
+          finalSources = srcs.map(mapSrc);
         } else if (ev.type === "token") {
           const token = ev.token as string;
           setIsProcessing(false);
-          setMessages((prev) => {
+          setIsStreaming(true);
+          updateStreamMsg((prev) => {
             const existing = prev.find((m) => m.id === aiId);
             const newContent = (existing?.content ?? "") + token;
             if (existing) return prev.map((m) => m.id === aiId ? { ...m, content: newContent, isStreaming: true } : m);
             return [...prev, { id: aiId, role: "assistant" as const, content: newContent, isStreaming: true }];
           });
         } else if (ev.type === "done" && (ev.sources as unknown[])?.length > 0) {
-          finalSources = (ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>).map((s, i) => ({
-            id: `src-${Date.now()}-${i}`,
-            title: s.section ?? s.filename ?? `Source ${i + 1}`,
-            type: (s.filename?.endsWith(".pdf") ? "pdf" : "doc") as Source["type"],
-            excerpt: s.content,
-            date: new Date().toISOString().slice(0, 10),
-            confidence: Math.round(s.similarity * 100),
-          }));
+          finalSources = (ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>).map(mapSrc);
         }
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          lines.forEach(handleLine);
+        }
+        if (buffer.trim()) handleLine(buffer);
+      } finally {
+        reader.releaseLock();
       }
 
       // Finalize: mark streaming done, attach sources, fallback if empty
-      setMessages((prev) => {
+      updateStreamMsg((prev) => {
         const existing = prev.find((m) => m.id === aiId);
         const content = existing?.content?.trim() ? existing.content : "No answer returned.";
         const finalMsg: Message = { id: aiId, role: "assistant", content, sources: finalSources, isStreaming: false };
@@ -1227,36 +1649,34 @@ export default function App() {
           ? prev.map((m) => m.id === aiId ? finalMsg : m)
           : [...prev, finalMsg];
       });
-
-      // Persist after state settles
-      setTimeout(() => {
-        setMessages((prev) => {
-          const finalMsg = prev.find((m) => m.id === aiId);
-          if (finalMsg) persistChat(chatId, [...nextMessages, finalMsg]);
-          return prev;
-        });
-      }, 0);
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        // User stopped generation — leave partial message as-is
+        updateStreamMsg((prev) => {
+          const existing = prev.find((m) => m.id === aiId);
+          if (!existing) return prev;
+          return prev.map((m) => m.id === aiId ? { ...m, isStreaming: false, sources: finalSources } : m);
+        });
       } else {
         const errMsg: Message = {
           id: aiId,
           role: "assistant",
           content: "Something went wrong connecting to the knowledge base. Please try again.",
         };
-        setMessages((prev) => [...prev, errMsg]);
-        persistChat(chatId, [...nextMessages, errMsg]);
+        updateStreamMsg((prev) => [...prev, errMsg]);
       }
     } finally {
       setIsProcessing(false);
+      setIsStreaming(false);
       setReadingSources([]);
+      streamingChatIdRef.current = null;
     }
   };
 
   const loadChat = (chat: Chat) => {
-    setActiveChatId(chat.id);
-    setMessages(chat.messages);
+    const latest = chatsRef.current.find((c) => c.id === chat.id) ?? chat;
+    setActiveChatId(latest.id);
+    activeChatIdRef.current = latest.id;
+    setMessages(latest.messages);
     setActiveSource(null);
     setActiveSourceId(null);
   };
@@ -1264,9 +1684,11 @@ export default function App() {
   const newChat = () => {
     setMessages([]);
     setActiveChatId(null);
+    activeChatIdRef.current = null;
     setActiveSource(null);
     setActiveSourceId(null);
     setInput("");
+    // Don't abort ongoing stream — let it complete in background chat
   };
 
   const deleteChat = (chatId: string) => {
@@ -1410,7 +1832,7 @@ export default function App() {
         </div>
 
         {/* Knowledge Base */}
-        <div className="flex flex-col min-h-0 flex-1 overflow-hidden" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <div ref={kbSectionRef} className="flex flex-col min-h-0 flex-1 overflow-hidden" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
 
           {/* KB header */}
           <div className="flex items-center justify-between px-3 pt-3 pb-1.5 shrink-0 gap-2">
@@ -1652,6 +2074,10 @@ export default function App() {
           <SyncPanel
             onToast={addToast}
             targetCollection={kbFilter || "default"}
+            collections={Object.entries(folderMap)
+              .filter(([name]) => name !== "default")
+              .map(([name, docs]) => ({ name, doc_count: docs.length }))
+              .sort((a, b) => a.name.localeCompare(b.name))}
             onUploaded={(job) => {
               setUploadJobs((prev) => [job, ...prev]);
               pollJob(job.jobId, job.filename);
@@ -1732,99 +2158,182 @@ export default function App() {
               {modelMenuOpen && (
                 <div
                   className="absolute right-0 top-full mt-1.5 rounded-xl overflow-hidden z-50"
-                  style={{ width: 220, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+                  style={{ width: 230, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
                 >
-                  {/* Model list */}
-                  {!modelSettingsOpen && MODELS.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => { setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); }}
-                      className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
-                      style={{
-                        background: activeModel === m.id ? "rgba(59,130,246,0.12)" : "transparent",
-                        color: activeModel === m.id ? "#93c5fd" : "#c7c7cc",
-                      }}
-                      onMouseEnter={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-                      onMouseLeave={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "transparent"; }}
-                    >
-                      <span className="font-medium">{m.label}</span>
-                      <span className="text-[10px]" style={{ color: m.id === "gemma3:12b" ? "#f87171" : "rgba(134,134,139,0.6)" }}>{m.note}</span>
-                    </button>
-                  ))}
+                  {/* Local models */}
+                  <div className="px-3 pt-2.5 pb-1">
+                    <p className="text-[9px] font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(134,134,139,0.5)" }}>Local · Ollama</p>
+                  </div>
+                  {LOCAL_MODELS.map((m) => {
+                    const notInstalled = ollamaModels.length > 0 && !ollamaModels.some((n) => n === m.id || n.startsWith(m.id.split(":")[0]));
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => { setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); setModelSettingsOpen(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
+                        style={{
+                          background: activeModel === m.id ? "rgba(59,130,246,0.12)" : "transparent",
+                          color: activeModel === m.id ? "#93c5fd" : "#c7c7cc",
+                        }}
+                        onMouseEnter={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                        onMouseLeave={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <span className="font-medium">{m.label}</span>
+                        {notInstalled
+                          ? <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.25)" }}>⚠ Not installed</span>
+                          : <span className="text-[10px]" style={{ color: m.id === "gemma3:12b" ? "#f87171" : "rgba(134,134,139,0.6)" }}>{m.note}</span>
+                        }
+                      </button>
+                    );
+                  })}
 
-                  {/* Settings panel */}
-                  {modelSettingsOpen && (
-                    <div className="px-3 py-3">
-                      <p className="text-[10px] mb-1" style={{ color: "rgba(134,134,139,0.6)" }}>Groq API Key</p>
-                      <div className="relative mb-2">
-                        <input
-                          type={showApiKey ? "text" : "password"}
-                          value={apiKey}
-                          onChange={(e) => { setApiKey(e.target.value); localStorage.setItem("chatrag_api_key", e.target.value); }}
-                          className="w-full text-[10px] rounded-lg px-2 py-1.5 pr-7 outline-none"
-                          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
-                          placeholder="gsk_..."
-                        />
-                        <button
-                          onClick={() => setShowApiKey((s) => !s)}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2"
-                          style={{ color: "#86868B" }}
-                        >
-                          {showApiKey ? <EyeOff size={11} /> : <Eye size={11} />}
-                        </button>
-                      </div>
-
-                      {apiKey.startsWith("gsk_") ? (
-                        <>
-                          <p className="text-[10px] mb-1.5" style={{ color: "#4ade80", fontSize: 9 }}>Groq connected</p>
-                          <p className="text-[10px] mb-1" style={{ color: "rgba(134,134,139,0.6)" }}>Groq model</p>
-                          {GROQ_MODELS.map((m) => (
-                            <button
-                              key={m.id}
-                              onClick={() => { setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); setModelSettingsOpen(false); }}
-                              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg mb-0.5 text-[10px] transition-colors text-left"
-                              style={{
-                                background: activeModel === m.id ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.03)",
-                                color: activeModel === m.id ? "#93c5fd" : "#c7c7cc",
-                                border: activeModel === m.id ? "1px solid rgba(59,130,246,0.3)" : "1px solid transparent",
-                              }}
-                            >
-                              <span className="font-medium">{m.label}</span>
-                              <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 9 }}>{m.note}</span>
-                            </button>
-                          ))}
-                        </>
-                      ) : (
-                        <p className="text-[9px]" style={{ color: "rgba(134,134,139,0.4)" }}>
-                          Nhập Groq API key để dùng Llama / Mixtral tốc độ cao.<br />
-                          Lấy key miễn phí tại console.groq.com
-                        </p>
+                  {/* Groq models */}
+                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }} className="px-3 pt-2.5 pb-1 mt-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>Cloud · Groq</p>
+                      {apiKey.startsWith("gsk_") && (
+                        <span className="text-[8px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80" }}>connected</span>
                       )}
                     </div>
-                  )}
+                  </div>
+                  {GROQ_MODELS.map((m) => {
+                    const needsKey = !apiKey.startsWith("gsk_");
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => {
+                          if (needsKey) { setModelSettingsOpen(true); return; }
+                          setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); setModelSettingsOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
+                        style={{
+                          background: activeModel === m.id ? "rgba(59,130,246,0.12)" : "transparent",
+                          color: needsKey ? "rgba(199,199,204,0.4)" : (activeModel === m.id ? "#93c5fd" : "#c7c7cc"),
+                        }}
+                        onMouseEnter={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                        onMouseLeave={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <span className="font-medium">{m.label}</span>
+                        <span className="text-[10px]" style={{ color: needsKey ? "rgba(134,134,139,0.35)" : "rgba(134,134,139,0.6)" }}>
+                          {needsKey ? "needs key" : m.note}
+                        </span>
+                      </button>
+                    );
+                  })}
 
-                  {/* Settings toggle */}
+                  {/* API key input */}
                   <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <button
-                      onClick={() => setModelSettingsOpen((s) => !s)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-[10px] transition-colors"
-                      style={{ color: modelSettingsOpen ? "#93c5fd" : "rgba(134,134,139,0.55)" }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                    >
-                      <Settings size={10} />
-                      {modelSettingsOpen ? "← Back to models" : "Configure…"}
-                    </button>
+                    {!modelSettingsOpen ? (
+                      <button
+                        onClick={() => setModelSettingsOpen(true)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-[10px] transition-colors"
+                        style={{ color: "rgba(134,134,139,0.55)" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <Settings size={10} />
+                        {apiKey.startsWith("gsk_") ? "Groq key configured" : "Add Groq API key…"}
+                      </button>
+                    ) : (
+                      <div className="px-3 py-3" onMouseDown={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.6)" }}>Groq API Key</p>
+                          <button
+                            onMouseDown={(e) => { e.stopPropagation(); setModelSettingsOpen(false); }}
+                            className="text-[9px]" style={{ color: "rgba(134,134,139,0.5)" }}>← back</button>
+                        </div>
+                        {apiKey.startsWith("gsk_") && (
+                          <p className="text-[9px] mb-1.5 flex items-center gap-1" style={{ color: "#4ade80" }}>
+                            <CheckCircle size={9} /> Connected
+                          </p>
+                        )}
+                        <div className="relative">
+                          <input
+                            type={showApiKey ? "text" : "password"}
+                            value={apiKey}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onChange={(e) => { setApiKey(e.target.value); localStorage.setItem("chatrag_api_key", e.target.value); }}
+                            className="w-full text-[10px] rounded-lg px-2 py-1.5 pr-7 outline-none"
+                            style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${apiKey.startsWith("gsk_") ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.1)"}`, color: "#c7c7cc" }}
+                            placeholder="gsk_..."
+                          />
+                          <button
+                            onMouseDown={(e) => { e.stopPropagation(); setShowApiKey((s) => !s); }}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2"
+                            style={{ color: "#86868B" }}
+                          >
+                            {showApiKey ? <EyeOff size={11} /> : <Eye size={11} />}
+                          </button>
+                        </div>
+                        {!apiKey.startsWith("gsk_") && (
+                          <p className="text-[9px] mt-1.5" style={{ color: "rgba(134,134,139,0.4)" }}>
+                            Lấy key miễn phí tại console.groq.com
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
-            {/* Avatar */}
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold"
-              style={{ background: "linear-gradient(135deg, #0A66C2, #3B82F6)", color: "#fff" }}
-            >
-              A
+            {/* Avatar + profile dropdown */}
+            <div className="relative" ref={profileRef}>
+              <button
+                onClick={() => setProfileOpen((o) => !o)}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold transition-all"
+                style={{ background: "linear-gradient(135deg, #0A66C2, #3B82F6)", color: "#fff", outline: profileOpen ? "2px solid rgba(59,130,246,0.5)" : "none" }}
+                title="Profile"
+              >
+                A
+              </button>
+              {profileOpen && (
+                <div
+                  className="absolute right-0 top-full mt-2 rounded-xl z-50 overflow-hidden"
+                  style={{ width: 220, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+                >
+                  <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
+                        style={{ background: "linear-gradient(135deg, #0A66C2, #3B82F6)", color: "#fff" }}>A</div>
+                      <div>
+                        <p className="text-[12px] font-medium" style={{ color: "#f5f5f7" }}>AanSensei</p>
+                        <p className="text-[10px]" style={{ color: "#86868B" }}>Admin</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-2 py-1.5">
+                    <button
+                      onClick={() => {
+                        setProfileOpen(false);
+                        setTimeout(() => kbSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
+                      style={{ color: "#c7c7cc" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <Database size={12} style={{ color: "#86868B" }} />
+                      Knowledge base: {kbDocs.length} docs
+                    </button>
+                    <button
+                      onClick={() => {
+                        localStorage.clear();
+                        window.location.reload();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
+                      style={{ color: "#f87171" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(248,113,113,0.08)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <RefreshCw size={12} />
+                      Clear all data &amp; reset
+                    </button>
+                  </div>
+                  <div className="px-4 py-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                    <p className="text-[9px]" style={{ color: "rgba(134,134,139,0.4)" }}>chatRAG · aansensei</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -1880,6 +2389,22 @@ export default function App() {
           }}
         >
           <div className="max-w-[850px] mx-auto">
+            <ContextBar
+              scope={chatScope}
+              collections={[
+                ...Object.entries(folderMap)
+                  .filter(([name]) => name !== "default")
+                  .map(([name, docs]) => ({ name, doc_count: docs.length }))
+                  .sort((a, b) => a.name.localeCompare(b.name)),
+                ...pendingFolders
+                  .filter((pf) => !folderMap[pf])
+                  .map((pf) => ({ name: pf, doc_count: 0 })),
+              ]}
+              hybridMode={hybridMode}
+              totalDocs={kbDocs.length}
+              onScopeChange={(s) => { setChatScope(s); fetchSuggestions(s); }}
+              onHybridChange={(h) => { setHybridMode(h); localStorage.setItem("chatrag_hybrid", String(h)); }}
+            />
             <div
               className="flex items-end gap-3 px-4 py-3 rounded-3xl transition-all duration-250"
               style={{
@@ -1892,10 +2417,36 @@ export default function App() {
                   : "none",
               }}
             >
+              <input
+                ref={chatFileInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  files.forEach(async (file) => {
+                    const form = new FormData();
+                    form.append("file", file); form.append("collection", "default");
+                    addToast(`Uploading "${file.name}"...`, "info");
+                    try {
+                      const res = await fetch("/ingest/upload", { method: "POST", body: form });
+                      if (!res.ok) { addToast(`Failed to upload "${file.name}"`, "error"); return; }
+                      const data = await res.json();
+                      const job: UploadJob = { jobId: data.job_id, filename: file.name, status: "queued" };
+                      setUploadJobs((prev) => [job, ...prev]);
+                      pollJob(job.jobId, job.filename);
+                    } catch { addToast(`Failed to upload "${file.name}"`, "error"); }
+                  });
+                  e.target.value = "";
+                }}
+              />
               <button
                 className="shrink-0 mb-0.5 transition-colors duration-150"
+                title="Upload file to knowledge base"
+                onClick={() => chatFileInputRef.current?.click()}
                 style={{ color: "rgba(134,134,139,0.6)" }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#86868B")}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#60a5fa")}
                 onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(134,134,139,0.6)")}
               >
                 <Paperclip size={16} />
@@ -1928,7 +2479,7 @@ export default function App() {
                 }}
               />
 
-              {isProcessing ? (
+              {(isProcessing || isStreaming) ? (
                 <button
                   onClick={stopGeneration}
                   className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200"
@@ -1959,74 +2510,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Scope chips + mode toggle */}
-            <div className="flex items-center justify-center gap-1.5 mt-3 flex-wrap">
-              <button
-                onClick={() => { setChatScope({ type: "all" }); fetchSuggestions({ type: "all" }); }}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
-                style={{
-                  border: `1px solid ${chatScope.type === "all" ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.08)"}`,
-                  color: chatScope.type === "all" ? "#c7c7cc" : "rgba(134,134,139,0.5)",
-                  background: chatScope.type === "all" ? "rgba(255,255,255,0.06)" : "transparent",
-                }}
-              >
-                <Database size={10} />
-                All · {kbDocs.length}
-              </button>
-              {[
-                ...collections,
-                ...pendingFolders
-                  .filter((pf) => !collections.some((c) => c.name === pf))
-                  .map((pf) => ({ name: pf, doc_count: 0 })),
-              ].slice(0, 3).map((col) => {
-                const isSelected = chatScope.type === "selected" && chatScope.collections.includes(col.name);
-                return (
-                  <button
-                    key={col.name}
-                    onClick={() => {
-                      const cur = chatScope.type === "selected" ? chatScope.collections : [];
-                      const next = cur.includes(col.name) ? cur.filter((c) => c !== col.name) : [...cur, col.name];
-                      const newScope = next.length === 0
-                        ? { type: "all" as const }
-                        : { type: "selected" as const, collections: next };
-                      setChatScope(newScope);
-                      fetchSuggestions(newScope);
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
-                    style={{
-                      border: `1px solid ${isSelected ? "rgba(59,130,246,0.4)" : "rgba(255,255,255,0.08)"}`,
-                      color: isSelected ? "#93c5fd" : "rgba(134,134,139,0.5)",
-                      background: isSelected ? "rgba(59,130,246,0.12)" : "transparent",
-                    }}
-                  >
-                    <FolderOpen size={10} />
-                    {col.name}{col.doc_count > 0 ? ` · ${col.doc_count}` : ""}
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => {
-                  const next = !hybridMode;
-                  setHybridMode(next);
-                  localStorage.setItem("chatrag_hybrid", String(next));
-                }}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all duration-200"
-                style={{
-                  background: hybridMode
-                    ? "linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #4f46e5 100%)"
-                    : "rgba(255,255,255,0.05)",
-                  border: `1px solid ${hybridMode ? "rgba(79,70,229,0.6)" : "rgba(255,255,255,0.1)"}`,
-                  color: hybridMode ? "#fff" : "rgba(134,134,139,0.6)",
-                  boxShadow: hybridMode ? "0 0 14px rgba(37,99,235,0.35)" : "none",
-                  letterSpacing: "0.02em",
-                }}
-              >
-                {hybridMode
-                  ? <><span style={{ fontSize: 10 }}>⚡</span> Hybrid</>
-                  : <><span style={{ fontSize: 10 }}>📚</span> Docs only</>
-                }
-              </button>
-            </div>
 
             <p className="text-center text-[11px] mt-2.5" style={{ color: "rgba(134,134,139,0.5)" }}>
               chatRAG can make mistakes. Verify information from internal databases.{" "}
@@ -2044,6 +2527,12 @@ export default function App() {
           onClose={() => {
             setActiveSource(null);
             setActiveSourceId(null);
+          }}
+          onOpenDoc={(title) => {
+            // Scroll KB section into view and highlight the doc
+            setTimeout(() => kbSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+            // Expand all folders to find the doc
+            setExpandedFolders(new Set(collections.map((c) => c.name).concat(["default"])));
           }}
         />
       )}

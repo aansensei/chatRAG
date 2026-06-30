@@ -1,3 +1,6 @@
+import os
+
+import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -8,12 +11,19 @@ from app.presentation.api.auth import get_collections
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+_OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+
 _FALLBACK_SUGGESTIONS = [
     {"title": "Tóm tắt tài liệu", "subtitle": "Các điểm chính trong kho tài liệu"},
     {"title": "Thông tin công ty", "subtitle": "Ban lãnh đạo và cơ cấu tổ chức"},
     {"title": "Kết quả tài chính", "subtitle": "Doanh thu, lợi nhuận và chỉ số KPI"},
     {"title": "Kế hoạch nhân sự", "subtitle": "Tuyển dụng, đào tạo và phúc lợi"},
 ]
+
+
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
 
 
 class QuestionRequest(BaseModel):
@@ -23,6 +33,7 @@ class QuestionRequest(BaseModel):
     hybrid: bool = False
     model: str | None = None
     api_key: str | None = None
+    history: list[HistoryMessage] | None = None
 
 
 @router.post("")
@@ -35,10 +46,28 @@ def chat(body: QuestionRequest, dep_collections: list[str] = Depends(get_collect
         active = [body.collection]
     else:
         active = None
+    history = [h.model_dump() for h in body.history] if body.history else None
     return StreamingResponse(
-        stream_ask(body.question, active, body.hybrid, body.model, body.api_key),
+        stream_ask(body.question, active, body.hybrid, body.model, body.api_key, history),
         media_type="text/event-stream",
     )
+
+
+@router.get("/models")
+def list_ollama_models():
+    """Proxy Ollama /api/tags so the frontend can detect installed local models."""
+    try:
+        resp = httpx.get(
+            f"{_OLLAMA_URL}/api/tags",
+            timeout=httpx.Timeout(connect=3.0, read=5.0, write=2.0, pool=2.0),
+        )
+        if resp.status_code == 200:
+            tags = resp.json().get("models", [])
+            names = [m["name"] for m in tags if m.get("name")]
+            return {"models": names}
+    except Exception:
+        pass
+    return {"models": []}
 
 
 def _doc_name(source: str) -> str:
