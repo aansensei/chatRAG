@@ -1333,10 +1333,11 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 }
 
 const GROQ_MODELS = [
-  { id: "llama-3.3-70b-versatile",                   label: "Llama 3.3 · 70B",    note: "Best" },
+  { id: "llama-3.3-70b-versatile",                   label: "Llama 3.3 · 70B",    note: "280 t/s" },
+  { id: "openai/gpt-oss-20b",                        label: "GPT-OSS · 20B",       note: "1000 t/s" },
   { id: "meta-llama/llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout · 17B", note: "New" },
   { id: "qwen/qwen3-32b",                            label: "Qwen3 · 32B",          note: "60 RPM" },
-  { id: "llama-3.1-8b-instant",                      label: "Llama 3.1 · 8B",       note: "Fast" },
+  { id: "llama-3.1-8b-instant",                      label: "Llama 3.1 · 8B",       note: "560 t/s" },
 ];
 
 const OPENAI_MODELS = [
@@ -1352,17 +1353,19 @@ const GEMINI_MODELS = [
 ];
 
 const OPENROUTER_MODELS_FALLBACK = [
-  { id: "meta-llama/llama-3.2-3b-instruct:free", label: "Llama 3.2 3B", note: "Free" },
-  { id: "mistralai/mistral-7b-instruct:free",     label: "Mistral 7B",   note: "Free" },
+  { id: "nvidia/nemotron-3-ultra-550b-a55b:free",           label: "Nemotron Ultra 550B", note: "1M ctx" },
+  { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", label: "Nemotron Nano 30B",   note: "Reason" },
+  { id: "poolside/laguna-m.1:free",                          label: "Laguna M.1",           note: "262K" },
+  { id: "cohere/north-mini-code:free",                       label: "North Mini Code",       note: "Code" },
 ];
 
 const OPENROUTER_MODELS = OPENROUTER_MODELS_FALLBACK;
 
 const CEREBRAS_MODELS = [
-  { id: "llama-3.3-70b",  label: "Llama 3.3 70B",  note: "Fast"    },
-  { id: "llama3.1-8b",    label: "Llama 3.1 8B",   note: "Fastest" },
-  { id: "gemma-4-31b",    label: "Gemma 4 31B",    note: "New"     },
-  { id: "gpt-oss-120b",   label: "GPT-OSS 120B",   note: "Prod"    },
+  { id: "gpt-oss-120b",  label: "GPT-OSS 120B",  note: "3000 t/s" },
+  { id: "gemma-4-31b",   label: "Gemma 4 31B",   note: "1850 t/s" },
+  { id: "zai-glm-4.7",   label: "Z.ai GLM 4.7",  note: "355B"     },
+  { id: "llama-3.3-70b", label: "Llama 3.3 70B",  note: "Fast"    },
 ];
 
 const LOCAL_MODELS = [
