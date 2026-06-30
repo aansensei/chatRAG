@@ -1716,6 +1716,12 @@ export default function App() {
       "llama3-8b-8192": "llama-3.1-8b-instant",
       "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
       "llama3-70b-8192": "llama-3.3-70b-versatile",
+      "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
+      "gemini-2.5-flash-preview-04-17": "gemini-2.5-flash",
+      "gemini-2.5-pro-preview-06-05": "gemini-2.5-flash",
+      "gemini-1.5-flash": "gemini-2.0-flash",
+      "gemini-1.5-pro": "gemini-2.0-flash",
+      "qwen/qwen-2.5-72b-instruct:free": "meta-llama/llama-3.3-70b-instruct:free",
     };
     if (decommissioned[stored]) {
       localStorage.setItem("chatrag_model", decommissioned[stored]);
