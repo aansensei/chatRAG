@@ -545,6 +545,96 @@ def _format_history(history: list[dict] | None) -> str:
     return "Lịch sử hội thoại gần đây:\n" + "\n".join(lines) + "\n\n"
 
 
+_REWRITE_TRIGGERS_VI = (
+    "đề bài", "điều đó", "nó", "cái đó", "phần đó", "vấn đề đó",
+    "file đó", "tài liệu đó", "câu hỏi đó", "y đó", "kết quả đó",
+    "ở trên", "như vậy", "theo đó", "liên quan", "điều này", "việc này",
+)
+_REWRITE_TRIGGERS_EN = (
+    "it", "that", "those", "this", "the above", "said document",
+    "the file", "the question", "the result", "as mentioned",
+)
+
+
+def _should_rewrite(question: str, history: list[dict] | None) -> bool:
+    """Return True when the question is likely a follow-up that needs context to be understood."""
+    if not history:
+        return False
+    q = question.strip().lower()
+    if len(q) > 120:
+        return False
+    if any(t in q for t in _REWRITE_TRIGGERS_VI):
+        return True
+    if any(t in q for t in _REWRITE_TRIGGERS_EN):
+        return True
+    if len(q) <= 60 and history:
+        return True
+    return False
+
+
+def _rewrite_query_with_history(
+    question: str,
+    history: list[dict] | None,
+    ollama_model: str,
+    api_key: str | None,
+) -> str:
+    """Rewrite a follow-up question into a standalone query using recent history.
+
+    Returns the rewritten query, or the original question if rewriting fails.
+    """
+    if not _should_rewrite(question, history):
+        return question
+
+    history_text = _format_history(history)
+    if not history_text:
+        return question
+
+    prompt = (
+        f"{history_text}"
+        f"Câu hỏi hiện tại: {question}\n"
+        "Viết lại câu hỏi trên thành câu standalone đầy đủ, tự nó hiểu được mà không cần lịch sử. "
+        "Chỉ trả về câu mới, không giải thích. Tối đa 80 ký tự."
+    )
+
+    raw = ""
+    try:
+        if api_key and api_key.startswith("gsk_"):
+            resp = httpx.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 80,
+                    "temperature": 0.0,
+                },
+                timeout=httpx.Timeout(connect=8.0, read=10.0, write=4.0, pool=4.0),
+            )
+            if resp.status_code == 200:
+                raw = resp.json()["choices"][0]["message"]["content"].strip()
+        else:
+            resp = httpx.post(
+                f"{_OLLAMA_URL}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": 80, "temperature": 0.0},
+                },
+                timeout=httpx.Timeout(connect=8.0, read=15.0, write=4.0, pool=4.0),
+            )
+            if resp.status_code == 200:
+                raw = resp.json().get("response", "").strip()
+    except Exception:
+        return question
+
+    rewritten = raw.strip().strip('"').strip("'")
+    if rewritten and 5 < len(rewritten) <= 200:
+        return rewritten
+    return question
+
+
+
 def stream_ask(
     question: str,
     collections: list[str] | None = None,
@@ -597,7 +687,8 @@ def stream_ask(
 
     try:
         yield _sse({"type": "step", "step": "embedding"})
-        vector = embed_text(question)
+        search_query = _rewrite_query_with_history(question, history, ollama_model, api_key)
+        vector = embed_text(search_query)
 
         yield _sse({"type": "step", "step": "searching"})
         try:
