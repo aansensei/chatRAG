@@ -949,14 +949,32 @@ def stream_ask(
     ollama_model = model or _OLLAMA_MODEL
     lang = _detect_lang(question)
     history_block = _format_history(history)
+
+    _facts = _auto_extract_memory(question)
+    _is_instruction_type = bool(_facts and (
+        bool(_INSTRUCTION_TRIGGER.search(question)) or
+        (bool(_PREFERENCE_SIGNAL.search(question)) and bool(_SOFT_ENDING.search(question)))
+    ))
     _new_memories: list[str] = []
-    for _fact in _auto_extract_memory(question):
+    for _fact in _facts:
         saved = add_memory_internal(_fact)
         if saved:
             _new_memories.append(_fact)
     memory_block = _format_memory_block()
     for _mem in _new_memories:
         yield _sse({"type": "memory_saved", "content": _mem})
+
+    # Instruction / teaching message — skip RAG entirely, confirm immediately
+    if _is_instruction_type:
+        ack = (
+            "Đã ghi nhớ! Tôi sẽ áp dụng điều này cho các cuộc trò chuyện tiếp theo."
+            if lang == "vi"
+            else "Got it! I'll keep this in mind going forward."
+        )
+        yield from _stream_text_gradually(ack)
+        yield _sse({"type": "done", "sources": [], "confidence": 1.0})
+        return
+
     confidence_val = None
 
     # Wake-up: "ciel ơi" / "シエルさん" — random greeting, no LLM needed.
