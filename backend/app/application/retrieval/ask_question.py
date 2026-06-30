@@ -558,23 +558,23 @@ def _stream_llm(
         model_str = str(groq_model or "").strip()
         model_lower = model_str.lower()
         
-        # 1. Gemini
-        if "gemini-" in model_lower or api_key_str.startswith("AIzaSy"):
-            yield from _stream_openai_compatible(
-                prompt,
-                model_str or "gemini-2.5-flash",
-                api_key_str,
-                "https://generativelanguage.googleapis.com/v1beta/openai"
-            )
-            return
-
-        # 2. OpenRouter
+        # 1. OpenRouter (Check first since model IDs like google/gemini-2.5-flash:free contain a slash)
         if "/" in model_lower or api_key_str.startswith("sk-or-"):
             yield from _stream_openai_compatible(
                 prompt,
                 model_str or "meta-llama/llama-3.3-70b-instruct:free",
                 api_key_str,
                 "https://openrouter.ai/api/v1"
+            )
+            return
+
+        # 2. Gemini
+        if "gemini" in model_lower or api_key_str.startswith("AIzaSy"):
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "gemini-2.5-flash",
+                api_key_str,
+                "https://generativelanguage.googleapis.com/v1beta/openai"
             )
             return
 
