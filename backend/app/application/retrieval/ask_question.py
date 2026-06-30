@@ -552,10 +552,52 @@ def _stream_llm(
     fallback_vi: str | None = None,
     fallback_en: str | None = None,
 ) -> Generator[str, None, None]:
-    """Stream a prompt through Groq or Ollama; yield static fallback on error."""
-    if api_key and api_key.startswith("gsk_"):
-        yield from _stream_groq(prompt, groq_model or "llama-3.3-70b-versatile", api_key)
-        return
+    """Stream a prompt through Cloud API (Groq, OpenAI, Gemini, OpenRouter) or Ollama; yield static fallback on error."""
+    if api_key:
+        api_key_str = str(api_key).strip()
+        model_str = str(groq_model or "").strip()
+        model_lower = model_str.lower()
+        
+        # 1. Gemini
+        if "gemini-" in model_lower or api_key_str.startswith("AIzaSy"):
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "gemini-2.5-flash",
+                api_key_str,
+                "https://generativelanguage.googleapis.com/v1beta/openai"
+            )
+            return
+
+        # 2. OpenRouter
+        if "/" in model_lower or api_key_str.startswith("sk-or-"):
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "meta-llama/llama-3.3-70b-instruct:free",
+                api_key_str,
+                "https://openrouter.ai/api/v1"
+            )
+            return
+
+        # 3. OpenAI
+        if "gpt-" in model_lower or "o1-" in model_lower or api_key_str.startswith("sk-proj-") or (api_key_str.startswith("sk-") and not api_key_str.startswith("sk-or-")):
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "gpt-4o-mini",
+                api_key_str,
+                "https://api.openai.com/v1"
+            )
+            return
+
+        # 4. Groq
+        if api_key_str.startswith("gsk_") or "llama" in model_lower or "gemma2" in model_lower:
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "llama-3.3-70b-versatile",
+                api_key_str,
+                "https://api.groq.com/openai/v1"
+            )
+            return
+
     try:
         with httpx.stream(
             "POST",
@@ -577,37 +619,55 @@ def _stream_llm(
     except Exception:
         pass
     # Fallback when LLM is unreachable
-    fb = fallback_vi or "Hiện tại tôi không thể kết nối model. Vui lòng thử lại hoặc dùng Groq API key."
+    fb = fallback_vi or "Hiện tại tôi không thể kết nối model. Vui lòng thử lại hoặc cấu hình API key."
     yield from _stream_text_gradually(fb, delay=0.018)
 
 
-def _stream_groq(prompt: str, model: str, api_key: str) -> Generator[str, None, None]:
-    with httpx.stream(
-        "POST",
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": True, "max_tokens": 2048},
-        timeout=httpx.Timeout(connect=15.0, read=60.0, write=10.0, pool=10.0),
-    ) as resp:
-        if resp.status_code != 200:
-            resp.read()
-            try:
-                msg = resp.json().get("error", {}).get("message", resp.text)
-            except Exception:
-                msg = resp.text
-            yield _sse({"type": "token", "token": f"Lỗi Groq ({resp.status_code}): {msg}"})
-            return
-        for line in resp.iter_lines():
-            if not line or line == "data: [DONE]":
-                continue
-            if line.startswith("data: "):
+def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: str) -> Generator[str, None, None]:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    if "openrouter.ai" in base_url:
+        headers["HTTP-Referer"] = "https://github.com/aansensei/chatRAG"
+        headers["X-Title"] = "chatRAG"
+        
+    json_data = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+        "max_tokens": 2048,
+    }
+    
+    try:
+        with httpx.stream(
+            "POST",
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json=json_data,
+            timeout=httpx.Timeout(connect=15.0, read=60.0, write=10.0, pool=10.0),
+        ) as resp:
+            if resp.status_code != 200:
+                resp.read()
                 try:
-                    data = json.loads(line[6:])
-                    token = data["choices"][0]["delta"].get("content", "")
-                    if token:
-                        yield _sse({"type": "token", "token": token})
+                    msg = resp.json().get("error", {}).get("message", resp.text)
                 except Exception:
-                    pass
+                    msg = resp.text
+                yield _sse({"type": "token", "token": f"Lỗi API ({resp.status_code}): {msg}"})
+                return
+            for line in resp.iter_lines():
+                if not line or line == "data: [DONE]":
+                    continue
+                if line.startswith("data: "):
+                    try:
+                        data = json.loads(line[6:])
+                        token = data["choices"][0]["delta"].get("content", "")
+                        if token:
+                            yield _sse({"type": "token", "token": token})
+                    except Exception:
+                        pass
+    except Exception as e:
+        yield _sse({"type": "token", "token": f"Lỗi kết nối API: {e}"})
 
 
 _MAX_HISTORY_TURNS = 4

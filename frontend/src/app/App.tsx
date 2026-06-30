@@ -1278,17 +1278,69 @@ const GROQ_MODELS = [
   { id: "gemma2-9b-it",            label: "Gemma 2 · 9B",    note: "Google" },
 ];
 
+const OPENAI_MODELS = [
+  { id: "gpt-4o",                  label: "GPT-4o",          note: "Omni" },
+  { id: "gpt-4o-mini",             label: "GPT-4o Mini",     note: "Fast" },
+  { id: "o1-mini",                 label: "o1-Mini",         note: "Reason" },
+];
+
+const GEMINI_MODELS = [
+  { id: "gemini-2.5-flash",        label: "Gemini 2.5 Flash",note: "Fast" },
+  { id: "gemini-2.5-pro",          label: "Gemini 2.5 Pro",  note: "Pro" },
+  { id: "gemini-1.5-flash",        label: "Gemini 1.5 Flash",note: "Google" },
+];
+
+const OPENROUTER_MODELS = [
+  { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B", note: "Free" },
+  { id: "deepseek/deepseek-r1:free",             label: "DeepSeek R1",    note: "Free" },
+  { id: "google/gemini-2.5-flash:free",          label: "Gemini 2.5",     note: "Free" },
+];
+
 const LOCAL_MODELS = [
   { id: "gemma3:4b",        label: "Gemma 3 · 4B",   note: "Fast" },
   { id: "qwen2.5-coder:7b", label: "Qwen 2.5 · 7B",  note: "Better" },
-  { id: "gemma3:12b",       label: "Gemma 3 · 12B",   note: "OOM ⚠" },
+  { id: "gemma3:12b",       label: "Gemma 3 · 12B",  note: "OOM ⚠" },
 ];
 
-const MODELS = [...LOCAL_MODELS, ...GROQ_MODELS];
+const MODELS = [
+  ...LOCAL_MODELS,
+  ...GROQ_MODELS,
+  ...OPENAI_MODELS,
+  ...GEMINI_MODELS,
+  ...OPENROUTER_MODELS,
+];
 
 function isGroqModel(id: string) {
   return GROQ_MODELS.some((m) => m.id === id);
 }
+
+function isOpenAIModel(id: string) {
+  return OPENAI_MODELS.some((m) => m.id === id);
+}
+
+function isGeminiModel(id: string) {
+  return GEMINI_MODELS.some((m) => m.id === id);
+}
+
+function isOpenRouterModel(id: string) {
+  return OPENROUTER_MODELS.some((m) => m.id === id);
+}
+
+const getActiveApiKey = (modelId: string) => {
+  if (isGroqModel(modelId)) return localStorage.getItem("chatrag_api_key_groq") || localStorage.getItem("chatrag_api_key") || "";
+  if (isOpenAIModel(modelId)) return localStorage.getItem("chatrag_api_key_openai") || "";
+  if (isGeminiModel(modelId)) return localStorage.getItem("chatrag_api_key_gemini") || "";
+  if (isOpenRouterModel(modelId)) return localStorage.getItem("chatrag_api_key_openrouter") || "";
+  return "";
+};
+
+const getProviderOfModel = (modelId: string) => {
+  if (isGroqModel(modelId)) return "groq";
+  if (isOpenAIModel(modelId)) return "openai";
+  if (isGeminiModel(modelId)) return "gemini";
+  if (isOpenRouterModel(modelId)) return "openrouter";
+  return "ollama";
+};
 
 function fileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -1521,6 +1573,54 @@ function ContextBar({
 export default function App() {
   const [chats, setChats] = useState<Chat[]>(loadChatsFromStorage);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+
+  const getProviderKeyInfo = (provider: string) => {
+    switch (provider) {
+      case "groq":
+        return {
+          key: apiKeyGroq,
+          setKey: setApiKeyGroq,
+          localKey: "chatrag_api_key_groq",
+          label: "Groq",
+          placeholder: "gsk_...",
+          models: GROQ_MODELS,
+          link: "console.groq.com",
+        };
+      case "openai":
+        return {
+          key: apiKeyOpenAI,
+          setKey: setApiKeyOpenAI,
+          localKey: "chatrag_api_key_openai",
+          label: "OpenAI",
+          placeholder: "sk-...",
+          models: OPENAI_MODELS,
+          link: "platform.openai.com",
+        };
+      case "gemini":
+        return {
+          key: apiKeyGemini,
+          setKey: setApiKeyGemini,
+          localKey: "chatrag_api_key_gemini",
+          label: "Gemini",
+          placeholder: "AIzaSy...",
+          models: GEMINI_MODELS,
+          link: "aistudio.google.com",
+        };
+      case "openrouter":
+        return {
+          key: apiKeyOpenRouter,
+          setKey: setApiKeyOpenRouter,
+          localKey: "chatrag_api_key_openrouter",
+          label: "OpenRouter",
+          placeholder: "sk-or-...",
+          models: OPENROUTER_MODELS,
+          link: "openrouter.ai/keys",
+        };
+      default:
+        return null;
+    }
+  };
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
@@ -1575,6 +1675,13 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("chatrag_api_key") || "");
+  const [apiKeyGroq, setApiKeyGroq] = useState(() => localStorage.getItem("chatrag_api_key_groq") || localStorage.getItem("chatrag_api_key") || "");
+  const [apiKeyOpenAI, setApiKeyOpenAI] = useState(() => localStorage.getItem("chatrag_api_key_openai") || "");
+  const [apiKeyGemini, setApiKeyGemini] = useState(() => localStorage.getItem("chatrag_api_key_gemini") || "");
+  const [apiKeyOpenRouter, setApiKeyOpenRouter] = useState(() => localStorage.getItem("chatrag_api_key_openrouter") || "");
+
+  const [modelMenuView, setModelMenuView] = useState<"providers" | "ollama" | "groq" | "openai" | "gemini" | "openrouter">("providers");
+  const [editingProviderKey, setEditingProviderKey] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
@@ -1747,6 +1854,14 @@ export default function App() {
   useEffect(() => { chatsRef.current = chats; }, [chats]);
 
   useEffect(() => {
+    if (modelMenuOpen) {
+      const currentProvider = getProviderOfModel(activeModel);
+      setModelMenuView(currentProvider);
+      setEditingProviderKey(null);
+    }
+  }, [modelMenuOpen, activeModel]);
+
+  useEffect(() => {
     if (userScrolledRef.current) return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
@@ -1859,7 +1974,7 @@ export default function App() {
           hybrid: hybridMode,
           model: activeModel,
           history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
-          ...(isGroqModel(activeModel) && apiKey ? { api_key: apiKey } : {}),
+          api_key: getActiveApiKey(activeModel),
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1946,7 +2061,7 @@ export default function App() {
               answer: finalContent.slice(0, 800),
               source_filenames: finalSources.slice(0, 3).map((s) => s.filename || s.title),
               model: activeModel,
-              ...(isGroqModel(activeModel) && apiKey ? { api_key: apiKey } : {}),
+              api_key: getActiveApiKey(activeModel),
             }),
           });
           if (!r.ok) return;
@@ -2543,126 +2658,181 @@ export default function App() {
                 onMouseLeave={(e) => { if (!modelMenuOpen) { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "#86868B"; } }}
               >
                 <Cpu size={11} />
-                {(MODELS.find((m) => m.id === activeModel) ?? GROQ_MODELS.find((m) => m.id === activeModel))?.label ?? activeModel}
+                {MODELS.find((m) => m.id === activeModel)?.label ?? activeModel}
                 <ChevronDown size={10} />
               </button>
               {modelMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-1.5 rounded-xl overflow-hidden z-50"
-                  style={{ width: 230, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+                  className="absolute right-0 top-full mt-1.5 rounded-xl overflow-hidden z-50 flex flex-col"
+                  style={{ width: 230, maxHeight: "380px", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
                 >
-                  {/* Local models */}
-                  <div className="px-3 pt-2.5 pb-1">
-                    <p className="text-[9px] font-semibold tracking-wider uppercase mb-1" style={{ color: "rgba(134,134,139,0.5)" }}>Local · Ollama</p>
-                  </div>
-                  {LOCAL_MODELS.map((m) => {
-                    const notInstalled = ollamaModels.length > 0 && !ollamaModels.some((n) => n === m.id || n.startsWith(m.id.split(":")[0]));
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => { setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); setModelSettingsOpen(false); }}
-                        className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
-                        style={{
-                          background: activeModel === m.id ? "rgba(59,130,246,0.12)" : "transparent",
-                          color: activeModel === m.id ? "#93c5fd" : "#c7c7cc",
-                        }}
-                        onMouseEnter={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-                        onMouseLeave={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "transparent"; }}
-                      >
-                        <span className="font-medium">{m.label}</span>
-                        {notInstalled
-                          ? <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.25)" }}>⚠ Not installed</span>
-                          : <span className="text-[10px]" style={{ color: m.id === "gemma3:12b" ? "#f87171" : "rgba(134,134,139,0.6)" }}>{m.note}</span>
-                        }
-                      </button>
-                    );
-                  })}
-
-                  {/* Groq models */}
-                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }} className="px-3 pt-2.5 pb-1 mt-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>Cloud · Groq</p>
-                      {apiKey.startsWith("gsk_") && (
-                        <span className="text-[8px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(74,222,128,0.1)", color: "#4ade80" }}>connected</span>
-                      )}
-                    </div>
-                  </div>
-                  {GROQ_MODELS.map((m) => {
-                    const needsKey = !apiKey.startsWith("gsk_");
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => {
-                          if (needsKey) { setModelSettingsOpen(true); return; }
-                          setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); setModelSettingsOpen(false);
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
-                        style={{
-                          background: activeModel === m.id ? "rgba(59,130,246,0.12)" : "transparent",
-                          color: needsKey ? "rgba(199,199,204,0.4)" : (activeModel === m.id ? "#93c5fd" : "#c7c7cc"),
-                        }}
-                        onMouseEnter={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-                        onMouseLeave={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "transparent"; }}
-                      >
-                        <span className="font-medium">{m.label}</span>
-                        <span className="text-[10px]" style={{ color: needsKey ? "rgba(134,134,139,0.35)" : "rgba(134,134,139,0.6)" }}>
-                          {needsKey ? "needs key" : m.note}
-                        </span>
-                      </button>
-                    );
-                  })}
-
-                  {/* API key input */}
-                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    {!modelSettingsOpen ? (
-                      <button
-                        onClick={() => setModelSettingsOpen(true)}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-[10px] transition-colors"
-                        style={{ color: "rgba(134,134,139,0.55)" }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                      >
-                        <Settings size={10} />
-                        {apiKey.startsWith("gsk_") ? "Groq key configured" : "Add Groq API key…"}
-                      </button>
-                    ) : (
-                      <div className="px-3 py-3" onMouseDown={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.6)" }}>Groq API Key</p>
-                          <button
-                            onMouseDown={(e) => { e.stopPropagation(); setModelSettingsOpen(false); }}
-                            className="text-[9px]" style={{ color: "rgba(134,134,139,0.5)" }}>← back</button>
+                  <div className="overflow-y-auto flex-1 scrollbar-hide">
+                    {modelMenuView === "providers" && (
+                      <div className="px-1 py-1.5">
+                        <div className="px-3 py-2">
+                          <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>Chọn API Provider</p>
                         </div>
-                        {apiKey.startsWith("gsk_") && (
-                          <p className="text-[9px] mb-1.5 flex items-center gap-1" style={{ color: "#4ade80" }}>
-                            <CheckCircle size={9} /> Connected
-                          </p>
-                        )}
-                        <div className="relative">
-                          <input
-                            type={showApiKey ? "text" : "password"}
-                            value={apiKey}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onChange={(e) => { setApiKey(e.target.value); localStorage.setItem("chatrag_api_key", e.target.value); }}
-                            className="w-full text-[10px] rounded-lg px-2 py-1.5 pr-7 outline-none"
-                            style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${apiKey.startsWith("gsk_") ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.1)"}`, color: "#c7c7cc" }}
-                            placeholder="gsk_..."
-                          />
-                          <button
-                            onMouseDown={(e) => { e.stopPropagation(); setShowApiKey((s) => !s); }}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2"
-                            style={{ color: "#86868B" }}
-                          >
-                            {showApiKey ? <EyeOff size={11} /> : <Eye size={11} />}
-                          </button>
-                        </div>
-                        {!apiKey.startsWith("gsk_") && (
-                          <p className="text-[9px] mt-1.5" style={{ color: "rgba(134,134,139,0.4)" }}>
-                            Lấy key miễn phí tại console.groq.com
-                          </p>
-                        )}
+                        {[
+                          { id: "ollama", label: "Local · Ollama" },
+                          { id: "groq", label: "Cloud · Groq" },
+                          { id: "openai", label: "Cloud · OpenAI" },
+                          { id: "gemini", label: "Cloud · Gemini" },
+                          { id: "openrouter", label: "Cloud · OpenRouter" },
+                        ].map((prov) => {
+                          const isCurrent = getProviderOfModel(activeModel) === prov.id;
+                          return (
+                            <button
+                              key={prov.id}
+                              onClick={() => setModelMenuView(prov.id as any)}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-[11px] font-medium transition-colors text-left"
+                              style={{
+                                background: isCurrent ? "rgba(59,130,246,0.12)" : "transparent",
+                                color: isCurrent ? "#93c5fd" : "#c7c7cc",
+                              }}
+                              onMouseEnter={(e) => { if (!isCurrent) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                              onMouseLeave={(e) => { if (!isCurrent) e.currentTarget.style.background = "transparent"; }}
+                            >
+                              <span>{prov.label}</span>
+                              <ChevronRight size={10} style={{ opacity: 0.5 }} />
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
+
+                    {modelMenuView === "ollama" && (
+                      <div className="px-1 py-1.5">
+                        <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", marginBottom: 4 }}>
+                          <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>← Providers</button>
+                          <span className="text-[9px] font-semibold uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>Ollama</span>
+                        </div>
+                        {LOCAL_MODELS.map((m) => {
+                          const notInstalled = ollamaModels.length > 0 && !ollamaModels.some((n) => n === m.id || n.startsWith(m.id.split(":")[0]));
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => { setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); }}
+                              className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
+                              style={{
+                                background: activeModel === m.id ? "rgba(59,130,246,0.12)" : "transparent",
+                                color: activeModel === m.id ? "#93c5fd" : "#c7c7cc",
+                              }}
+                              onMouseEnter={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                              onMouseLeave={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "transparent"; }}
+                            >
+                              <span className="font-medium">{m.label}</span>
+                              {notInstalled
+                                ? <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.25)" }}>⚠ Not installed</span>
+                                : <span className="text-[10px]" style={{ color: m.id === "gemma3:12b" ? "#f87171" : "rgba(134,134,139,0.6)" }}>{m.note}</span>
+                              }
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {modelMenuView !== "providers" && modelMenuView !== "ollama" && (() => {
+                      const info = getProviderKeyInfo(modelMenuView);
+                      if (!info) return null;
+                      const hasKey = !!info.key.trim();
+                      const isEditing = editingProviderKey === modelMenuView || !hasKey;
+
+                      if (isEditing) {
+                        return (
+                          <div className="px-3 py-3" onMouseDown={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-2">
+                              <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>← Providers</button>
+                              <span className="text-[9px] font-semibold uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>{info.label} Key</span>
+                            </div>
+                            <p className="text-[10px] mb-1.5" style={{ color: "rgba(134,134,139,0.7)" }}>Nhập API Key cho {info.label}:</p>
+                            <div className="relative mb-2">
+                              <input
+                                type={showApiKey ? "text" : "password"}
+                                value={info.key}
+                                onChange={(e) => {
+                                  info.setKey(e.target.value);
+                                  localStorage.setItem(info.localKey, e.target.value);
+                                  // Sync legacy chatrag_api_key for backward compatibility if it's groq
+                                  if (modelMenuView === "groq") {
+                                    localStorage.setItem("chatrag_api_key", e.target.value);
+                                    setApiKey(e.target.value);
+                                  }
+                                }}
+                                className="w-full text-[10px] rounded-lg px-2.5 py-1.5 pr-7 outline-none"
+                                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
+                                placeholder={info.placeholder}
+                              />
+                              <button
+                                onMouseDown={(e) => { e.stopPropagation(); setShowApiKey((s) => !s); }}
+                                className="absolute right-1.5 top-1/2 -translate-y-1/2"
+                                style={{ color: "#86868B" }}
+                              >
+                                {showApiKey ? <EyeOff size={11} /> : <Eye size={11} />}
+                              </button>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (info.key.trim()) {
+                                  setEditingProviderKey(null);
+                                } else {
+                                  addToast("Vui lòng nhập API key", "error");
+                                }
+                              }}
+                              className="w-full py-1.5 rounded-lg text-[10px] font-semibold transition-all"
+                              style={{
+                                background: info.key.trim() ? "linear-gradient(135deg, #0A66C2, #3B82F6)" : "rgba(255,255,255,0.04)",
+                                color: info.key.trim() ? "#fff" : "rgba(134,134,139,0.4)",
+                                cursor: info.key.trim() ? "pointer" : "not-allowed",
+                              }}
+                            >
+                              Save &amp; Continue
+                            </button>
+                            <p className="text-[9px] mt-2 text-center" style={{ color: "rgba(134,134,139,0.4)" }}>
+                              Lấy key tại <a href={`https://${info.link}`} target="_blank" rel="noreferrer" className="underline hover:text-white transition-colors">{info.link}</a>
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="px-1 py-1.5 flex flex-col h-full justify-between">
+                          <div>
+                            <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", marginBottom: 4 }}>
+                              <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>← Providers</button>
+                              <span className="text-[9px] font-semibold uppercase text-green-400">connected</span>
+                            </div>
+                            {info.models.map((m) => (
+                              <button
+                                key={m.id}
+                                onClick={() => { setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); }}
+                                className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
+                                style={{
+                                  background: activeModel === m.id ? "rgba(59,130,246,0.12)" : "transparent",
+                                  color: activeModel === m.id ? "#93c5fd" : "#c7c7cc",
+                                }}
+                                onMouseEnter={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                                onMouseLeave={(e) => { if (activeModel !== m.id) e.currentTarget.style.background = "transparent"; }}
+                              >
+                                <span className="font-medium">{m.label}</span>
+                                <span className="text-[10px]" style={{ color: "rgba(134,134,139,0.6)" }}>{m.note}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-2 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                            <button
+                              onClick={() => setEditingProviderKey(modelMenuView)}
+                              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[9px] transition-colors"
+                              style={{ color: "rgba(134,134,139,0.55)" }}
+                              onMouseEnter={(e) => e.currentTarget.style.color = "#fff"}
+                              onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.55)"}
+                            >
+                              <Settings size={9} />
+                              Thay đổi API Key
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
