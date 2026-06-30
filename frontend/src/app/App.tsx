@@ -1749,6 +1749,7 @@ export default function App() {
   const [kbBrowserOpen, setKbBrowserOpen] = useState(false);
   const [kbBrowserFolder, setKbBrowserFolder] = useState<string | null>(null);
   const [kbBrowserSearch, setKbBrowserSearch] = useState("");
+  const [kbViewerDoc, setKbViewerDoc] = useState<KBDocument | null>(null);
   const [memories, setMemories] = useState<{ id: string; content: string; created_at: number }[]>([]);
   const [newMemory, setNewMemory] = useState("");
 
@@ -3142,7 +3143,7 @@ export default function App() {
                               </label>
                             ) : (
                               <button
-                                onClick={() => window.open(`/ingest/documents/${d.document_id}/file`, "_blank")}
+                                onClick={() => setKbViewerDoc(d)}
                                 className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded text-[10px] transition-opacity"
                                 style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}
                               >
@@ -3158,6 +3159,103 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Document viewer modal */}
+        {kbViewerDoc && (() => {
+          const filename = kbViewerDoc.source.split("/").pop()?.split("\\").pop() || kbViewerDoc.source;
+          const ext = filename.split(".").pop()?.toLowerCase() || "";
+          const fileUrl = `/ingest/documents/${kbViewerDoc.document_id}/file`;
+          const isPdf = ext === "pdf";
+          const isImage = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+          const downloadFile = async () => {
+            try {
+              const res = await fetch(fileUrl);
+              if (!res.ok) return;
+              const blob = await res.blob();
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = filename;
+              a.click();
+              URL.revokeObjectURL(a.href);
+            } catch { /* ignore */ }
+          };
+          return (
+            <div
+              className="fixed inset-0 z-[200] flex items-center justify-center"
+              style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
+              onClick={(e) => { if (e.target === e.currentTarget) setKbViewerDoc(null); }}
+            >
+              <div
+                className="flex flex-col rounded-2xl overflow-hidden"
+                style={{
+                  width: "min(900px, 92vw)",
+                  height: "min(700px, 90vh)",
+                  background: "#1C1C1E",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  boxShadow: "0 32px 80px rgba(0,0,0,0.6)",
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-3 px-5 py-3.5 shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                  <FileType2 size={15} style={{ color: "#86868B", flexShrink: 0 }} />
+                  <span className="flex-1 text-[13px] font-medium truncate" style={{ color: "#f5f5f7" }} title={filename}>{filename}</span>
+                  <button
+                    onClick={downloadFile}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all"
+                    style={{ background: "rgba(59,130,246,0.15)", color: "#93c5fd", border: "1px solid rgba(59,130,246,0.2)" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.28)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.15)"; }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download
+                  </button>
+                  <button
+                    onClick={() => setKbViewerDoc(null)}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
+                    style={{ color: "#86868B" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "#fff"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#86868B"; }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 min-h-0 relative" style={{ background: "#111" }}>
+                  {isPdf ? (
+                    <iframe
+                      src={`${fileUrl}#toolbar=1&navpanes=0&scrollbar=1`}
+                      className="w-full h-full border-0"
+                      title={filename}
+                    />
+                  ) : isImage ? (
+                    <div className="w-full h-full flex items-center justify-center p-6">
+                      <img src={fileUrl} alt={filename} className="max-w-full max-h-full object-contain rounded-lg" />
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-4">
+                      <FileType2 size={48} style={{ color: "#3C3C3E" }} />
+                      <div className="text-center">
+                        <p className="text-[14px] font-medium" style={{ color: "#f5f5f7" }}>{filename}</p>
+                        <p className="text-[12px] mt-1" style={{ color: "#86868B" }}>Không thể xem trực tiếp — hãy tải về để mở</p>
+                      </div>
+                      <button
+                        onClick={downloadFile}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium transition-all"
+                        style={{ background: "rgba(59,130,246,0.2)", color: "#93c5fd", border: "1px solid rgba(59,130,246,0.25)" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.35)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.2)"; }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Tải xuống {filename}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Messages area */}
         <div

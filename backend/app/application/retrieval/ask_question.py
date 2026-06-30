@@ -517,8 +517,9 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
             logger.warning("OpenRouter filter call %s: %s", r.status_code, r.text[:200])
             return ""
         if "gemini" in mod_lower or key.startswith("AIzaSy"):
-            fast = mod or "gemini-1.5-flash"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{fast}:generateContent?key={key}"
+            fast = (mod or "gemini-1.5-flash").replace("models/", "")
+            api_ver = "v1beta" if any(x in fast for x in ["2.5", "preview", "exp", "latest"]) else "v1"
+            url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{fast}:generateContent?key={key}"
             r = httpx.post(url, headers={"Content-Type": "application/json"},
                            json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": max_tokens}}, timeout=t)
             if r.status_code == 200:
@@ -666,7 +667,8 @@ def _stream_llm(
 
 def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[str, None, None]:
     model_clean = model.replace("models/", "")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_clean}:streamGenerateContent?alt=sse&key={api_key}"
+    api_ver = "v1beta" if any(x in model_clean for x in ["2.5", "preview", "exp", "latest"]) else "v1"
+    url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model_clean}:streamGenerateContent?alt=sse&key={api_key}"
     headers = {"Content-Type": "application/json"}
     json_data = {
         "contents": [{"parts": [{"text": prompt}]}],
