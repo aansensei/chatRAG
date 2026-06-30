@@ -522,7 +522,7 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
             logger.warning("OpenRouter filter call %s: %s", r.status_code, r.text[:200])
             return ""
         if "gemini" in mod_lower or key.startswith("AIzaSy"):
-            fast = (mod or "gemini-1.5-flash").replace("models/", "")
+            fast = (mod or "gemini-2.0-flash").replace("models/", "")
             api_ver = "v1beta" if any(x in fast for x in ["2.5", "preview", "exp", "latest"]) else "v1"
             url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{fast}:generateContent?key={key}"
             r = httpx.post(url, headers={"Content-Type": "application/json"},
@@ -620,7 +620,7 @@ def _stream_llm(
         if "gemini" in model_lower or api_key_str.startswith("AIzaSy"):
             yield from _stream_gemini_native(
                 prompt,
-                model_str or "gemini-2.5-flash",
+                model_str or "gemini-2.0-flash",
                 api_key_str
             )
             return
@@ -822,6 +822,23 @@ def _should_rewrite(question: str, history: list[dict] | None) -> bool:
     return False
 
 
+def _augment_for_embedding(question: str, history: list[dict] | None) -> str:
+    """Prepend the previous user question for short follow-ups — no LLM needed.
+
+    "đề bài hỏi gì?" alone has poor embedding. With context:
+    "câu hỏi tour du lịch 5 sao → đề bài hỏi gì?" works much better.
+    Only triggers when query is short (<= 12 words) and history exists.
+    """
+    if not history or len(question.split()) > 12:
+        return question
+    for msg in reversed(history):
+        if msg.get("role") == "user":
+            prev = msg.get("content", "").strip()
+            if prev and prev != question and len(prev) > 5:
+                return f"{prev} {question}"
+    return question
+
+
 def _rewrite_query_with_history(
     question: str,
     history: list[dict] | None,
@@ -848,21 +865,9 @@ def _rewrite_query_with_history(
 
     raw = ""
     try:
-        if api_key and api_key.startswith("gsk_"):
-            resp = httpx.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "llama-3.1-8b-instant",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 80,
-                    "temperature": 0.0,
-                },
-                timeout=httpx.Timeout(connect=8.0, read=10.0, write=4.0, pool=4.0),
-            )
-            if resp.status_code == 200:
-                raw = resp.json()["choices"][0]["message"]["content"].strip()
-        else:
+        if api_key:
+            raw = _call_llm_once(prompt, ollama_model, api_key, max_tokens=80)
+        if not raw:
             resp = httpx.post(
                 f"{_OLLAMA_URL}/api/generate",
                 json={
@@ -964,7 +969,8 @@ def stream_ask(
     try:
         yield _sse({"type": "step", "step": "embedding"})
         search_query = _rewrite_query_with_history(question, history, ollama_model, api_key)
-        vector = embed_text(search_query)
+        embed_query = _augment_for_embedding(search_query, history)
+        vector = embed_text(embed_query)
 
         yield _sse({"type": "step", "step": "searching"})
         try:
