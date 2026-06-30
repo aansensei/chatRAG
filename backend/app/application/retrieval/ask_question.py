@@ -35,10 +35,14 @@ _MEM_PATS_FULL = [
     re.compile(r"\b(?:tôi\s+là|mình\s+là|i\s+am\s+a|i'?m\s+a|i\s+work\s+as)\s+([^.,\n!?]{3,80})", re.IGNORECASE),
     re.compile(r"\b(?:tôi\s+(?:thích|ưa|ghét|không\s+thích)|i\s+prefer|i\s+like|i\s+hate)\s+([^.,\n!?]{3,100})", re.IGNORECASE),
     re.compile(r"\b(?:tôi\s+(?:làm|đang\s+làm\s+tại|sống\s+ở|ở)|i\s+work\s+at|i\s+live\s+in)\s+([^.,\n!?]{2,80})", re.IGNORECASE),
+    # "từ nay / từ giờ / from now on" — instruction-type preferences
+    re.compile(r"\b(?:từ\s+nay(?:\s+trở\s+về\s+sau)?|từ\s+giờ(?:\s+trở\s+đi)?|from\s+now\s+on)\b(.{8,200}?)(?:\s+(?:nha|nhé|nhe|ok|okay))?$", re.IGNORECASE | re.MULTILINE),
 ]
 
 _MEM_PATS_CAPTURE = [
     re.compile(r"\b(?:hãy\s+nhớ\s+(?:là\s+|rằng\s+)?|nhớ\s+(?:giúp\s+(?:tôi\s+|mình\s+)?)?(?:là\s+|rằng\s+)?|remember\s+(?:that\s+)?|please\s+remember\s+)([^.\n!?]{5,200})", re.IGNORECASE),
+    # "X nhé/nha" where X is a clear instruction (contains ưu tiên / luôn / hãy / always)
+    re.compile(r"((?:ưu\s+tiên|luôn\s+luôn|luôn|hãy\s+luôn|always|prioritize)[^.\n!?]{5,180})\s+(?:nha|nhé|nhe)\s*[.!]*$", re.IGNORECASE | re.MULTILINE),
 ]
 
 
