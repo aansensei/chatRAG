@@ -1351,12 +1351,12 @@ const GEMINI_MODELS = [
   { id: "gemini-2.0-flash-lite",label: "Gemini 2.0 Lite",   note: "Fast"   },
 ];
 
-const OPENROUTER_MODELS = [
-  { id: "meta-llama/llama-3.1-8b-instruct:free",  label: "Llama 3.1 8B",  note: "Free" },
-  { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B", note: "Free" },
-  { id: "deepseek/deepseek-r1:free",              label: "DeepSeek R1",    note: "Free" },
-  { id: "google/gemma-3-27b-it:free",             label: "Gemma 3 27B",    note: "Free" },
+const OPENROUTER_MODELS_FALLBACK = [
+  { id: "meta-llama/llama-3.2-3b-instruct:free", label: "Llama 3.2 3B", note: "Free" },
+  { id: "mistralai/mistral-7b-instruct:free",     label: "Mistral 7B",   note: "Free" },
 ];
+
+const OPENROUTER_MODELS = OPENROUTER_MODELS_FALLBACK;
 
 const CEREBRAS_MODELS = [
   { id: "llama-3.3-70b",  label: "Llama 3.3 70B",  note: "Fast" },
@@ -1392,7 +1392,7 @@ function isGeminiModel(id: string) {
 }
 
 function isOpenRouterModel(id: string) {
-  return OPENROUTER_MODELS.some((m) => m.id === id);
+  return id.includes("/");
 }
 
 function isCerebrasModel(id: string) {
@@ -1772,6 +1772,8 @@ export default function App() {
   const [apiKeyGemini, setApiKeyGemini] = useState(() => localStorage.getItem("chatrag_api_key_gemini") || "");
   const [apiKeyOpenRouter, setApiKeyOpenRouter] = useState(() => localStorage.getItem("chatrag_api_key_openrouter") || "");
   const [apiKeyCerebras, setApiKeyCerebras] = useState(() => localStorage.getItem("chatrag_api_key_cerebras") || "");
+  const [orModels, setOrModels] = useState<{id:string,label:string,note:string}[]>(OPENROUTER_MODELS_FALLBACK);
+  const [orLoading, setOrLoading] = useState(false);
 
   const [modelMenuView, setModelMenuView] = useState<"providers" | "ollama" | "groq" | "openai" | "gemini" | "openrouter" | "cerebras">("providers");
   const [editingProviderKey, setEditingProviderKey] = useState<string | null>(null);
@@ -1992,6 +1994,27 @@ export default function App() {
       .then((data) => setOllamaModels(data.models ?? []))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (modelMenuView !== "openrouter") return;
+    setOrLoading(true);
+    fetch("https://openrouter.ai/api/v1/models")
+      .then((r) => r.json())
+      .then((data) => {
+        const free = (data.data || [])
+          .filter((m: any) => m.id.endsWith(":free"))
+          .sort((a: any, b: any) => (b.context_length || 0) - (a.context_length || 0))
+          .slice(0, 10)
+          .map((m: any) => ({
+            id: m.id,
+            label: (m.name || m.id.split("/")[1] || m.id).replace(/:free$/i, ""),
+            note: "Free",
+          }));
+        if (free.length > 0) setOrModels(free);
+      })
+      .catch(() => {})
+      .finally(() => setOrLoading(false));
+  }, [modelMenuView]);
 
   const autoResize = () => {
     const el = textareaRef.current;
@@ -2759,7 +2782,9 @@ export default function App() {
                 onMouseLeave={(e) => { if (!modelMenuOpen) { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "#86868B"; } }}
               >
                 <Cpu size={11} />
-                {MODELS.find((m) => m.id === activeModel)?.label ?? activeModel}
+                {MODELS.find((m) => m.id === activeModel)?.label
+                  ?? orModels.find((m) => m.id === activeModel)?.label
+                  ?? (activeModel.includes("/") ? activeModel.split("/")[1].replace(/:free$/, "").split("-").slice(0,3).join(" ") : activeModel)}
                 <ChevronDown size={10} />
               </button>
               {modelMenuOpen && (
@@ -2896,14 +2921,17 @@ export default function App() {
                         );
                       }
 
+                      const displayModels = modelMenuView === "openrouter" ? orModels : info.models;
                       return (
                         <div className="px-1 py-1.5 flex flex-col h-full justify-between">
                           <div>
                             <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", marginBottom: 4 }}>
                               <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>← Providers</button>
-                              <span className="text-[9px] font-semibold uppercase text-green-400">connected</span>
+                              {modelMenuView === "openrouter" && orLoading
+                                ? <span className="text-[9px]" style={{ color: "rgba(134,134,139,0.5)" }}>loading...</span>
+                                : <span className="text-[9px] font-semibold uppercase text-green-400">connected</span>}
                             </div>
-                            {info.models.map((m) => (
+                            {displayModels.map((m) => (
                               <button
                                 key={m.id}
                                 onClick={() => { setActiveModel(m.id); localStorage.setItem("chatrag_model", m.id); setModelMenuOpen(false); }}
