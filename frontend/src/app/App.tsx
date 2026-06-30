@@ -1752,6 +1752,8 @@ export default function App() {
   const [kbViewerDoc, setKbViewerDoc] = useState<KBDocument | null>(null);
   const [memories, setMemories] = useState<{ id: string; content: string; created_at: number }[]>([]);
   const [newMemory, setNewMemory] = useState("");
+  const [memParticles, setMemParticles] = useState<string[]>([]);
+  const avatarBtnRef = useRef<HTMLButtonElement>(null);
 
   const refreshMemories = async () => {
     try {
@@ -2061,7 +2063,12 @@ export default function App() {
         if (!trimmed.startsWith("data: ")) return;
         let ev: Record<string, unknown>;
         try { ev = JSON.parse(trimmed.slice(6)); } catch { return; }
-        if (ev.type === "step") {
+        if (ev.type === "memory_saved") {
+          const pid = Date.now().toString(36) + Math.random().toString(36).slice(2);
+          setMemParticles((p) => [...p, pid]);
+          setTimeout(() => setMemParticles((p) => p.filter((x) => x !== pid)), 1600);
+          setTimeout(() => refreshMemories(), 200);
+        } else if (ev.type === "step") {
           setProcessingStep(ev.step as string);
         } else if (ev.type === "sources") {
           const srcs = ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>;
@@ -2902,9 +2909,17 @@ export default function App() {
             {/* Avatar + profile dropdown */}
             <div className="relative" ref={profileRef}>
               <button
+                ref={avatarBtnRef}
                 onClick={() => setProfileOpen((o) => !o)}
                 className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold transition-all"
-                style={{ background: "linear-gradient(135deg, #0A66C2, #3B82F6)", color: "#fff", outline: profileOpen ? "2px solid rgba(59,130,246,0.5)" : "none" }}
+                style={{
+                  background: memParticles.length > 0
+                    ? "linear-gradient(135deg, #7c3aed, #3B82F6)"
+                    : "linear-gradient(135deg, #0A66C2, #3B82F6)",
+                  color: "#fff",
+                  outline: profileOpen ? "2px solid rgba(59,130,246,0.5)" : memParticles.length > 0 ? "2px solid rgba(124,58,237,0.6)" : "none",
+                  transition: "background 0.4s, outline 0.4s",
+                }}
                 title="Profile"
               >
                 A
@@ -3159,6 +3174,55 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* Memory save particle animation */}
+        {memParticles.map((pid) => {
+          const avatarRect = avatarBtnRef.current?.getBoundingClientRect();
+          const tx = avatarRect ? `${avatarRect.left + avatarRect.width / 2}px` : "calc(100vw - 32px)";
+          const ty = avatarRect ? `${avatarRect.top + avatarRect.height / 2}px` : "24px";
+          return (
+            <div key={pid} className="pointer-events-none" style={{ position: "fixed", inset: 0, zIndex: 9999 }}>
+              {[...Array(8)].map((_, i) => {
+                const angle = (i / 8) * 360;
+                const spread = 28 + Math.random() * 18;
+                const ox = Math.cos((angle * Math.PI) / 180) * spread;
+                const oy = Math.sin((angle * Math.PI) / 180) * spread;
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      bottom: "80px",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: i % 2 === 0 ? "#a78bfa" : "#60a5fa",
+                      boxShadow: `0 0 6px 2px ${i % 2 === 0 ? "#7c3aed" : "#3b82f6"}`,
+                      animation: `mem-fly-${pid.slice(-4)}-${i} 1.5s cubic-bezier(.4,0,.2,1) forwards`,
+                    }}
+                  />
+                );
+              })}
+              <style>{`
+                ${[...Array(8)].map((_, i) => {
+                  const angle = (i / 8) * 360;
+                  const spread = 28 + (i * 4);
+                  const ox = Math.cos((angle * Math.PI) / 180) * spread;
+                  const oy = Math.sin((angle * Math.PI) / 180) * spread;
+                  return `
+                    @keyframes mem-fly-${pid.slice(-4)}-${i} {
+                      0%   { opacity:0; transform:translate(${ox}px, ${oy}px) scale(0.5); }
+                      25%  { opacity:1; transform:translate(${ox * 0.5}px, ${oy * 0.5}px) scale(1); }
+                      55%  { opacity:1; transform:translate(0,0) scale(1.3); }
+                      100% { opacity:0; transform:translate(calc(${tx} - 50vw), calc(${ty} - (100vh - 80px))) scale(0.2); }
+                    }
+                  `;
+                }).join("")}
+              `}</style>
+            </div>
+          );
+        })}
 
         {/* Document viewer modal */}
         {kbViewerDoc && (() => {

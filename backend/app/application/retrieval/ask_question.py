@@ -30,31 +30,36 @@ except Exception:
         return None
 
 
-_MEMORY_PATTERNS = [
-    re.compile(r"\b(?:tôi\s+tên|tên\s+(?:tôi|mình)\s+là|mình\s+tên|i'?m\s+called|my\s+name\s+is|i\s+am)\s+([^.,\n!?]{2,60})", re.IGNORECASE),
+_MEM_PATS_FULL = [
+    re.compile(r"\b(?:tôi\s+tên|tên\s+(?:tôi|mình)\s+là|mình\s+tên|i'?m\s+called|my\s+name\s+is)\s+([^.,\n!?]{2,60})", re.IGNORECASE),
     re.compile(r"\b(?:tôi\s+là|mình\s+là|i\s+am\s+a|i'?m\s+a|i\s+work\s+as)\s+([^.,\n!?]{3,80})", re.IGNORECASE),
-    re.compile(r"\b(?:hãy\s+nhớ\s+(?:là\s+|rằng\s+)?|nhớ\s+giúp\s+(?:tôi\s+|mình\s+)?(?:là\s+|rằng\s+)?|remember\s+(?:that\s+)?|please\s+remember\s+)([^.\n!?]{5,200})", re.IGNORECASE),
-    re.compile(r"\b(?:tôi\s+(?:thích|ưa|prefer)|i\s+prefer|i\s+like)\s+([^.,\n!?]{3,100})", re.IGNORECASE),
-    re.compile(r"\b(?:tôi\s+(?:làm|đang\s+làm)|i\s+work\s+at|tôi\s+ở|i\s+live\s+in)\s+([^.,\n!?]{2,80})", re.IGNORECASE),
+    re.compile(r"\b(?:tôi\s+(?:thích|ưa|ghét|không\s+thích)|i\s+prefer|i\s+like|i\s+hate)\s+([^.,\n!?]{3,100})", re.IGNORECASE),
+    re.compile(r"\b(?:tôi\s+(?:làm|đang\s+làm\s+tại|sống\s+ở|ở)|i\s+work\s+at|i\s+live\s+in)\s+([^.,\n!?]{2,80})", re.IGNORECASE),
 ]
 
-_MEMORY_SKIP_PREFIX = ("ai", "gì", "bạn", "ciel", "hãy", "cho", "tell me", "what", "who")
+_MEM_PATS_CAPTURE = [
+    re.compile(r"\b(?:hãy\s+nhớ\s+(?:là\s+|rằng\s+)?|nhớ\s+(?:giúp\s+(?:tôi\s+|mình\s+)?)?(?:là\s+|rằng\s+)?|remember\s+(?:that\s+)?|please\s+remember\s+)([^.\n!?]{5,200})", re.IGNORECASE),
+]
 
 
 def _auto_extract_memory(question: str) -> list[str]:
-    """Extract facts the user states about themselves. Returns list of new memory strings."""
+    """Extract facts user states about themselves. Returns list of memory strings to save."""
     if not question or len(question) < 6:
         return []
     extracted: list[str] = []
-    for pat in _MEMORY_PATTERNS:
+
+    for pat in _MEM_PATS_FULL:
         for m in pat.finditer(question):
             fact = m.group(0).strip().rstrip(".!?,")
-            if any(fact.lower().startswith(p) for p in _MEMORY_SKIP_PREFIX):
-                continue
-            if "?" in fact:
-                continue
-            if fact not in extracted:
+            if "?" not in fact and len(fact) >= 4 and fact not in extracted:
                 extracted.append(fact)
+
+    for pat in _MEM_PATS_CAPTURE:
+        for m in pat.finditer(question):
+            fact = m.group(1).strip().rstrip(".!?,")
+            if "?" not in fact and len(fact) >= 4 and fact not in extracted:
+                extracted.append(fact)
+
     return extracted
 
 
@@ -891,9 +896,14 @@ def stream_ask(
     ollama_model = model or _OLLAMA_MODEL
     lang = _detect_lang(question)
     history_block = _format_history(history)
+    _new_memories: list[str] = []
     for _fact in _auto_extract_memory(question):
-        add_memory_internal(_fact)
+        saved = add_memory_internal(_fact)
+        if saved:
+            _new_memories.append(_fact)
     memory_block = _format_memory_block()
+    for _mem in _new_memories:
+        yield _sse({"type": "memory_saved", "content": _mem})
     confidence_val = None
 
     # Wake-up: "ciel ơi" / "シエルさん" — random greeting, no LLM needed.
