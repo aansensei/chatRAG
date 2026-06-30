@@ -550,7 +550,7 @@ function ChatMessage({
           <MarkdownRenderer content={message.content} sources={message.sources} onSourceClick={handleCitationClick} />
         </div>
 
-        {message.confidence !== undefined && message.confidence !== null && (
+        {message.confidence !== undefined && message.confidence !== null && message.confidence >= 0.55 && (
           <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium mb-2.5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#86868B" }}>
             <span>◈ {Math.round(message.confidence * 100)}% confidence</span>
           </div>

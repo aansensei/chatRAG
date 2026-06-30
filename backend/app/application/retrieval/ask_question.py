@@ -47,7 +47,7 @@ _PREFERENCE_SIGNAL = re.compile(
     re.IGNORECASE
 )
 _SOFT_ENDING = re.compile(
-    r'(?:nha|nhé|nhe|nhớ\s+nha|nhớ\s+nhé)\s*[.!]*\s*$',
+    r'(?:nha|nhé|nhe|nhớ\s+nha|nhớ\s+nhé|ね|ください|てください|でください)\s*[.!。]*\s*$',
     re.IGNORECASE
 )
 
