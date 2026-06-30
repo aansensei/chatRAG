@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 import random
 import re
 import time
 import unicodedata
 from typing import Generator
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -493,6 +496,53 @@ _FILTER_SYSTEM = (
 )
 
 
+def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_tokens: int = 200) -> str:
+    """Non-streaming LLM call for quick tasks (filter, follow-ups). Routes same providers as _stream_llm."""
+    if not api_key:
+        return ""
+    key = str(api_key).strip()
+    mod = str(model or "").strip()
+    mod_lower = mod.lower()
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    t = httpx.Timeout(connect=10.0, read=30.0, write=5.0, pool=5.0)
+    try:
+        if "/" in mod_lower or key.startswith("sk-or-"):
+            headers["HTTP-Referer"] = "https://github.com/aansensei/chatRAG"
+            headers["X-Title"] = "chatRAG"
+            fast = "meta-llama/llama-3.1-8b-instruct:free" if ":free" in mod_lower else mod
+            r = httpx.post("https://openrouter.ai/api/v1/chat/completions", headers=headers,
+                           json={"model": fast, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+            logger.warning("OpenRouter filter call %s: %s", r.status_code, r.text[:200])
+            return ""
+        if "gemini" in mod_lower or key.startswith("AIzaSy"):
+            fast = mod or "gemini-1.5-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{fast}:generateContent?key={key}"
+            r = httpx.post(url, headers={"Content-Type": "application/json"},
+                           json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": max_tokens}}, timeout=t)
+            if r.status_code == 200:
+                parts = r.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                return "".join(p.get("text", "") for p in parts).strip()
+            logger.warning("Gemini filter call %s: %s", r.status_code, r.text[:200])
+            return ""
+        if "gpt-" in mod_lower or "o1-" in mod_lower or key.startswith("sk-proj-") or (key.startswith("sk-") and not key.startswith("sk-or-")):
+            r = httpx.post("https://api.openai.com/v1/chat/completions", headers=headers,
+                           json={"model": mod or "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+            return ""
+        if key.startswith("gsk_") or "llama" in mod_lower or "gemma" in mod_lower:
+            r = httpx.post("https://api.groq.com/openai/v1/chat/completions", headers=headers,
+                           json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
+                           timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        logger.warning("_call_llm_once failed: %s", exc)
+    return ""
+
+
 def _llm_filter_chunks(
     question: str,
     chunks: list[dict],
@@ -509,17 +559,9 @@ def _llm_filter_chunks(
 
     raw = ""
     try:
-        if api_key and api_key.startswith("gsk_"):
-            model_id = groq_model or "llama-3.1-8b-instant"
-            resp = httpx.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": model_id, "messages": [{"role": "user", "content": prompt}], "max_tokens": 50},
-                timeout=httpx.Timeout(connect=10.0, read=20.0, write=5.0, pool=5.0),
-            )
-            if resp.status_code == 200:
-                raw = resp.json()["choices"][0]["message"]["content"].strip()
-        else:
+        if api_key:
+            raw = _call_llm_once(prompt, groq_model, api_key, max_tokens=50)
+        if not raw:
             resp = httpx.post(
                 f"{_OLLAMA_URL}/api/generate",
                 json={"model": ollama_model, "prompt": prompt, "stream": False, "options": {"num_predict": 50}},
@@ -628,9 +670,7 @@ def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[st
     headers = {"Content-Type": "application/json"}
     json_data = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "maxOutputTokens": 2048
-        }
+        "generationConfig": {"maxOutputTokens": 2048},
     }
     try:
         with httpx.stream(
@@ -638,14 +678,16 @@ def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[st
             url,
             headers=headers,
             json=json_data,
-            timeout=httpx.Timeout(connect=15.0, read=60.0, write=10.0, pool=10.0),
+            timeout=httpx.Timeout(connect=15.0, read=180.0, write=10.0, pool=10.0),
         ) as resp:
             if resp.status_code != 200:
                 resp.read()
                 try:
-                    msg = resp.json().get("error", {}).get("message", resp.text)
+                    err = resp.json()
+                    msg = err.get("error", {}).get("message", resp.text)
                 except Exception:
                     msg = resp.text
+                logger.warning("Gemini %s error %s: %s", model_clean, resp.status_code, msg[:300])
                 yield _sse({"type": "token", "token": f"Lỗi Gemini API ({resp.status_code}): {msg}"})
                 return
             for line in resp.iter_lines():
@@ -661,6 +703,7 @@ def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[st
                     except Exception:
                         pass
     except Exception as e:
+        logger.warning("Gemini stream error: %s", e)
         yield _sse({"type": "token", "token": f"Lỗi kết nối Gemini API: {e}"})
 
 
@@ -686,14 +729,16 @@ def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: s
             f"{base_url}/chat/completions",
             headers=headers,
             json=json_data,
-            timeout=httpx.Timeout(connect=15.0, read=60.0, write=10.0, pool=10.0),
+            timeout=httpx.Timeout(connect=15.0, read=180.0, write=10.0, pool=10.0),
         ) as resp:
             if resp.status_code != 200:
                 resp.read()
                 try:
-                    msg = resp.json().get("error", {}).get("message", resp.text)
+                    err = resp.json()
+                    msg = err.get("error", {}).get("message", resp.text)
                 except Exception:
                     msg = resp.text
+                logger.warning("API %s error %s: %s", base_url, resp.status_code, msg[:300])
                 yield _sse({"type": "token", "token": f"Lỗi API ({resp.status_code}): {msg}"})
                 return
             for line in resp.iter_lines():
@@ -702,12 +747,14 @@ def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: s
                 if line.startswith("data: "):
                     try:
                         data = json.loads(line[6:])
-                        token = data["choices"][0]["delta"].get("content", "")
+                        delta = data["choices"][0].get("delta", {})
+                        token = delta.get("content") or ""
                         if token:
                             yield _sse({"type": "token", "token": token})
                     except Exception:
                         pass
     except Exception as e:
+        logger.warning("API stream error (%s): %s", base_url, e)
         yield _sse({"type": "token", "token": f"Lỗi kết nối API: {e}"})
 
 

@@ -1,14 +1,12 @@
 import os
-
-import httpx
-import os
 import re
+
 import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.application.retrieval.ask_question import stream_ask
+from app.application.retrieval.ask_question import stream_ask, _call_llm_once
 from app.infrastructure.vector.supabase.repository import list_documents
 from app.presentation.api.auth import get_collections
 
@@ -16,8 +14,6 @@ _OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 _OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-_OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
 _FALLBACK_SUGGESTIONS = [
     {"title": "Tóm tắt tài liệu", "subtitle": "Các điểm chính trong kho tài liệu"},
@@ -139,21 +135,9 @@ def follow_ups(body: FollowUpsBody):
     )
     raw = ""
     try:
-        if body.api_key and body.api_key.startswith("gsk_"):
-            resp = httpx.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {body.api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "llama-3.1-8b-instant",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 200,
-                    "temperature": 0.5,
-                },
-                timeout=httpx.Timeout(connect=8.0, read=12.0, write=4.0, pool=4.0),
-            )
-            if resp.status_code == 200:
-                raw = resp.json()["choices"][0]["message"]["content"].strip()
-        else:
+        if body.api_key:
+            raw = _call_llm_once(prompt, body.model, body.api_key, max_tokens=200)
+        if not raw:
             resp = httpx.post(
                 f"{_OLLAMA_URL}/api/generate",
                 json={
