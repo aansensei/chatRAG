@@ -799,7 +799,7 @@ def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: s
 
 
 _MAX_HISTORY_TURNS = 4
-_MAX_HISTORY_CHARS = 3000
+_MAX_HISTORY_CHARS = 15000
 
 
 def _format_history(history: list[dict] | None) -> str:
@@ -813,8 +813,8 @@ def _format_history(history: list[dict] | None) -> str:
         content = (m.get("content") or "").strip()
         if not content:
             continue
-        if len(content) > 800:
-            content = content[:800] + "…"
+        if len(content) > 4000:
+            content = content[:4000] + "…"
         line = f"{role}: {content}"
         total += len(line)
         if total > _MAX_HISTORY_CHARS:
