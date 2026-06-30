@@ -208,3 +208,18 @@
 .source-card-highlight {
   animation: source-card-flash 0.8s ease-out;
 }
+
+@keyframes step-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.step-item-enter {
+  animation: step-fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

@@ -635,8 +635,21 @@ function ChatMessage({
   );
 }
 
+function GeminiLoader() {
+  return (
+    <div className="relative w-3.5 h-3.5 shrink-0 flex items-center justify-center">
+      {/* Outer spinning gradient ring */}
+      <div 
+        className="absolute inset-0 rounded-full border-[1.5px] border-transparent border-t-[#3b82f6] border-r-[#8b5cf6] border-b-[#ec4899] animate-spin" 
+        style={{ animationDuration: '0.9s' }}
+      ></div>
+      {/* Inner pulsing core */}
+      <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
+    </div>
+  );
+}
+
 function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
-  const FIXED_STEPS = ["embedding", "searching"];
   const LABELS: Record<string, string> = {
     embedding: "Embedding query...",
     searching: "Searching knowledge base...",
@@ -650,16 +663,25 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
     <div className="flex gap-3 mb-8">
       <LogoIcon size={24} />
       <div className="flex flex-col gap-1.5 pt-1">
-        {ORDER.map((s, i) => {
+        {ORDER.slice(0, currentIdx + 1).map((s, i) => {
           const done = i < currentIdx;
           const active = i === currentIdx;
           return (
-            <div key={s} className="flex items-center gap-2 transition-all duration-300"
-              style={{ opacity: i <= currentIdx ? 1 : 0.2 }}>
-              {done
-                ? <CheckCircle size={12} style={{ color: "#10b981" }} />
-                : <Loader size={12} className={active ? "animate-spin" : ""} style={{ color: "#86868B" }} />}
-              <span className="text-sm" style={{ color: done ? "#10b981" : active ? "#d1d1d6" : "#86868B" }}>
+            <div 
+              key={s} 
+              className="flex items-center gap-2 step-item-enter"
+            >
+              {done ? (
+                <CheckCircle size={12} style={{ color: "#10b981" }} />
+              ) : active ? (
+                <GeminiLoader />
+              ) : (
+                <Loader size={12} style={{ color: "#86868B" }} />
+              )}
+              <span 
+                className="text-sm transition-colors duration-300" 
+                style={{ color: done ? "#10b981" : active ? "#d1d1d6" : "#86868B" }}
+              >
                 {LABELS[s]}
               </span>
             </div>
@@ -1293,7 +1315,7 @@ const GEMINI_MODELS = [
 const OPENROUTER_MODELS = [
   { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B", note: "Free" },
   { id: "deepseek/deepseek-r1:free",             label: "DeepSeek R1",    note: "Free" },
-  { id: "google/gemini-2.5-flash:free",          label: "Gemini 2.5",     note: "Free" },
+  { id: "qwen/qwen-2.5-72b-instruct:free",       label: "Qwen 2.5 72B",   note: "Free" },
 ];
 
 const LOCAL_MODELS = [
