@@ -1367,6 +1367,27 @@ const CEREBRAS_MODELS = [
   { id: "zai-glm-4.7",  label: "Z.ai GLM 4.7", note: "355B"     },
 ];
 
+const MODEL_MIGRATIONS: Record<string, string> = {
+  "llama3-8b-8192":                     "llama-3.1-8b-instant",
+  "mixtral-8x7b-32768":                 "llama-3.3-70b-versatile",
+  "llama3-70b-8192":                    "llama-3.3-70b-versatile",
+  "gemini-2.5-flash-preview-05-20":     "gemini-2.5-flash",
+  "gemini-2.5-flash-preview-04-17":     "gemini-2.5-flash",
+  "gemini-2.5-pro-preview-06-05":       "gemini-2.5-flash",
+  "gemini-1.5-flash":                   "gemini-2.0-flash",
+  "gemini-1.5-pro":                     "gemini-2.0-flash",
+  "qwen/qwen-2.5-72b-instruct:free":    "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "microsoft/phi-4-reasoning:free":     "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "google/gemma-3-27b-it:free":         "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "llama3.1-8b":                        "gpt-oss-120b",
+  "llama3.1-70b":                       "gpt-oss-120b",
+  "llama-3.3-70b":                      "gpt-oss-120b",
+};
+
+function migrateModel(id: string): string {
+  return MODEL_MIGRATIONS[id] ?? id;
+}
+
 const LOCAL_MODELS = [
   { id: "gemma3:4b",        label: "Gemma 3 · 4B",   note: "Fast" },
   { id: "qwen2.5-coder:7b", label: "Qwen 2.5 · 7B",  note: "Better" },
@@ -1738,24 +1759,10 @@ export default function App() {
   const [hybridMode, setHybridMode] = useState(() => localStorage.getItem("chatrag_hybrid") === "true");
   const [activeModel, setActiveModel] = useState(() => {
     const stored = localStorage.getItem("chatrag_model") || "gemma3:4b";
-    const decommissioned: Record<string, string> = {
-      "llama3-8b-8192": "llama-3.1-8b-instant",
-      "mixtral-8x7b-32768": "llama-3.3-70b-versatile",
-      "llama3-70b-8192": "llama-3.3-70b-versatile",
-      "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
-      "gemini-2.5-flash-preview-04-17": "gemini-2.5-flash",
-      "gemini-2.5-pro-preview-06-05": "gemini-2.5-flash",
-      "gemini-1.5-flash": "gemini-2.0-flash",
-      "gemini-1.5-pro": "gemini-2.0-flash",
-      "qwen/qwen-2.5-72b-instruct:free": "meta-llama/llama-3.3-70b-instruct:free",
-      "microsoft/phi-4-reasoning:free": "google/gemma-3-27b-it:free",
-      "llama3.1-8b": "gpt-oss-120b",
-      "llama3.1-70b": "gpt-oss-120b",
-      "llama-3.3-70b": "gpt-oss-120b",
-    };
-    if (decommissioned[stored]) {
-      localStorage.setItem("chatrag_model", decommissioned[stored]);
-      return decommissioned[stored];
+    const migrated = MODEL_MIGRATIONS[stored];
+    if (migrated) {
+      localStorage.setItem("chatrag_model", migrated);
+      return migrated;
     }
     return stored;
   });
@@ -2097,9 +2104,9 @@ export default function App() {
           question: content,
           collections: chatScope.type === "selected" ? chatScope.collections : null,
           hybrid: hybridMode,
-          model: activeModel,
+          model: migrateModel(activeModel),
           history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
-          api_key: getActiveApiKey(activeModel),
+          api_key: getActiveApiKey(migrateModel(activeModel)),
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -2190,8 +2197,8 @@ export default function App() {
               question: content,
               answer: finalContent.slice(0, 800),
               source_filenames: finalSources.slice(0, 3).map((s) => s.filename || s.title),
-              model: activeModel,
-              api_key: getActiveApiKey(activeModel),
+              model: migrateModel(activeModel),
+              api_key: getActiveApiKey(migrateModel(activeModel)),
             }),
           });
           if (!r.ok) return;
