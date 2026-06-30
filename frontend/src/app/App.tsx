@@ -1358,6 +1358,12 @@ const OPENROUTER_MODELS = [
   { id: "google/gemma-3-27b-it:free",             label: "Gemma 3 27B",    note: "Free" },
 ];
 
+const CEREBRAS_MODELS = [
+  { id: "llama-3.3-70b",  label: "Llama 3.3 70B",  note: "Fast" },
+  { id: "llama3.1-70b",   label: "Llama 3.1 70B",   note: "Fast" },
+  { id: "llama3.1-8b",    label: "Llama 3.1 8B",    note: "Fastest" },
+];
+
 const LOCAL_MODELS = [
   { id: "gemma3:4b",        label: "Gemma 3 · 4B",   note: "Fast" },
   { id: "qwen2.5-coder:7b", label: "Qwen 2.5 · 7B",  note: "Better" },
@@ -1370,6 +1376,7 @@ const MODELS = [
   ...OPENAI_MODELS,
   ...GEMINI_MODELS,
   ...OPENROUTER_MODELS,
+  ...CEREBRAS_MODELS,
 ];
 
 function isGroqModel(id: string) {
@@ -1388,11 +1395,16 @@ function isOpenRouterModel(id: string) {
   return OPENROUTER_MODELS.some((m) => m.id === id);
 }
 
+function isCerebrasModel(id: string) {
+  return CEREBRAS_MODELS.some((m) => m.id === id);
+}
+
 const getActiveApiKey = (modelId: string) => {
   if (isGroqModel(modelId)) return localStorage.getItem("chatrag_api_key_groq") || localStorage.getItem("chatrag_api_key") || "";
   if (isOpenAIModel(modelId)) return localStorage.getItem("chatrag_api_key_openai") || "";
   if (isGeminiModel(modelId)) return localStorage.getItem("chatrag_api_key_gemini") || "";
   if (isOpenRouterModel(modelId)) return localStorage.getItem("chatrag_api_key_openrouter") || "";
+  if (isCerebrasModel(modelId)) return localStorage.getItem("chatrag_api_key_cerebras") || "";
   return "";
 };
 
@@ -1401,6 +1413,7 @@ const getProviderOfModel = (modelId: string) => {
   if (isOpenAIModel(modelId)) return "openai";
   if (isGeminiModel(modelId)) return "gemini";
   if (isOpenRouterModel(modelId)) return "openrouter";
+  if (isCerebrasModel(modelId)) return "cerebras";
   return "ollama";
 };
 
@@ -1678,6 +1691,16 @@ export default function App() {
           models: OPENROUTER_MODELS,
           link: "openrouter.ai/keys",
         };
+      case "cerebras":
+        return {
+          key: apiKeyCerebras,
+          setKey: setApiKeyCerebras,
+          localKey: "chatrag_api_key_cerebras",
+          label: "Cerebras",
+          placeholder: "csk-...",
+          models: CEREBRAS_MODELS,
+          link: "cloud.cerebras.ai",
+        };
       default:
         return null;
     }
@@ -1748,8 +1771,9 @@ export default function App() {
   const [apiKeyOpenAI, setApiKeyOpenAI] = useState(() => localStorage.getItem("chatrag_api_key_openai") || "");
   const [apiKeyGemini, setApiKeyGemini] = useState(() => localStorage.getItem("chatrag_api_key_gemini") || "");
   const [apiKeyOpenRouter, setApiKeyOpenRouter] = useState(() => localStorage.getItem("chatrag_api_key_openrouter") || "");
+  const [apiKeyCerebras, setApiKeyCerebras] = useState(() => localStorage.getItem("chatrag_api_key_cerebras") || "");
 
-  const [modelMenuView, setModelMenuView] = useState<"providers" | "ollama" | "groq" | "openai" | "gemini" | "openrouter">("providers");
+  const [modelMenuView, setModelMenuView] = useState<"providers" | "ollama" | "groq" | "openai" | "gemini" | "openrouter" | "cerebras">("providers");
   const [editingProviderKey, setEditingProviderKey] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -2750,10 +2774,11 @@ export default function App() {
                           <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>Chọn API Provider</p>
                         </div>
                         {[
-                          { id: "ollama", label: "Local · Ollama" },
-                          { id: "groq", label: "Cloud · Groq" },
-                          { id: "openai", label: "Cloud · OpenAI" },
-                          { id: "gemini", label: "Cloud · Gemini" },
+                          { id: "ollama",     label: "Local · Ollama" },
+                          { id: "groq",       label: "Cloud · Groq" },
+                          { id: "cerebras",   label: "Cloud · Cerebras" },
+                          { id: "openai",     label: "Cloud · OpenAI" },
+                          { id: "gemini",     label: "Cloud · Gemini" },
                           { id: "openrouter", label: "Cloud · OpenRouter" },
                         ].map((prov) => {
                           const isCurrent = getProviderOfModel(activeModel) === prov.id;

@@ -538,6 +538,14 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
             return ""
+        if key.startswith("csk-"):
+            r = httpx.post("https://api.cerebras.ai/v1/chat/completions", headers=headers,
+                           json={"model": mod or "llama-3.3-70b", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
+                           timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+            logger.warning("Cerebras filter call %s: %s", r.status_code, r.text[:200])
+            return ""
         if key.startswith("gsk_") or "llama" in mod_lower or "gemma" in mod_lower:
             r = httpx.post("https://api.groq.com/openai/v1/chat/completions", headers=headers,
                            json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
@@ -635,7 +643,17 @@ def _stream_llm(
             )
             return
 
-        # 4. Groq
+        # 4. Cerebras
+        if api_key_str.startswith("csk-"):
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str or "llama-3.3-70b",
+                api_key_str,
+                "https://api.cerebras.ai/v1"
+            )
+            return
+
+        # 5. Groq
         if api_key_str.startswith("gsk_") or "llama" in model_lower or "gemma2" in model_lower:
             yield from _stream_openai_compatible(
                 prompt,
