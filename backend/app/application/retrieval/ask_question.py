@@ -67,6 +67,13 @@ _OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
 _TOP_K = int(os.environ.get("RETRIEVAL_TOP_K", 8))
 _MAX_CHUNK_CHARS = int(os.environ.get("MAX_CHUNK_CHARS", 1200))
 
+_GENERIC_SECTION_TITLES = {
+    "OPEN ACCESS", "ABSTRACT", "REFERENCES", "INTRODUCTION",
+    "CONCLUSION", "KEYWORDS", "ACKNOWLEDGEMENTS", "ACKNOWLEDGMENTS",
+    "TABLE OF CONTENTS", "CONTENTS", "APPENDIX", "BIBLIOGRAPHY",
+    "FOOTNOTES", "INDEX", "PREFACE", "FOREWORD",
+}
+
 _VI_CHARS = re.compile(r"[àáâãèéêìíòóôõùúýăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỷỹ]", re.IGNORECASE)
 
 _CIEL_IDENTITY = (
@@ -772,10 +779,13 @@ def stream_ask(
             meta = c.get("metadata") or {}
             raw_src = meta.get("source", "") if isinstance(meta, dict) else ""
             filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {i+1}"
+            section = (c.get("section_title") or "").strip()
+            if section.upper() in _GENERIC_SECTION_TITLES:
+                section = ""
             sources.append({
                 "id": f"src-{i}",
                 "content": c["content"][:200],
-                "section": c.get("section_title"),
+                "section": section or None,
                 "similarity": round(c["similarity"], 3),
                 "filename": filename,
                 "document_id": c.get("document_id", ""),

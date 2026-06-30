@@ -1,153 +1,187 @@
 # chatRAG
 
-Enterprise Retrieval Augmented Generation Platform developed during internship at SADEC Technology Joint Stock Company.
+Retrieval-Augmented Generation chatbot named **Ciel** — built as an internal AI assistant for SADEC Technology. Upload company documents, ask in natural language, get answers grounded in your files with inline citations.
 
-chatRAG enables organizations to upload, classify, and query internal documents through a role-aware AI chat interface. The system enforces access control at the retrieval layer, ensuring users only receive answers derived from documents their role is authorized to access.
+Developed during internship at **SADEC Technology JSC**.
 
 ---
 
-## Repository Structure
+## What it does
+
+- Upload PDF, Word, Excel, CSV, images (with OCR) into named folders
+- Ask in Vietnamese, English, or Japanese
+- Get answers cited back to the source document with inline `[N]` clickable citations
+- Multi-turn chat with conversation memory and **query rewriting** (follow-up questions resolved against history before embedding)
+- Hybrid mode: blend internal docs with general knowledge when KB is empty
+- Strict context-only answers — will not hallucinate names, figures, or project names outside the uploaded documents
+- Run locally with Ollama or fast via Groq cloud (Llama 3.3 / Gemma 2 / etc.)
+- Model availability detection: UI shows ⚠ "Not installed" badge for Ollama models not yet pulled
+
+---
+
+## Repository layout
 
 ```
 chatRAG/
-    backend/        FastAPI backend, ingestion pipeline, RAG engine
-    frontend/       React admin and chat interface (in development)
-```
-
-Each subdirectory contains its own README with layer-specific setup instructions and architecture notes.
-
----
-
-## System Overview
-
-```
-User (React Frontend)
-        |
-        | HTTP / WebSocket
-        v
-API Gateway (FastAPI)
-        |
-        |-- Retrieval --> Vector Search --> Access Control Filter --> Rerank --> LLM --> Stream response
-        |
-        |-- Ingestion --> OCR --> Chunk --> AI Classify --> Human Review --> Embed --> Vector DB
+  backend/    FastAPI server + retrieval engine + Redis worker
+  frontend/   React + Vite chat UI (built into backend/app/static for serving)
+  start.ps1   One-command dev bootstrap (Windows PowerShell)
+  start.bat   One-command dev bootstrap (Windows CMD)
 ```
 
 ---
 
-## Tech Stack
+## Architecture
 
-**Backend**
-* FastAPI for the API gateway and WebSocket streaming
-* PostgreSQL for relational metadata, job state, and access control rules
-* Qdrant for vector similarity search and metadata-filtered retrieval
-* Redis and Celery for the asynchronous event-driven ingestion pipeline
-* PaddleOCR for optical character recognition on scanned documents
-* Unstructured for structure-aware document parsing and chunking
-
-**Frontend**
-* React for the admin dashboard and chat interface
-* Vite as the development and build toolchain
-
-**Infrastructure**
-* Docker and Docker Compose for containerized local and production deployment
-* MinIO for S3-compatible document storage in production
-* Prometheus and Grafana for metrics and operational monitoring
+```
+React UI (frontend/)
+    |
+    | POST /chat (SSE stream)
+    v
+FastAPI (backend/)
+    |
+    |-- Identity / wake-up / RAG-explainer  short-circuits  -> LLM
+    |
+    |-- Normal query:
+    |     1. query rewriting   (follow-up resolved via history before embedding)
+    |     2. embed question    (intfloat/multilingual-e5-base)
+    |     3. filename-aware search   (exact file match via metadata->source)
+    |     4. vector search           (pgvector cosine, threshold 0.1)
+    |     5. keyword fallback        (ilike for codes, IDs, VI diacritic-stripped)
+    |     6. table-aware bypass      (skip LLM filter for tabular chunks)
+    |     7. LLM relevance filter    (drops noise)
+    |     8. directive or strict-context prompt -> LLM stream
+    |
+    |-- Upload pipeline:
+          file  -> Redis queue  -> OCR worker  -> chunker  -> embedder  -> Supabase
+```
 
 ---
 
-## Quick Start
+## Tech stack
 
-### Prerequisites
+| Layer | Tech |
+|---|---|
+| API | FastAPI, SSE streaming |
+| Vector DB | Supabase (Postgres + pgvector) |
+| Queue | Redis pub/sub |
+| OCR | PaddleOCR, python-docx, openpyxl, csv (multi-encoding: utf-8-sig → cp1258 → latin-1) |
+| Embedding | `intfloat/multilingual-e5-base` via sentence-transformers |
+| LLM | Ollama (default `gemma3:4b`) or Groq (Llama 3.3 · 70B / Llama 3.1 · 8B / Gemma 2 · 9B) |
+| Frontend | React 18, Vite, TypeScript, Tailwind |
 
-* Python 3.11 or higher
-* Node.js 18 or higher
-* Docker and Docker Compose
-* PostgreSQL with the pgvector extension installed
-* Redis
+---
 
-### Backend
+## Quick start
+
+### Option A — One command (PowerShell)
+
+```powershell
+.\start.ps1
+```
+
+Opens two terminal windows: backend on `:8000`, frontend on `:5173`.
+
+### Option B — Manual
+
+**Backend:**
 
 ```bash
 cd backend
-python -m venv venv
-venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-uvicorn main:app --reload
+cp .env.example .env       # fill SUPABASE_URL, SUPABASE_SERVICE_KEY, REDIS_URL
+uvicorn app.main:app --reload
 ```
 
-API available at `http://localhost:8000`
-API docs available at `http://localhost:8000/docs`
+In a second terminal, start the OCR worker:
 
-### Frontend
+```bash
+cd backend
+python -m app.workers.ocr_worker
+```
+
+API: `http://localhost:8000`  /  Docs: `http://localhost:8000/docs`
+
+**Frontend (dev mode):**
 
 ```bash
 cd frontend
-npm install
-npm run dev
+pnpm install
+pnpm dev          # http://localhost:5173 (proxies /chat, /ingest to :8000)
 ```
 
-Admin interface available at `http://localhost:5173`
-
-### Full Stack with Docker
+**Frontend (production deploy):**
 
 ```bash
-docker-compose -f backend/docker/docker-compose.yml up --build
+cd frontend
+pnpm run build:deploy
+# Builds and copies dist/* into ../backend/app/static — served by FastAPI at :8000
 ```
 
 ---
 
-## Environment Variables
+## Environment variables
 
-Copy `backend/.env.example` to `backend/.env` and fill in the values before starting any service.
-
-| Variable | Description | Required |
+| Variable | Purpose | Default |
 |---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string | Yes |
-| `REDIS_URL` | Redis connection string | Yes |
-| `QDRANT_HOST` | Qdrant hostname | Yes |
-| `QDRANT_PORT` | Qdrant port | Yes |
-| `OPENAI_API_KEY` | OpenAI API key for cloud models | No |
-| `LLM_PROVIDER` | `openai`, `groq`, or `ollama` | Yes |
-| `STORAGE_BACKEND` | `local` or `minio` | Yes |
-| `RETRIEVAL_TOP_K` | Candidate chunks before rerank (default 15) | No |
-| `RERANK_TOP_K` | Final chunks passed to LLM (default 8) | No |
+| `SUPABASE_URL` | Supabase project URL | required |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key | required |
+| `REDIS_URL` | Redis connection | required |
+| `LOCAL_STORAGE_PATH` | Where uploaded files live | `./storage` |
+| `OLLAMA_BASE_URL` | Ollama host | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Default Ollama model | `gemma3:4b` |
+| `RETRIEVAL_TOP_K` | Chunks per query | `8` |
+| `MAX_CHUNK_CHARS` | Chars per chunk in prompt | `1200` |
+| `DEV_MODE` | Skip API-key auth | `true` |
 
 ---
 
-## Deployment
+## Supported file types
 
-### Local Development
-
-Run backend and frontend individually as described in Quick Start above.
-
-### Staging and Production
-
-All components are containerized. Update the following before deploying to a live environment.
-
-* Set `STORAGE_BACKEND=minio` and configure MinIO credentials
-* Add production domain origins to the CORS allowed list in `backend/app/shared/config`
-* Replace the default secret key in `backend/.env.prod`
-* Optionally migrate from Redis to Kafka by swapping the queue provider in infrastructure config
-
-A `docker-compose.yml` for full-stack production deployment is located at `backend/docker/docker-compose.yml`.
+`.pdf` `.docx` `.xlsx` `.csv` `.png` `.jpg` `.jpeg` `.tiff` `.bmp`
 
 ---
 
-## Documentation
+## Retrieval features
 
-* Backend architecture and pipeline details: `backend/README.md`
-* Frontend component structure: `frontend/README.md` (coming soon)
-
----
-
-## Project Status
-
-| Component | Status |
+| Feature | Notes |
 |---|---|
-| Backend scaffold and architecture | Complete |
-| Domain layer and event definitions | Complete |
-| Ingestion pipeline workers | In development |
-| Retrieval and reranking service | In development |
-| React frontend | Planned |
-| Docker production setup | Planned |
+| Filename-aware retrieval | Longest-token-first; strong identifiers trigger early return if file not found |
+| Vietnamese keyword → filename mapping | `lương` → BangLuong, `dự án` → DuAn, etc. |
+| Diacritic-stripped fallback | Searches both `lương` and `luong` |
+| Tabular-aware retrieval | Chunks with `  \|  ` skip LLM filter and use directive prompt |
+| LLM relevance filter | Groq or Ollama judges chunk relevance before generating |
+| Query rewriting | Follow-up questions rewritten as standalone before embedding |
+
+---
+
+## Status
+
+| Feature | State |
+|---|---|
+| Multi-folder knowledge base | ✅ done |
+| Filename-aware + vector + keyword retrieval | ✅ done |
+| Table / CSV-aware retrieval | ✅ done |
+| Multi-turn chat memory (history inject) | ✅ done |
+| Query rewriting from chat history | ✅ done |
+| Strict context-only answers (no hallucination) | ✅ done |
+| Inline citations `[N]` clickable in answer | ✅ done |
+| Ciel persona (VI / EN / JA) | ✅ done |
+| Hybrid mode (KB + general knowledge) | ✅ done |
+| Source citations + file viewer (PDF inline / DOCX download) | ✅ done |
+| CSV upload with multi-encoding support | ✅ done |
+| Ollama model availability detection | ✅ done |
+| build:deploy script (vite build → static/) | ✅ done |
+| start.ps1 one-command bootstrap | ✅ done |
+| Reranker (BGE / Cohere) | planned |
+| Multi-user auth + per-user folders | planned |
+| Image / vision input | planned |
+| Session memory across browser reloads | planned |
+
+---
+
+## License
+
+Internal project — SADEC Technology JSC.
