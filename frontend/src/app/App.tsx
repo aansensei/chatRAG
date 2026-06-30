@@ -1362,10 +1362,9 @@ const OPENROUTER_MODELS_FALLBACK = [
 const OPENROUTER_MODELS = OPENROUTER_MODELS_FALLBACK;
 
 const CEREBRAS_MODELS = [
-  { id: "gpt-oss-120b",  label: "GPT-OSS 120B",  note: "3000 t/s" },
-  { id: "gemma-4-31b",   label: "Gemma 4 31B",   note: "1850 t/s" },
-  { id: "zai-glm-4.7",   label: "Z.ai GLM 4.7",  note: "355B"     },
-  { id: "llama-3.3-70b", label: "Llama 3.3 70B",  note: "Fast"    },
+  { id: "gpt-oss-120b", label: "GPT-OSS 120B", note: "3000 t/s" },
+  { id: "gemma-4-31b",  label: "Gemma 4 31B",  note: "1850 t/s" },
+  { id: "zai-glm-4.7",  label: "Z.ai GLM 4.7", note: "355B"     },
 ];
 
 const LOCAL_MODELS = [
@@ -1750,6 +1749,9 @@ export default function App() {
       "gemini-1.5-pro": "gemini-2.0-flash",
       "qwen/qwen-2.5-72b-instruct:free": "meta-llama/llama-3.3-70b-instruct:free",
       "microsoft/phi-4-reasoning:free": "google/gemma-3-27b-it:free",
+      "llama3.1-8b": "gpt-oss-120b",
+      "llama3.1-70b": "gpt-oss-120b",
+      "llama-3.3-70b": "gpt-oss-120b",
     };
     if (decommissioned[stored]) {
       localStorage.setItem("chatrag_model", decommissioned[stored]);
