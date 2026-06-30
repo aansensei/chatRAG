@@ -1,34 +1,56 @@
+import os
+
+import httpx
 from sentence_transformers import SentenceTransformer
 
 from app.domain.entities.chunk import Chunk
 
 _MODEL_CACHE: dict[str, SentenceTransformer] = {}
 
+_EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+_OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
-def _get_model(model_name: str) -> SentenceTransformer:
-    # cache model in memory — loading from disk is slow (~1s), reuse across calls
+# Models served via Ollama's /api/embeddings endpoint instead of sentence-transformers
+_OLLAMA_EMBED_MODELS = {"nomic-embed-text", "mxbai-embed-large", "all-minilm"}
+
+
+def _get_st_model(model_name: str) -> SentenceTransformer:
     if model_name not in _MODEL_CACHE:
         _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
     return _MODEL_CACHE[model_name]
 
 
-def embed_text(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[float]:
-    return _get_model(model_name).encode(text).tolist()
+def _embed_ollama(text: str, model: str) -> list[float]:
+    resp = httpx.post(
+        f"{_OLLAMA_URL}/api/embeddings",
+        json={"model": model, "prompt": text},
+        timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
+    )
+    resp.raise_for_status()
+    return resp.json()["embedding"]
+
+
+def embed_text(text: str, model_name: str | None = None) -> list[float]:
+    model = model_name or _EMBEDDING_MODEL
+    if model in _OLLAMA_EMBED_MODELS:
+        return _embed_ollama(text, model)
+    return _get_st_model(model).encode(text).tolist()
 
 
 def embed_chunks(
     chunks: list[Chunk],
-    model_name: str = "all-MiniLM-L6-v2",
+    model_name: str | None = None,
     batch_size: int = 64,
 ) -> list[list[float]]:
-    """
-    Embed a list of chunks and return one vector per chunk.
-    Vectors are in the same order as the input list.
-    """
     if not chunks:
         return []
 
-    model = _get_model(model_name)
+    model = model_name or _EMBEDDING_MODEL
     texts = [chunk.content for chunk in chunks]
-    vectors = model.encode(texts, batch_size=batch_size, show_progress_bar=False)
+
+    if model in _OLLAMA_EMBED_MODELS:
+        return [_embed_ollama(t, model) for t in texts]
+
+    st_model = _get_st_model(model)
+    vectors = st_model.encode(texts, batch_size=batch_size, show_progress_bar=False)
     return [v.tolist() for v in vectors]

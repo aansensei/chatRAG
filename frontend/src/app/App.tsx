@@ -1389,9 +1389,12 @@ function migrateModel(id: string): string {
 }
 
 const LOCAL_MODELS = [
-  { id: "gemma3:4b",        label: "Gemma 3 · 4B",   note: "Fast" },
-  { id: "qwen2.5-coder:7b", label: "Qwen 2.5 · 7B",  note: "Better" },
-  { id: "gemma3:12b",       label: "Gemma 3 · 12B",  note: "OOM ⚠" },
+  { id: "gemma3:4b",        label: "Gemma 3 · 4B",    note: "Fast"   },
+  { id: "gemma2:9b",        label: "Gemma 2 · 9B",    note: "Logic"  },
+  { id: "llama3:8b",        label: "Llama 3 · 8B",    note: "8K ctx" },
+  { id: "phi3:mini",        label: "Phi-3 Mini · 3.8B", note: "128K" },
+  { id: "qwen2.5-coder:7b", label: "Qwen 2.5 · 7B",  note: "Code"   },
+  { id: "gemma3:12b",       label: "Gemma 3 · 12B",   note: "OOM ⚠" },
 ];
 
 const MODELS = [
