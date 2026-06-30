@@ -3,6 +3,7 @@ import {
   Paperclip,
   ArrowUp,
   ArrowRight,
+  ArrowDown,
   Plus,
   Search,
   FileText,
@@ -30,6 +31,8 @@ import {
   Settings,
   Eye,
   EyeOff,
+  Sparkles,
+  X as XIcon,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -49,6 +52,8 @@ type KBDocument = {
   pages: number | null;
   chunk_count: number;
   collection?: string;
+  has_file?: boolean;
+  file_path?: string;
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -71,6 +76,8 @@ type Message = {
   content: string;
   sources?: Source[];
   isStreaming?: boolean;
+  followUps?: string[];
+  confidence?: number | null;
 };
 
 type Chat = {
@@ -78,6 +85,7 @@ type Chat = {
   title: string;
   createdAt: number;
   messages: Message[];
+  pinned?: boolean;
 };
 
 const STORAGE_KEY = "chatrag_sessions";
@@ -115,7 +123,9 @@ function LogoIcon({ size = 24 }: { size?: number }) {
     <img
       src="/favicon-96x96.png"
       alt="chatRAG"
-      className="shrink-0"
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      className="shrink-0 select-none"
       style={{ width: size, height: size, borderRadius: size * 0.32 }}
     />
   );
@@ -193,13 +203,16 @@ function SourceChip({
   source,
   onClick,
   active,
+  id,
 }: {
   source: Source;
   onClick: () => void;
   active: boolean;
+  id?: string;
 }) {
   return (
     <button
+      id={id}
       onClick={onClick}
       className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200"
       style={{
@@ -224,14 +237,266 @@ function SourceChip({
   );
 }
 
+declare global {
+  interface Window {
+    katex?: { renderToString: (tex: string, opts: object) => string };
+  }
+}
+
+function renderLatex(tex: string, display: boolean): string {
+  try {
+    if (window.katex) {
+      return window.katex.renderToString(tex, { displayMode: display, throwOnError: false, output: "html" });
+    }
+  } catch { /* noop */ }
+  return display ? `$$${tex}$$` : `$${tex}$`;
+}
+
+function InlineContent({ text, sources, onSourceClick }: {
+  text: string;
+  sources?: Source[];
+  onSourceClick: (s: Source) => void;
+}) {
+  const SPLIT_RE = /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$|\[\d+\]|\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g;
+  const parts = text.split(SPLIT_RE);
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (!part) return null;
+        if (part.startsWith("$$") && part.endsWith("$$"))
+          return <span key={i} dangerouslySetInnerHTML={{ __html: renderLatex(part.slice(2, -2), true) }} />;
+        if (part.startsWith("$") && part.endsWith("$") && part.length > 2)
+          return <span key={i} dangerouslySetInnerHTML={{ __html: renderLatex(part.slice(1, -1), false) }} />;
+        const cm = part.match(/^\[(\d+)\]$/);
+        if (cm) {
+          const n = parseInt(cm[1], 10);
+          const src = sources?.[n - 1];
+          if (src) {
+            return (
+              <button key={i} onClick={() => onSourceClick(src)} title={src.title}
+                className="inline-flex items-center justify-center mx-0.5 px-1.5 rounded text-[10px] font-semibold transition-all"
+                style={{ background: "rgba(59,130,246,0.18)", border: "1px solid rgba(59,130,246,0.35)", color: "#93c5fd", verticalAlign: "middle", lineHeight: "1.4" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.32)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.18)"; }}>
+                {part}
+              </button>
+            );
+          }
+          return <span key={i}>{part}</span>;
+        }
+        if (part.startsWith("**") && part.endsWith("**"))
+          return <strong key={i} style={{ color: "#F5F5F7", fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
+        if (part.startsWith("*") && part.endsWith("*") && part.length > 2)
+          return <em key={i} style={{ fontStyle: "italic", color: "#d1d1d6" }}>{part.slice(1, -1)}</em>;
+        if (part.startsWith("`") && part.endsWith("`"))
+          return <code key={i} className="px-1 py-0.5 rounded text-[12px] font-mono"
+            style={{ background: "rgba(255,255,255,0.08)", color: "#a5f3fc" }}>{part.slice(1, -1)}</code>;
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+const _KEYWORDS: Record<string, RegExp> = {
+  python: /\b(def|class|return|if|elif|else|import|from|as|for|while|in|not|and|or|None|True|False|with|try|except|finally|raise|lambda|yield|pass|break|continue|self|async|await)\b/g,
+  py: /\b(def|class|return|if|elif|else|import|from|as|for|while|in|not|and|or|None|True|False|with|try|except|finally|raise|lambda|yield|pass|break|continue|self|async|await)\b/g,
+  js: /\b(const|let|var|function|return|if|else|for|while|in|of|new|class|extends|import|from|export|default|async|await|true|false|null|undefined|typeof|instanceof|this|try|catch|finally|throw)\b/g,
+  ts: /\b(const|let|var|function|return|if|else|for|while|in|of|new|class|extends|import|from|export|default|async|await|true|false|null|undefined|typeof|instanceof|this|try|catch|finally|throw|interface|type|enum|public|private|protected|readonly)\b/g,
+  typescript: /\b(const|let|var|function|return|if|else|for|while|in|of|new|class|extends|import|from|export|default|async|await|true|false|null|undefined|typeof|instanceof|this|try|catch|finally|throw|interface|type|enum|public|private|protected|readonly)\b/g,
+  sql: /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|BY|ORDER|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|DROP|INDEX|AS|AND|OR|NOT|NULL|IS|IN|LIKE|BETWEEN|DISTINCT|UNION|HAVING|CASE|WHEN|THEN|END)\b/gi,
+  bash: /\b(if|then|else|elif|fi|for|while|do|done|case|esac|in|function|return|echo|export|local|read|cd|ls|grep|sed|awk|cat|sudo)\b/g,
+  sh: /\b(if|then|else|elif|fi|for|while|do|done|case|esac|in|function|return|echo|export|local|read|cd|ls|grep|sed|awk|cat|sudo)\b/g,
+  json: /\b(true|false|null)\b/g,
+};
+
+function highlightCode(src: string, lang: string): React.ReactNode {
+  const kw = _KEYWORDS[lang?.toLowerCase()];
+  if (!kw) return src;
+  const TOKEN = /(\/\/.*$|#[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|\b\d+(?:\.\d+)?\b)/gm;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = TOKEN.exec(src))) {
+    if (match.index > last) {
+      const seg = src.slice(last, match.index);
+      const parts = seg.split(kw);
+      parts.forEach((p, idx) => {
+        if (idx % 2 === 0) out.push(p);
+        else out.push(<span key={`kw-${last}-${idx}`} style={{ color: "#c084fc" }}>{p}</span>);
+      });
+    }
+    const m0 = match[0];
+    if (m0.startsWith("//") || m0.startsWith("#") || m0.startsWith("/*")) {
+      out.push(<span key={`cm-${match.index}`} style={{ color: "#6b7280" }}>{m0}</span>);
+    } else if (m0.startsWith('"') || m0.startsWith("'") || m0.startsWith("`")) {
+      out.push(<span key={`st-${match.index}`} style={{ color: "#86efac" }}>{m0}</span>);
+    } else {
+      out.push(<span key={`nm-${match.index}`} style={{ color: "#fbbf24" }}>{m0}</span>);
+    }
+    last = match.index + m0.length;
+  }
+  if (last < src.length) {
+    const seg = src.slice(last);
+    const parts = seg.split(kw);
+    parts.forEach((p, idx) => {
+      if (idx % 2 === 0) out.push(p);
+      else out.push(<span key={`kw-end-${idx}`} style={{ color: "#c084fc" }}>{p}</span>);
+    });
+  }
+  return out;
+}
+
+function MarkdownRenderer({ content, sources, onSourceClick }: {
+  content: string;
+  sources?: Source[];
+  onSourceClick: (s: Source) => void;
+}) {
+  const ic = (text: string) => <InlineContent text={text} sources={sources} onSourceClick={onSourceClick} />;
+  const lines = content.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const raw = lines[i];
+
+    if (raw.trimStart().startsWith("```")) {
+      const lang = raw.trim().slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith("```")) { codeLines.push(lines[i]); i++; }
+      i++;
+      nodes.push(
+        <div key={`cb-${i}`} className="my-3 rounded-xl overflow-hidden" style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.08)" }}>
+          {lang && <div className="px-3 py-1 text-[10px] font-mono border-b" style={{ color: "#86868B", borderColor: "rgba(255,255,255,0.06)" }}>{lang}</div>}
+          <pre className="px-4 py-3 overflow-x-auto text-[12px] font-mono leading-relaxed m-0" style={{ color: "#e5e7eb" }}><code>{highlightCode(codeLines.join("\n"), lang)}</code></pre>
+        </div>
+      );
+      continue;
+    }
+
+    if (raw.trim() === "$$") {
+      const texLines: string[] = [];
+      i++;
+      while (i < lines.length && lines[i].trim() !== "$$") { texLines.push(lines[i]); i++; }
+      i++;
+      nodes.push(<div key={`dl-${i}`} className="my-3 overflow-x-auto text-center" dangerouslySetInnerHTML={{ __html: renderLatex(texLines.join("\n"), true) }} />);
+      continue;
+    }
+
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(raw.trim())) {
+      nodes.push(<hr key={`hr-${i}`} style={{ borderColor: "rgba(255,255,255,0.08)", margin: "12px 0" }} />);
+      i++; continue;
+    }
+
+    const hm = raw.match(/^(#{1,3})\s+(.+)/);
+    if (hm) {
+      const lvl = hm[1].length;
+      const sz = ["text-base", "text-[13px]", "text-[12px]"][lvl - 1];
+      const mt = ["mt-5 mb-2", "mt-4 mb-1.5", "mt-3 mb-1"][lvl - 1];
+      nodes.push(<p key={`h-${i}`} className={`font-semibold ${sz} ${mt} first:mt-0`} style={{ color: "#F5F5F7" }}>{ic(hm[2])}</p>);
+      i++; continue;
+    }
+
+    if (raw.startsWith("> ")) {
+      nodes.push(
+        <div key={`bq-${i}`} className="my-2 pl-3 py-0.5" style={{ borderLeft: "3px solid rgba(139,92,246,0.5)" }}>
+          <span className="text-sm italic" style={{ color: "#a3a3a3" }}>{ic(raw.slice(2))}</span>
+        </div>
+      );
+      i++; continue;
+    }
+
+    if (/^\s*[-*]\s/.test(raw)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*]\s/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*]\s+/, "")); i++; }
+      nodes.push(
+        <ul key={`ul-${i}`} className="my-2 space-y-1" style={{ paddingLeft: "1rem" }}>
+          {items.map((item, j) => (
+            <li key={j} className="flex gap-2 text-sm leading-relaxed">
+              <span style={{ color: "#3B82F6", flexShrink: 0, marginTop: "0.35em", fontSize: "0.45em" }}>●</span>
+              <span style={{ color: "#d1d1d6" }}>{ic(item)}</span>
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    if (/^\d+\.\s/.test(raw)) {
+      const items: string[] = [];
+      let start = 1;
+      const sm = raw.match(/^(\d+)\./);
+      if (sm) start = parseInt(sm[1]);
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) { items.push(lines[i].replace(/^\d+\.\s+/, "")); i++; }
+      nodes.push(
+        <ol key={`ol-${i}`} className="my-2 space-y-1" style={{ paddingLeft: "0.5rem", listStyleType: "none" }}>
+          {items.map((item, j) => (
+            <li key={j} className="flex gap-2 text-sm leading-relaxed">
+              <span style={{ color: "#3B82F6", flexShrink: 0, minWidth: "1.4em", fontVariantNumeric: "tabular-nums" }}>{start + j}.</span>
+              <span style={{ color: "#d1d1d6" }}>{ic(item)}</span>
+            </li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    const sepRow = /^\|?[\s\-:]+\|[\s\-:|]+\|?\s*$/;
+    let look = i + 1;
+    while (look < lines.length && lines[look].trim() === "") look++;
+    if (raw.includes("|") && look < lines.length && sepRow.test(lines[look])) {
+      const rows: string[][] = [];
+      const pushRow = (line: string) => {
+        rows.push(line.split("|").map((c) => c.trim()).filter((_, ci, a) => ci > 0 && ci < a.length - 1));
+      };
+      pushRow(raw);
+      i = look + 1;
+      while (i < lines.length) {
+        const ln = lines[i];
+        if (ln.trim() === "") { i++; continue; }
+        if (!ln.includes("|")) break;
+        if (sepRow.test(ln)) { i++; continue; }
+        pushRow(ln);
+        i++;
+      }
+      const [head, ...body] = rows;
+      nodes.push(
+        <div key={`tbl-${i}`} className="my-3 overflow-x-auto rounded-lg" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+          <table className="w-full text-[12px]" style={{ borderCollapse: "collapse" }}>
+            {head && <thead><tr style={{ background: "rgba(59,130,246,0.08)" }}>
+              {head.map((c, ci) => <th key={ci} className="px-3 py-2 text-left font-semibold" style={{ color: "#93c5fd", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>{ic(c)}</th>)}
+            </tr></thead>}
+            <tbody>{body.map((row, ri) => (
+              <tr key={ri} style={{ background: ri % 2 ? "rgba(255,255,255,0.02)" : "transparent" }}>
+                {row.map((c, ci) => <td key={ci} className="px-3 py-2" style={{ color: "#d1d1d6", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>{ic(c)}</td>)}
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    if (raw.trim() === "") { nodes.push(<div key={`sp-${i}`} className="h-2" />); i++; continue; }
+
+    nodes.push(<p key={`p-${i}`} className="mb-0 leading-[1.7]" style={{ color: "#d1d1d6" }}>{ic(raw)}</p>);
+    i++;
+  }
+
+  return <>{nodes}</>;
+}
+
 function ChatMessage({
   message,
   onSourceClick,
   activeSource,
+  onFollowUp,
 }: {
   message: Message;
   onSourceClick: (source: Source) => void;
   activeSource: string | null;
+  onFollowUp?: (text: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
@@ -239,6 +504,28 @@ function ChatMessage({
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleCitationClick = (src: Source) => {
+    if (!message.sources) return;
+    const n = message.sources.indexOf(src) + 1;
+    if (n <= 0) return;
+
+    if (n > 3) {
+      setSourcesExpanded(true);
+    }
+
+    setTimeout(() => {
+      const elementId = `source-${message.id}-${n}`;
+      const el = document.getElementById(elementId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        el.classList.add("source-card-highlight");
+        setTimeout(() => {
+          el.classList.remove("source-card-highlight");
+        }, 800);
+      }
+    }, n > 3 ? 100 : 0);
   };
 
   if (message.role === "user") {
@@ -254,79 +541,19 @@ function ChatMessage({
     );
   }
 
-  const lines = message.content.split("\n");
-
-  const renderInline = (text: string, lineKey: string) => {
-    const CITATION_RE = /(\[\d+\])/g;
-    const tokens = text.split(CITATION_RE);
-    return tokens.map((tok, ti) => {
-      const match = tok.match(/^\[(\d+)\]$/);
-      if (match) {
-        const n = parseInt(match[1], 10);
-        const src = message.sources?.[n - 1];
-        if (src) {
-          return (
-            <button
-              key={`${lineKey}-ci-${ti}`}
-              onClick={() => onSourceClick(src)}
-              title={src.title}
-              className="inline-flex items-center justify-center mx-0.5 px-1.5 rounded text-[10px] font-semibold transition-all"
-              style={{
-                background: "rgba(59,130,246,0.18)",
-                border: "1px solid rgba(59,130,246,0.35)",
-                color: "#93c5fd",
-                verticalAlign: "middle",
-                lineHeight: "1.4",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.32)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(59,130,246,0.18)"; }}
-            >
-              {tok}
-            </button>
-          );
-        }
-      }
-      if (!tok) return null;
-      if (tok.startsWith("**") && tok.endsWith("**")) {
-        return <strong key={`${lineKey}-b-${ti}`} style={{ color: "#F5F5F7", fontWeight: 600 }}>{tok.slice(2, -2)}</strong>;
-      }
-      return <span key={`${lineKey}-t-${ti}`}>{tok}</span>;
-    });
-  };
-
   return (
     <div className="flex gap-3 mb-8 msg-animate group/msg">
       <LogoIcon size={24} />
       <div className="flex-1 min-w-0">
-        <div
-          className="text-sm leading-[1.7] mb-3"
-          style={{ color: "#F5F5F7" }}
-        >
-          {lines.map((line, i) => {
-            const lineKey = `line-${i}`;
-            if (line.startsWith("**") && line.endsWith("**")) {
-              return (
-                <p key={lineKey} className="font-semibold mb-1 mt-3 first:mt-0" style={{ color: "#F5F5F7" }}>
-                  {line.slice(2, -2)}
-                </p>
-              );
-            }
-            const boldParts = line.split(/(\*\*[^*]+\*\*)/g);
-            return (
-              <p key={lineKey} className={line === "" ? "mb-2" : "mb-0"}>
-                {boldParts.map((part, j) =>
-                  part.startsWith("**") && part.endsWith("**") ? (
-                    <strong key={`${lineKey}-bp-${j}`} style={{ color: "#F5F5F7", fontWeight: 600 }}>
-                      {part.slice(2, -2)}
-                    </strong>
-                  ) : (
-                    renderInline(part, `${lineKey}-${j}`)
-                  )
-                )}
-              </p>
-            );
-          })}
+        <div className="text-sm leading-[1.7] mb-3" style={{ color: "#F5F5F7" }}>
+          <MarkdownRenderer content={message.content} sources={message.sources} onSourceClick={handleCitationClick} />
         </div>
+
+        {message.confidence !== undefined && message.confidence !== null && (
+          <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium mb-2.5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#86868B" }}>
+            <span>◈ {Math.round(message.confidence * 100)}% confidence</span>
+          </div>
+        )}
 
         {message.sources && message.sources.length > 0 && (() => {
           const SHOW = 3;
@@ -335,9 +562,18 @@ function ChatMessage({
           return (
             <div className="mt-3">
               <div className="flex flex-wrap gap-2">
-                {visible.map((src) => (
-                  <SourceChip key={src.id} source={src} onClick={() => onSourceClick(src)} active={activeSource === src.id} />
-                ))}
+                {visible.map((src) => {
+                  const n = message.sources!.indexOf(src) + 1;
+                  return (
+                    <SourceChip
+                      key={src.id}
+                      id={`source-${message.id}-${n}`}
+                      source={src}
+                      onClick={() => onSourceClick(src)}
+                      active={activeSource === src.id}
+                    />
+                  );
+                })}
                 {!sourcesExpanded && hidden > 0 && (
                   <button
                     onClick={() => setSourcesExpanded(true)}
@@ -366,6 +602,23 @@ function ChatMessage({
             </div>
           );
         })()}
+
+        {message.followUps && message.followUps.length > 0 && !message.isStreaming && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {message.followUps.map((f, idx) => (
+              <button
+                key={idx}
+                onClick={() => onFollowUp?.(f)}
+                className="px-3 py-1.5 rounded-full text-[11px] transition-all"
+                style={{ background: "rgba(139,92,246,0.10)", border: "1px solid rgba(139,92,246,0.28)", color: "#c4b5fd" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.22)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.10)"; }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
 
         <button
           onClick={() => copyText(message.content)}
@@ -427,7 +680,7 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
   );
 }
 
-function useTypewriter(phrases: string[], speed = 55, pause = 1800) {
+function useTypewriter(phrases: string[], speed = 60, pause = 3200) {
   const [displayed, setDisplayed] = useState("");
   const [phraseIdx, setPhraseIdx] = useState(0);
   const [charIdx, setCharIdx] = useState(0);
@@ -611,10 +864,25 @@ const TYPEWRITER_PHRASES = [
 function TypewriterSubtitle() {
   const text = useTypewriter(TYPEWRITER_PHRASES);
   return (
-    <p className="text-sm" style={{ color: "rgba(134,134,139,0.65)", minHeight: "1.4em" }}>
+    <p
+      className="font-semibold tracking-tight text-center"
+      style={{
+        fontSize: "1.75rem",
+        lineHeight: 1.3,
+        minHeight: "1.4em",
+        textAlign: "center",
+        background: "linear-gradient(135deg, #f5f5f7 0%, #93c5fd 55%, #8b5cf6 100%)",
+        WebkitBackgroundClip: "text",
+        backgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        color: "transparent",
+      }}
+    >
       {text}
-      <span className="inline-block w-[2px] h-[0.9em] ml-0.5 align-middle animate-pulse"
-        style={{ background: "rgba(134,134,139,0.5)" }} />
+      <span
+        className="inline-block w-[3px] ml-1 align-middle animate-pulse"
+        style={{ height: "0.95em", background: "#8b5cf6", WebkitTextFillColor: "initial" }}
+      />
     </p>
   );
 }
@@ -625,35 +893,15 @@ function EmptyState({ onSuggestion, suggestions, loadingSuggestions }: {
   loadingSuggestions: boolean;
 }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 pb-24">
-      {/* Faded logo */}
-      <div className="mb-12 text-center">
-        <div className="mb-5 flex items-center justify-center gap-3">
-          <img
-            src="/favicon-96x96.png"
-            alt="chatRAG"
-            style={{ width: 48, height: 48, borderRadius: 15 }}
-          />
-
-          <div className="flex items-center gap-0">
-            <span
-              className="text-[2.6rem] font-semibold tracking-tight leading-none"
-              style={{ color: "rgba(245,245,247,0.18)" }}
-            >
-              chat
-            </span>
-            <span
-              className="leading-none"
-            >
-              <RAGText fontSize={41} opacity={0.4} />
-            </span>
-          </div>
-        </div>
+    <div className="flex-1 flex flex-col items-center px-6 py-6">
+      <div className="flex-1" />
+      <div className="w-full max-w-2xl flex items-center justify-center" style={{ minHeight: 64 }}>
         <TypewriterSubtitle />
       </div>
+      <div className="flex-1" />
 
       {/* Suggestion cards */}
-      <div className="grid grid-cols-2 gap-3 w-full max-w-xl">
+      <div className="grid grid-cols-2 gap-3 w-full max-w-xl pb-6">
         {loadingSuggestions
           ? [...Array(4)].map((_, i) => (
               <div key={i} className="h-[84px] rounded-2xl animate-pulse" style={{ background: "rgba(28,28,30,0.5)", border: "1px solid rgba(255,255,255,0.05)" }} />
@@ -1276,6 +1524,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null;
   const [activeSource, setActiveSource] = useState<Source | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1328,11 +1577,37 @@ export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("chatrag_api_key") || "");
   const [showApiKey, setShowApiKey] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
+  const [kbBrowserOpen, setKbBrowserOpen] = useState(false);
+  const [kbBrowserFolder, setKbBrowserFolder] = useState<string | null>(null);
+  const [kbBrowserSearch, setKbBrowserSearch] = useState("");
+  const [memories, setMemories] = useState<{ id: string; content: string; created_at: number }[]>([]);
+  const [newMemory, setNewMemory] = useState("");
+
+  const refreshMemories = async () => {
+    try {
+      const r = await fetch("/memory");
+      if (r.ok) setMemories(await r.json());
+    } catch {}
+  };
+  const addMemory = async () => {
+    const c = newMemory.trim();
+    if (!c) return;
+    const r = await fetch("/memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: c }) });
+    if (r.ok) { setNewMemory(""); refreshMemories(); }
+  };
+  const deleteMemory = async (id: string) => {
+    const r = await fetch(`/memory/${id}`, { method: "DELETE" });
+    if (r.ok) refreshMemories();
+  };
+  useEffect(() => { refreshMemories(); }, []);
   const profileRef = useRef<HTMLDivElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const kbSectionRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const userScrolledRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const addToast = useCallback((msg: string, type: Toast["type"] = "info") => {
@@ -1472,6 +1747,7 @@ export default function App() {
   useEffect(() => { chatsRef.current = chats; }, [chats]);
 
   useEffect(() => {
+    if (userScrolledRef.current) return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessing]);
 
@@ -1530,6 +1806,8 @@ export default function App() {
     setMessages(nextMessages);
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+    userScrolledRef.current = false;
+    setShowScrollBtn(false);
     setIsProcessing(true);
     setProcessingStep("embedding");
     setReadingSources([]);
@@ -1549,6 +1827,7 @@ export default function App() {
     streamingChatIdRef.current = chatId;
     const aiId = (Date.now() + 1).toString();
     let finalSources: Source[] = [];
+    let finalConfidence: number | null = null;
 
     // Update messages for the streaming chat — if user has navigated away, update chats store directly
     const updateStreamMsg = (updater: (prev: Message[]) => Message[]) => {
@@ -1621,8 +1900,13 @@ export default function App() {
             if (existing) return prev.map((m) => m.id === aiId ? { ...m, content: newContent, isStreaming: true } : m);
             return [...prev, { id: aiId, role: "assistant" as const, content: newContent, isStreaming: true }];
           });
-        } else if (ev.type === "done" && (ev.sources as unknown[])?.length > 0) {
-          finalSources = (ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>).map(mapSrc);
+        } else if (ev.type === "done") {
+          if (ev.confidence !== undefined) {
+            finalConfidence = ev.confidence as number | null;
+          }
+          if ((ev.sources as unknown[])?.length > 0) {
+            finalSources = (ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>).map(mapSrc);
+          }
         }
       };
 
@@ -1641,20 +1925,59 @@ export default function App() {
       }
 
       // Finalize: mark streaming done, attach sources, fallback if empty
+      let finalContent = "";
       updateStreamMsg((prev) => {
         const existing = prev.find((m) => m.id === aiId);
         const content = existing?.content?.trim() ? existing.content : "No answer returned.";
-        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: finalSources, isStreaming: false };
+        finalContent = content;
+        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: finalSources, confidence: finalConfidence, isStreaming: false };
         return existing
           ? prev.map((m) => m.id === aiId ? finalMsg : m)
           : [...prev, finalMsg];
       });
+      // Fire-and-forget: fetch follow-up suggestions, attach to message when ready
+      (async () => {
+        try {
+          const r = await fetch("/chat/follow-ups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              question: content,
+              answer: finalContent.slice(0, 800),
+              source_filenames: finalSources.slice(0, 3).map((s) => s.filename || s.title),
+              model: activeModel,
+              ...(isGroqModel(activeModel) && apiKey ? { api_key: apiKey } : {}),
+            }),
+          });
+          if (!r.ok) return;
+          const data = await r.json();
+          const sugg: string[] = Array.isArray(data?.suggestions) ? data.suggestions : [];
+          if (!sugg.length) return;
+          updateStreamMsg((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, followUps: sugg } : m))
+          );
+        } catch {}
+      })();
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         updateStreamMsg((prev) => {
           const existing = prev.find((m) => m.id === aiId);
-          if (!existing) return prev;
-          return prev.map((m) => m.id === aiId ? { ...m, isStreaming: false, sources: finalSources } : m);
+          const stoppedNote = "\n\n_— Generation stopped._";
+          if (!existing) {
+            const stoppedMsg: Message = {
+              id: aiId,
+              role: "assistant",
+              content: "_Generation stopped before any output._",
+              sources: finalSources,
+              confidence: finalConfidence,
+            };
+            return [...prev, stoppedMsg];
+          }
+          return prev.map((m) =>
+            m.id === aiId
+              ? { ...m, isStreaming: false, sources: finalSources, confidence: finalConfidence, content: (m.content || "") + stoppedNote }
+              : m
+          );
         });
       } else {
         const errMsg: Message = {
@@ -1679,6 +2002,8 @@ export default function App() {
     setMessages(latest.messages);
     setActiveSource(null);
     setActiveSourceId(null);
+    userScrolledRef.current = false;
+    setShowScrollBtn(false);
   };
 
   const newChat = () => {
@@ -1688,6 +2013,8 @@ export default function App() {
     setActiveSource(null);
     setActiveSourceId(null);
     setInput("");
+    userScrolledRef.current = false;
+    setShowScrollBtn(false);
     // Don't abort ongoing stream — let it complete in background chat
   };
 
@@ -1698,6 +2025,43 @@ export default function App() {
       return updated;
     });
     if (activeChatId === chatId) newChat();
+  };
+
+  const exportActiveChat = () => {
+    const chat = chats.find((c) => c.id === activeChatId);
+    if (!chat) return;
+    const title = chat.title || "chat";
+    const date = new Date(chat.createdAt).toISOString().slice(0, 19).replace("T", " ");
+    const lines: string[] = [`# ${title}`, "", `_Exported: ${new Date().toISOString().slice(0, 19).replace("T", " ")}_`, `_Created: ${date}_`, ""];
+    for (const m of chat.messages) {
+      const speaker = m.role === "user" ? "**You**" : "**Ciel**";
+      lines.push(`${speaker}:`, "", m.content.trim(), "");
+      if (m.sources && m.sources.length) {
+        lines.push("_Sources:_");
+        for (const s of m.sources) lines.push(`- ${s.filename || s.title}`);
+        lines.push("");
+      }
+      lines.push("---", "");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeTitle = title.replace(/[^\w\d\-_. ]/g, "").slice(0, 60).trim() || "chat";
+    a.download = `${safeTitle}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addToast(`Exported "${safeTitle}.md"`, "success");
+  };
+
+  const togglePinChat = (chatId: string) => {
+    setChats((prev) => {
+      const updated = prev.map((c) => c.id === chatId ? { ...c, pinned: !c.pinned } : c);
+      saveChatsToStorage(updated);
+      return updated;
+    });
   };
 
   const handleSourceClick = (source: Source) => {
@@ -1782,21 +2146,26 @@ export default function App() {
           {chats.length === 0 ? (
             <p className="text-center text-[11px] py-4" style={{ color: "rgba(134,134,139,0.4)" }}>No chats yet</p>
           ) : (
-            (["today", "week", "older"] as const).map((group) => {
+            (["pinned", "today", "week", "older"] as const).map((group) => {
+              const sq = searchQuery.trim().toLowerCase();
               const items = chats
-                .filter((c) => chatGroup(c.createdAt) === group)
-                .filter((c) => !searchQuery || c.title.toLowerCase().includes(searchQuery.toLowerCase()));
+                .filter((c) => group === "pinned" ? c.pinned : !c.pinned && chatGroup(c.createdAt) === group)
+                .filter((c) => {
+                  if (!sq) return true;
+                  if (c.title.toLowerCase().includes(sq)) return true;
+                  return c.messages.some((m) => m.content.toLowerCase().includes(sq));
+                });
               if (items.length === 0) return null;
-              const label = group === "today" ? "Today" : group === "week" ? "Previous 7 Days" : "Older";
+              const label = group === "pinned" ? "Pinned" : group === "today" ? "Today" : group === "week" ? "Previous 7 Days" : "Older";
               return (
                 <div key={group} className="mb-4">
                   <p className="text-[10px] font-medium uppercase tracking-widest px-2 mb-1.5"
-                    style={{ color: "rgba(134,134,139,0.5)" }}>{label}</p>
+                    style={{ color: group === "pinned" ? "rgba(251,191,36,0.6)" : "rgba(134,134,139,0.5)" }}>{label}</p>
                   {items.map((chat) => (
                     <div key={chat.id} className="group relative mb-0.5">
                       <button
                         onClick={() => loadChat(chat)}
-                        className="w-full text-left px-2.5 py-2 rounded-lg transition-all duration-150 pr-7"
+                        className="w-full text-left px-2.5 py-2 rounded-lg transition-all duration-150 pr-12"
                         style={{
                           background: activeChatId === chat.id ? "rgba(59,130,246,0.1)" : "transparent",
                           border: activeChatId === chat.id ? "1px solid rgba(59,130,246,0.15)" : "1px solid transparent",
@@ -1810,10 +2179,19 @@ export default function App() {
                             e.currentTarget.style.background = "transparent";
                         }}
                       >
-                        <p className="text-[12px] font-medium truncate"
+                        <p className="text-[12px] font-medium truncate flex items-center gap-1.5"
                           style={{ color: activeChatId === chat.id ? "#93c5fd" : "#d1d1d6" }}>
+                          {chat.pinned && <span style={{ color: "#fbbf24", fontSize: 9 }}>★</span>}
                           {chat.title}
                         </p>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); togglePinChat(chat.id); }}
+                        className={`absolute right-6 top-1/2 -translate-y-1/2 ${chat.pinned ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity p-1 rounded`}
+                        style={{ color: chat.pinned ? "#fbbf24" : "#86868B" }}
+                        title={chat.pinned ? "Unpin" : "Pin"}
+                      >
+                        <span style={{ fontSize: 11 }}>★</span>
                       </button>
                       <button
                         onClick={() => deleteChat(chat.id)}
@@ -2138,6 +2516,19 @@ export default function App() {
               <Plus size={12} />
               New Chat
             </button>
+            {activeChatId && messages.length > 0 && (
+              <button
+                onClick={exportActiveChat}
+                title="Export chat to Markdown"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all"
+                style={{ border: "1px solid rgba(255,255,255,0.1)", color: "#86868B" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(59,130,246,0.4)"; e.currentTarget.style.color = "#F5F5F7"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "#86868B"; }}
+              >
+                <Upload size={12} style={{ transform: "rotate(180deg)" }} />
+                Export
+              </button>
+            )}
             {/* Model switcher */}
             <div className="relative" ref={modelMenuRef}>
               <button
@@ -2303,10 +2694,7 @@ export default function App() {
                   </div>
                   <div className="px-2 py-1.5">
                     <button
-                      onClick={() => {
-                        setProfileOpen(false);
-                        setTimeout(() => kbSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-                      }}
+                      onClick={() => { setProfileOpen(false); setKbBrowserOpen(true); setKbBrowserFolder(null); setKbBrowserSearch(""); }}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
                       style={{ color: "#c7c7cc" }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
@@ -2314,6 +2702,16 @@ export default function App() {
                     >
                       <Database size={12} style={{ color: "#86868B" }} />
                       Knowledge base: {kbDocs.length} docs
+                    </button>
+                    <button
+                      onClick={() => { setProfileOpen(false); setMemoryPanelOpen(true); refreshMemories(); }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
+                      style={{ color: "#c7c7cc" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <Sparkles size={12} style={{ color: "#86868B" }} />
+                      Memory: {memories.length} {memories.length === 1 ? "item" : "items"}
                     </button>
                     <button
                       onClick={() => {
@@ -2338,9 +2736,209 @@ export default function App() {
           </div>
         </header>
 
+        {memoryPanelOpen && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={() => setMemoryPanelOpen(false)}
+          >
+            <div
+              className="rounded-2xl flex flex-col"
+              style={{ width: 480, maxHeight: "75vh", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} style={{ color: "#a78bfa" }} />
+                  <h2 className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Memory</h2>
+                  <span className="text-[10px]" style={{ color: "#86868B" }}>{memories.length} {memories.length === 1 ? "item" : "items"}</span>
+                </div>
+                <button onClick={() => setMemoryPanelOpen(false)} className="p-1 rounded hover:bg-white/5">
+                  <XIcon size={14} style={{ color: "#86868B" }} />
+                </button>
+              </div>
+              <div className="px-5 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <p className="text-[10px] mb-2" style={{ color: "#86868B" }}>
+                  Ciel sẽ luôn nhớ những điều bạn ghi ở đây trong mọi cuộc trò chuyện.
+                </p>
+                <div className="flex gap-2">
+                  <textarea
+                    value={newMemory}
+                    onChange={(e) => setNewMemory(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addMemory(); } }}
+                    placeholder="VD: Tôi tên Phong, làm AI engineer..."
+                    rows={2}
+                    className="flex-1 rounded-lg px-3 py-2 text-[12px] resize-none outline-none"
+                    style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7" }}
+                  />
+                  <button
+                    onClick={addMemory}
+                    disabled={!newMemory.trim()}
+                    className="px-3 py-2 rounded-lg text-[11px] font-medium shrink-0"
+                    style={{
+                      background: newMemory.trim() ? "linear-gradient(135deg, #8b5cf6, #6366f1)" : "rgba(255,255,255,0.04)",
+                      color: newMemory.trim() ? "#fff" : "#52525b",
+                      cursor: newMemory.trim() ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto scrollbar-hide px-3 py-2">
+                {memories.length === 0 ? (
+                  <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
+                    Chưa có memory nào. Thêm thông tin trên để Ciel ghi nhớ.
+                  </p>
+                ) : (
+                  memories.map((m) => (
+                    <div key={m.id} className="group flex items-start gap-2 px-3 py-2 rounded-lg hover:bg-white/5">
+                      <Sparkles size={10} className="mt-1 shrink-0" style={{ color: "#a78bfa" }} />
+                      <p className="flex-1 text-[12px] leading-relaxed" style={{ color: "#d1d1d6" }}>{m.content}</p>
+                      <button
+                        onClick={() => deleteMemory(m.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+                      >
+                        <Trash2 size={11} style={{ color: "#f87171" }} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {kbBrowserOpen && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={() => setKbBrowserOpen(false)}
+          >
+            <div
+              className="rounded-2xl flex flex-col"
+              style={{ width: 680, maxHeight: "78vh", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <div className="flex items-center gap-2">
+                  <Database size={14} style={{ color: "#3B82F6" }} />
+                  <h2 className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Knowledge Base</h2>
+                  <span className="text-[10px]" style={{ color: "#86868B" }}>{kbDocs.length} docs · {Object.keys(folderMap).filter(k => k !== "default").length} folders</span>
+                </div>
+                <button onClick={() => setKbBrowserOpen(false)} className="p-1 rounded hover:bg-white/5">
+                  <XIcon size={14} style={{ color: "#86868B" }} />
+                </button>
+              </div>
+              <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <input
+                  value={kbBrowserSearch}
+                  onChange={(e) => setKbBrowserSearch(e.target.value)}
+                  placeholder="Search files..."
+                  className="flex-1 rounded-lg px-3 py-2 text-[12px] outline-none"
+                  style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7" }}
+                />
+                {kbBrowserFolder && (
+                  <button
+                    onClick={() => setKbBrowserFolder(null)}
+                    className="px-3 py-2 rounded-lg text-[11px]"
+                    style={{ background: "rgba(255,255,255,0.04)", color: "#c7c7cc" }}
+                  >
+                    ← All folders
+                  </button>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto scrollbar-hide">
+                {!kbBrowserFolder ? (
+                  <div className="px-3 py-2">
+                    {Object.entries(folderMap)
+                      .filter(([name]) => name !== "default")
+                      .sort((a, b) => a[0].localeCompare(b[0]))
+                      .map(([name, docs]) => {
+                        const matchCount = kbBrowserSearch
+                          ? docs.filter((d) => d.source.toLowerCase().includes(kbBrowserSearch.toLowerCase())).length
+                          : docs.length;
+                        if (kbBrowserSearch && matchCount === 0) return null;
+                        return (
+                          <button
+                            key={name}
+                            onClick={() => setKbBrowserFolder(name)}
+                            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white/5 text-left"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <FolderOpen size={14} style={{ color: "#fbbf24" }} />
+                              <span className="text-[12px] font-medium" style={{ color: "#f5f5f7" }}>{name}</span>
+                            </div>
+                            <span className="text-[10px]" style={{ color: "#86868B" }}>{matchCount} {matchCount === 1 ? "file" : "files"}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <div className="px-3 py-2">
+                    {(folderMap[kbBrowserFolder] || [])
+                      .filter((d) => !kbBrowserSearch || d.source.toLowerCase().includes(kbBrowserSearch.toLowerCase()))
+                      .map((d) => {
+                        const filename = d.source.split("/").pop()?.split("\\").pop() || d.source;
+                        const broken = d.has_file === false;
+                        return (
+                          <div key={d.document_id} className="group flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/5">
+                            <FileType2 size={12} style={{ color: broken ? "#f59e0b" : "#86868B", flexShrink: 0 }} />
+                            <span className="flex-1 text-[12px] truncate" style={{ color: broken ? "#d4b48a" : "#d1d1d6" }} title={filename + (broken ? " (file missing)" : "")}>
+                              {filename}{broken && <span className="ml-1.5 text-[9px]" style={{ color: "#f59e0b" }}>· no file</span>}
+                            </span>
+                            <span className="text-[10px] shrink-0" style={{ color: "#52525b" }}>{d.chunk_count} chunks</span>
+                            {broken ? (
+                              <label
+                                className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded text-[10px] transition-opacity cursor-pointer"
+                                style={{ background: "rgba(245,158,11,0.18)", color: "#fcd34d" }}
+                              >
+                                Re-upload
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const f = e.target.files?.[0];
+                                    if (!f) return;
+                                    const form = new FormData();
+                                    form.append("file", f);
+                                    const r = await fetch(`/ingest/documents/${d.document_id}/relink`, { method: "POST", body: form });
+                                    if (r.ok) { addToast(`Relinked "${filename}"`, "success"); loadKbDocs(); }
+                                    else { addToast("Re-upload failed", "error"); }
+                                    e.target.value = "";
+                                  }}
+                                />
+                              </label>
+                            ) : (
+                              <button
+                                onClick={() => window.open(`/ingest/documents/${d.document_id}/file`, "_blank")}
+                                className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded text-[10px] transition-opacity"
+                                style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}
+                              >
+                                View
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Messages area */}
         <div
-          className="flex-1 overflow-y-auto scrollbar-hide relative"
+          ref={messagesContainerRef}
+          className={`flex-1 ${isEmpty ? "overflow-hidden" : "overflow-y-auto"} scrollbar-hide relative`}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+            const scrolled = distFromBottom > 120;
+            userScrolledRef.current = scrolled;
+            setShowScrollBtn(scrolled);
+          }}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
           onDrop={(e) => {
@@ -2373,12 +2971,33 @@ export default function App() {
           ) : (
             <div className="max-w-[850px] mx-auto px-6 pt-8 pb-4">
               {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} onSourceClick={handleSourceClick} activeSource={activeSourceId} />
+                <ChatMessage key={msg.id} message={msg} onSourceClick={handleSourceClick} activeSource={activeSourceId} onFollowUp={(t) => sendMessage(t)} />
               ))}
               {isProcessing && <RAGProcessing step={processingStep} sources={readingSources} />}
               <div ref={messagesEndRef} />
             </div>
           )}
+          <div className="sticky bottom-6 w-full h-0 overflow-visible pointer-events-none z-10">
+            <button
+              onClick={() => {
+                userScrolledRef.current = false;
+                setShowScrollBtn(false);
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="absolute bottom-0 right-6 flex items-center justify-center rounded-full transition-opacity duration-300 pointer-events-auto"
+              style={{
+                width: "36px",
+                height: "36px",
+                background: "rgba(28,28,30,0.9)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: "#fff",
+                opacity: showScrollBtn ? 1 : 0,
+                pointerEvents: showScrollBtn ? "auto" : "none",
+              }}
+            >
+              <ArrowDown size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Input area */}

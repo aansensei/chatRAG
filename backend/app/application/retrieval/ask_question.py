@@ -11,6 +11,59 @@ import httpx
 from app.infrastructure.vector.supabase.repository import search_chunks, keyword_search_chunks, filename_search_chunks
 from app.shared.utils.embedders.text_embedder import embed_text
 
+try:
+    from app.shared.utils.rerankers.bge import rerank as _bge_rerank
+    _RERANKER_ENABLED = os.environ.get("RERANKER_ENABLED", "true").lower() == "true"
+except Exception:
+    _bge_rerank = None
+    _RERANKER_ENABLED = False
+
+try:
+    from app.presentation.api.memory import get_memories, add_memory_internal
+except Exception:
+    def get_memories():
+        return []
+    def add_memory_internal(content: str):
+        return None
+
+
+_MEMORY_PATTERNS = [
+    re.compile(r"\b(?:tôi\s+tên|tên\s+(?:tôi|mình)\s+là|mình\s+tên|i'?m\s+called|my\s+name\s+is|i\s+am)\s+([^.,\n!?]{2,60})", re.IGNORECASE),
+    re.compile(r"\b(?:tôi\s+là|mình\s+là|i\s+am\s+a|i'?m\s+a|i\s+work\s+as)\s+([^.,\n!?]{3,80})", re.IGNORECASE),
+    re.compile(r"\b(?:hãy\s+nhớ\s+(?:là\s+|rằng\s+)?|nhớ\s+giúp\s+(?:tôi\s+|mình\s+)?(?:là\s+|rằng\s+)?|remember\s+(?:that\s+)?|please\s+remember\s+)([^.\n!?]{5,200})", re.IGNORECASE),
+    re.compile(r"\b(?:tôi\s+(?:thích|ưa|prefer)|i\s+prefer|i\s+like)\s+([^.,\n!?]{3,100})", re.IGNORECASE),
+    re.compile(r"\b(?:tôi\s+(?:làm|đang\s+làm)|i\s+work\s+at|tôi\s+ở|i\s+live\s+in)\s+([^.,\n!?]{2,80})", re.IGNORECASE),
+]
+
+_MEMORY_SKIP_PREFIX = ("ai", "gì", "bạn", "ciel", "hãy", "cho", "tell me", "what", "who")
+
+
+def _auto_extract_memory(question: str) -> list[str]:
+    """Extract facts the user states about themselves. Returns list of new memory strings."""
+    if not question or len(question) < 6:
+        return []
+    extracted: list[str] = []
+    for pat in _MEMORY_PATTERNS:
+        for m in pat.finditer(question):
+            fact = m.group(0).strip().rstrip(".!?,")
+            if any(fact.lower().startswith(p) for p in _MEMORY_SKIP_PREFIX):
+                continue
+            if "?" in fact:
+                continue
+            if fact not in extracted:
+                extracted.append(fact)
+    return extracted
+
+
+def _format_memory_block() -> str:
+    items = get_memories()
+    if not items:
+        return ""
+    lines = [f"- {m.get('content', '').strip()}" for m in items if m.get("content")]
+    if not lines:
+        return ""
+    return "Ghi nhớ về người dùng (luôn tôn trọng):\n" + "\n".join(lines) + "\n\n"
+
 _KEYWORD_RE = re.compile(r'\b([A-Z]{2,}-\d{3,}|\d{7,}|MST|[A-Z]{3,}\d+)\b')
 
 _WAKEUP_VI = (
@@ -213,7 +266,6 @@ _IDENTITY_KEYWORDS_VI = (
     "ciel la ai", "ciel la gi", "ciel ten", "ban co the giup",
     "ban khong lam duoc", "han che cua ban", "ban co gioi han", "gioi han cua ban",
     "kha nang cua ban", "ban lam duoc nhung", "ban lam dc nhung",
-    # Capability / feature questions about Ciel
     "ciel co the", "ciel lam duoc", "ciel lam dc", "ciel giup",
     "co tao duoc", "co sinh duoc", "co ve duoc", "co doc duoc", "co dich duoc",
     "co the tao", "co the sinh", "co the ve", "co the viet", "co the code",
@@ -221,6 +273,10 @@ _IDENTITY_KEYWORDS_VI = (
     "lam dc anh", "lam dc hinh", "tao hinh", "sinh anh", "ve hinh",
     "co the dich", "co dich", "co the code", "co the viet code",
     "ban co biet", "ban hieu", "ban su dung duoc",
+    "ban la chatgpt", "ban la gpt", "ban la claude", "ban la gemini",
+    "ban la qwen", "ban la gemma", "ban la llama", "ban la grok", "ban la xeo",
+    "ban co phai la", "co phai la ciel", "co phai ban la", "phai khong",
+    "ten cua may", "may la ai", "may la gi",
 )
 
 _IDENTITY_KEYWORDS_EN = (
@@ -357,13 +413,37 @@ def _extract_filename_tokens(question: str) -> tuple[list[str], bool]:
     return tokens, bool(strong)
 
 
+_IDENTITY_REGEX_VI = re.compile(r"\bban\s+(?:co\s+)?(?:phai\s+)?la\s+\S{2,20}\b")
+_IDENTITY_REGEX_EN = re.compile(r"\b(?:you\s+are|are\s+you|aren'?t\s+you)\s+\S{2,20}\b", re.IGNORECASE)
+
+
 def _is_identity_query(question: str) -> bool:
     q = _strip_vi(question).rstrip("?!. ").strip()
     if q in _HELP_EXACT or q.startswith("/help"):
         return True
     if any(p in question for p in _IDENTITY_JP):
         return True
-    return any(p in q for p in _IDENTITY_KEYWORDS_VI) or any(p in q for p in _IDENTITY_KEYWORDS_EN)
+    if any(p in q for p in _IDENTITY_KEYWORDS_VI) or any(p in q for p in _IDENTITY_KEYWORDS_EN):
+        return True
+    if len(q) <= 60 and (_IDENTITY_REGEX_VI.search(q) or _IDENTITY_REGEX_EN.search(question)):
+        return True
+    return False
+
+
+_MEMORY_QUERY_TRIGGERS = (
+    "ki uc", "ky uc", "ban nho gi", "ban nho j", "ban nho ve toi", "ban nho ve minh",
+    "memory cua ban", "memory cua minh", "memories of", "what do you remember",
+    "ban con nho", "ban nho nhung gi", "ban da biet gi ve toi", "tat ca ki uc",
+    "list memory", "show memory", "show memories",
+    "ban biet gi ve toi", "ban biet j ve toi",
+)
+
+
+def _is_memory_list_query(question: str) -> bool:
+    q = _strip_vi(question).rstrip("?!. ").strip()
+    if len(q) > 80:
+        return False
+    return any(p in q for p in _MEMORY_QUERY_TRIGGERS)
 
 
 def _is_rag_query(question: str) -> bool:
@@ -395,11 +475,14 @@ def _intro_lang(question: str) -> str:
     return "en" if any(p in q for p in _IDENTITY_EN) else "vi"
 
 
-def _stream_text_gradually(text: str, delay: float = 0.018) -> Generator[str, None, None]:
-    """Yield text word-by-word with a small delay for a natural typing effect."""
-    for tok in re.findall(r"\S+\s*", text):
+def _stream_text_gradually(text: str, delay: float = 0.008) -> Generator[str, None, None]:
+    """Yield text word-by-word. Long responses skip the delay so heavy tasks don't drag."""
+    tokens = re.findall(r"\S+\s*", text)
+    effective_delay = 0.0 if len(tokens) > 60 else delay
+    for tok in tokens:
         yield _sse({"type": "token", "token": tok})
-        time.sleep(delay)
+        if effective_delay:
+            time.sleep(effective_delay)
 
 
 _FILTER_SYSTEM = (
@@ -566,7 +649,12 @@ _REWRITE_TRIGGERS_EN = (
 
 
 def _should_rewrite(question: str, history: list[dict] | None) -> bool:
-    """Return True when the question is likely a follow-up that needs context to be understood."""
+    """Return True when the question is likely a follow-up that needs context to be understood.
+
+    Only triggers when the question contains an explicit anaphor (it/that/this/đó/này...).
+    Previously this triggered for any short query, which caused unrelated questions to inherit
+    semantics from previous Q&A and pull wrong chunks.
+    """
     if not history:
         return False
     q = question.strip().lower()
@@ -575,8 +663,6 @@ def _should_rewrite(question: str, history: list[dict] | None) -> bool:
     if any(t in q for t in _REWRITE_TRIGGERS_VI):
         return True
     if any(t in q for t in _REWRITE_TRIGGERS_EN):
-        return True
-    if len(q) <= 60 and history:
         return True
     return False
 
@@ -655,6 +741,10 @@ def stream_ask(
     ollama_model = model or _OLLAMA_MODEL
     lang = _detect_lang(question)
     history_block = _format_history(history)
+    for _fact in _auto_extract_memory(question):
+        add_memory_internal(_fact)
+    memory_block = _format_memory_block()
+    confidence_val = None
 
     # Wake-up: "ciel ơi" / "シエルさん" — random greeting, no LLM needed.
     if _is_wakeup_query(question):
@@ -665,7 +755,24 @@ def stream_ask(
         else:
             greeting = random.choice(_GREETINGS_EN)
         yield from _stream_text_gradually(greeting, delay=0.022)
-        yield _sse({"type": "done", "sources": []})
+        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
+        return
+
+    # Memory listing — directly return stored memories instead of doing RAG.
+    if _is_memory_list_query(question):
+        mem_items = get_memories()
+        if not mem_items:
+            msg = (
+                "Hiện tôi chưa lưu ghi nhớ nào về bạn. Bạn có thể thêm trong avatar → Memory."
+                if lang == "vi"
+                else "I don't have any memories saved about you yet. Add some via the avatar → Memory."
+            )
+            yield from _stream_text_gradually(msg)
+        else:
+            header = "Đây là những gì tôi nhớ về bạn:" if lang == "vi" else "Here's what I remember about you:"
+            body = "\n".join(f"- {m.get('content', '').strip()}" for m in mem_items if m.get("content"))
+            yield from _stream_text_gradually(f"{header}\n\n{body}")
+        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
         return
 
     # Identity / capability questions — LLM with strong Ciel persona.
@@ -681,17 +788,17 @@ def stream_ask(
             system = _IDENTITY_SYSTEM_VI
         else:
             system = _IDENTITY_SYSTEM_EN
-        prompt_identity = f"{system}\n\n{history_block}Question: {question}\nCiel:"
+        prompt_identity = f"{system}\n\n{memory_block}{history_block}Question: {question}\nCiel:"
         yield from _stream_llm(prompt_identity, ollama_model, api_key, model)
-        yield _sse({"type": "done", "sources": []})
+        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
         return
 
     # RAG explanation — LLM for natural response.
     if _is_rag_query(question):
         system = _RAG_SYSTEM_VI if lang == "vi" else _RAG_SYSTEM_EN
-        prompt_rag = f"{system}\n\n{history_block}Question: {question}\nCiel:"
+        prompt_rag = f"{system}\n\n{memory_block}{history_block}Question: {question}\nCiel:"
         yield from _stream_llm(prompt_rag, ollama_model, api_key, model)
-        yield _sse({"type": "done", "sources": []})
+        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
         return
 
     try:
@@ -771,7 +878,7 @@ def stream_ask(
                 if lang == "vi"
                 else "No relevant information found in the documents."
             )
-            yield _sse({"type": "done", "answer": msg, "sources": []})
+            yield _sse({"type": "done", "answer": msg, "sources": [], "confidence": confidence_val})
             return
 
         sources = []
@@ -783,7 +890,7 @@ def stream_ask(
             if section.upper() in _GENERIC_SECTION_TITLES:
                 section = ""
             sources.append({
-                "id": f"src-{i}",
+                "id": i + 1,
                 "content": c["content"][:200],
                 "section": section or None,
                 "similarity": round(c["similarity"], 3),
@@ -797,12 +904,43 @@ def stream_ask(
             has_tabular = any("  |  " in (c.get("content") or "") for c in chunks[:5])
             if filename_doc_ids or has_tabular:
                 filtered = chunks
+            elif _RERANKER_ENABLED and _bge_rerank is not None:
+                yield _sse({"type": "step", "step": "filtering"})
+                try:
+                    filtered = _bge_rerank(question, chunks, top_n=_TOP_K)
+                    if not filtered:
+                        filtered = chunks
+                    else:
+                        top_score = filtered[0].get("similarity")
+                        if isinstance(top_score, (int, float)):
+                            import math
+                            confidence_val = round(1.0 / (1.0 + math.exp(-float(top_score))), 2)
+                except Exception:
+                    filtered = chunks
             else:
                 yield _sse({"type": "step", "step": "filtering"})
                 groq_filter_model = model if (api_key and api_key.startswith("gsk_")) else None
                 filtered = _llm_filter_chunks(question, chunks, ollama_model, api_key, groq_filter_model)
                 if not filtered:
                     filtered = chunks
+
+            # Rebuild sources to match the final filtered chunks
+            sources = []
+            for i, c in enumerate(filtered):
+                meta = c.get("metadata") or {}
+                raw_src = meta.get("source", "") if isinstance(meta, dict) else ""
+                filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {i+1}"
+                section = (c.get("section_title") or "").strip()
+                if section.upper() in _GENERIC_SECTION_TITLES:
+                    section = ""
+                sources.append({
+                    "id": i + 1,
+                    "content": c["content"][:200],
+                    "section": section or None,
+                    "similarity": round(c["similarity"], 3),
+                    "filename": filename,
+                    "document_id": c.get("document_id", ""),
+                })
 
             parts = []
             for i, c in enumerate(filtered):
@@ -827,7 +965,7 @@ def stream_ask(
                 )
             else:
                 system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN
-            prompt = f"{system}\n\n{history_block}Context:\n{context}\n\nQuestion: {question}\nAnswer:"
+            prompt = f"{system}\n\n{memory_block}{history_block}Context:\n{context}\n\nQuestion: {question}\nAnswer:"
         else:
             hybrid_system = (
                 f"{_CIEL_IDENTITY}"
@@ -838,12 +976,12 @@ def stream_ask(
                 else f"{_CIEL_IDENTITY}No relevant documents found. Answer using your general knowledge. "
                      "Briefly note the answer comes from general knowledge, not internal documents. Be concise."
             )
-            prompt = f"{hybrid_system}\n\n{history_block}Question: {question}\nAnswer:"
+            prompt = f"{hybrid_system}\n\n{memory_block}{history_block}Question: {question}\nAnswer:"
 
         yield _sse({"type": "step", "step": "generating"})
         yield from _stream_llm(prompt, ollama_model, api_key, model)
-        yield _sse({"type": "done", "sources": sources})
+        yield _sse({"type": "done", "sources": sources, "confidence": confidence_val})
 
     except Exception as exc:
         yield _sse({"type": "token", "token": f"Lỗi xử lý: {exc}"})
-        yield _sse({"type": "done", "sources": []})
+        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})

@@ -171,6 +171,8 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   input {
@@ -178,4 +180,31 @@
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
   }
+
+  header, nav, aside, [role="toolbar"], [role="tablist"], [role="menu"] {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  img, svg, [data-no-select] {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+}
+
+@keyframes source-card-flash {
+  0% {
+    box-shadow: 0 0 16px rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(255, 255, 255, 0.9) !important;
+  }
+  100% {
+    box-shadow: none;
+    border-color: inherit;
+  }
+}
+
+.source-card-highlight {
+  animation: source-card-flash 0.8s ease-out;
 }
