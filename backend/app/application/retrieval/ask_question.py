@@ -64,7 +64,7 @@ def _auto_extract_memory(question: str) -> list[str]:
     is_preference_soft = bool(_PREFERENCE_SIGNAL.search(question)) and bool(_SOFT_ENDING.search(question))
 
     if is_instruction or is_preference_soft:
-        content = question.strip()[:400].rstrip(".!?,")
+        content = question.strip()[:500].rstrip(".!?,")
         if len(content) >= 8 and content not in extracted:
             extracted.append(content)
 
