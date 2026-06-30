@@ -2556,7 +2556,7 @@ export default function App() {
           from { transform: translateY(10px); opacity: 0; }
           to   { transform: translateY(0); opacity: 1; }
         }
-        .msg-animate { animation: msg-in 0.3s ease forwards; }
+        .msg-animate { animation: msg-in 0.15s ease forwards; }
         textarea::placeholder { color: rgba(134,134,139,0.45); }
       `}</style>
     </div>

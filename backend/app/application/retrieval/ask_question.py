@@ -395,8 +395,8 @@ def _intro_lang(question: str) -> str:
     return "en" if any(p in q for p in _IDENTITY_EN) else "vi"
 
 
-def _stream_text_gradually(text: str, delay: float = 0.04) -> Generator[str, None, None]:
-    """Yield text word-by-word with a delay so the frontend shows a natural typing effect."""
+def _stream_text_gradually(text: str, delay: float = 0.018) -> Generator[str, None, None]:
+    """Yield text word-by-word with a small delay for a natural typing effect."""
     for tok in re.findall(r"\S+\s*", text):
         yield _sse({"type": "token", "token": tok})
         time.sleep(delay)
@@ -495,7 +495,7 @@ def _stream_llm(
         pass
     # Fallback when LLM is unreachable
     fb = fallback_vi or "Hiện tại tôi không thể kết nối model. Vui lòng thử lại hoặc dùng Groq API key."
-    yield from _stream_text_gradually(fb, delay=0.04)
+    yield from _stream_text_gradually(fb, delay=0.018)
 
 
 def _stream_groq(prompt: str, model: str, api_key: str) -> Generator[str, None, None]:
@@ -664,7 +664,7 @@ def stream_ask(
             greeting = random.choice(_GREETINGS_VI)
         else:
             greeting = random.choice(_GREETINGS_EN)
-        yield from _stream_text_gradually(greeting, delay=0.05)
+        yield from _stream_text_gradually(greeting, delay=0.022)
         yield _sse({"type": "done", "sources": []})
         return
 
