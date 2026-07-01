@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 import httpx
 
-from app.infrastructure.vector.supabase.repository import search_chunks, keyword_search_chunks, filename_search_chunks
+from app.infrastructure.vector.supabase.repository import search_chunks, keyword_search_chunks, filename_search_chunks, fetch_context_windows
 from app.shared.utils.embedders.text_embedder import embed_text
 
 try:
@@ -658,6 +658,24 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
     return ""
 
 
+def _hyde_query_vector(question: str, lang: str, model: str | None, api_key: str) -> list[float] | None:
+    """Generate a hypothetical answer and embed it (HyDE).
+    Blending this with the original query vector improves recall for short/vague queries.
+    """
+    prompt = (
+        f"Trả lời ngắn gọn 2-3 câu câu hỏi sau: {question}"
+        if lang == "vi"
+        else f"Answer briefly in 2-3 sentences: {question}"
+    )
+    hypo = _call_llm_once(prompt, model, api_key, max_tokens=150)
+    if not hypo or len(hypo.strip()) < 20:
+        return None
+    try:
+        return embed_text(hypo)
+    except Exception:
+        return None
+
+
 def _llm_filter_chunks(
     question: str,
     chunks: list[dict],
@@ -814,8 +832,10 @@ def _stream_llm(
                     yield _sse({"type": "token", "token": token})
                 if data.get("done"):
                     return
-    except Exception:
-        pass
+    except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+        logger.warning("Ollama stream %s: %s", type(e).__name__, e)
+    except Exception as e:
+        logger.warning("Ollama stream unexpected error: %s", e)
     # Fallback when LLM is unreachable
     fb = fallback_vi or "Hiện tại tôi không thể kết nối model. Vui lòng thử lại hoặc cấu hình API key."
     yield from _stream_text_gradually(fb, delay=0.018)
@@ -1229,6 +1249,14 @@ def stream_ask(
         embed_query = _augment_for_embedding(search_query, history)
         vector = embed_text(embed_query)
 
+        # HyDE: generate a hypothetical answer and blend its embedding with the query vector.
+        # Significantly improves recall for short or vague queries at the cost of one fast LLM call.
+        _hyde_key = api_key or _resolve_env_key(str(model or ""))
+        if _hyde_key and len(search_query.strip()) < 150:
+            _hyde_vec = _hyde_query_vector(search_query, lang, model, _hyde_key)
+            if _hyde_vec and len(_hyde_vec) == len(vector):
+                vector = [(_a + _b) / 2 for _a, _b in zip(vector, _hyde_vec)]
+
         yield _sse({"type": "step", "step": "searching"})
         try:
             # Filename-first: if query looks like "summarize <filename>", fetch that doc directly.
@@ -1370,11 +1398,20 @@ def stream_ask(
             # Yield sources AFTER filtering so only relevant docs are shown
             yield _sse({"type": "sources", "sources": sources})
 
+            # Parent-child context expansion: expand each matched chunk with neighboring
+            # chunks from the same document, giving the LLM more context to answer from.
+            # Skip for filename/tabular queries — those already have full doc context.
+            if not filename_doc_ids and not has_tabular:
+                try:
+                    filtered = fetch_context_windows(filtered, window=1)
+                except Exception as e:
+                    logger.warning("fetch_context_windows failed: %s", e)
+
             parts = []
             for i, c in enumerate(filtered):
                 section = c.get("section_title") or ""
                 header = f"[{i+1}]" + (f" [{section}]" if section else "")
-                parts.append(f"{header}\n{c['content'][:_MAX_CHUNK_CHARS]}")
+                parts.append(f"{header}\n{c['content'][:_MAX_CHUNK_CHARS * 2]}")
             context = "\n\n".join(parts)
 
             if filename_doc_ids or has_tabular:

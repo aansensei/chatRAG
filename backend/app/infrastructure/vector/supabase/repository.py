@@ -251,3 +251,53 @@ def search_chunks(
                 existing_ids.add(row["id"])
 
     return hits + extras
+
+
+def fetch_context_windows(hits: list[dict], window: int = 1) -> list[dict]:
+    """Merge neighboring chunks into each hit's content (parent-child style).
+    Does one query per unique document — not one per chunk.
+    Returns the same hits but with expanded content around each match.
+    """
+    if not hits:
+        return hits
+
+    from collections import defaultdict
+    by_doc: dict[str, list[tuple[int, dict]]] = defaultdict(list)
+    for h in hits:
+        doc_id = h.get("document_id")
+        idx = h.get("chunk_index")
+        if doc_id is not None and idx is not None:
+            by_doc[doc_id].append((idx, h))
+
+    client = _get_client()
+    expanded: dict[str | None, dict] = {}
+
+    for doc_id, idx_hits in by_doc.items():
+        indices = [idx for idx, _ in idx_hits]
+        min_idx = max(0, min(indices) - window)
+        max_idx = max(indices) + window
+        rows = (
+            client.table("chunks")
+            .select("chunk_index, content")
+            .eq("document_id", doc_id)
+            .gte("chunk_index", min_idx)
+            .lte("chunk_index", max_idx)
+            .order("chunk_index")
+            .execute()
+            .data or []
+        )
+        row_by_idx = {r["chunk_index"]: r["content"] for r in rows}
+
+        for hit_idx, orig_hit in idx_hits:
+            parts = [
+                row_by_idx[i]
+                for i in range(hit_idx - window, hit_idx + window + 1)
+                if i in row_by_idx
+            ]
+            merged = "\n".join(parts) if len(parts) > 1 else orig_hit.get("content", "")
+            expanded[orig_hit.get("id")] = {**orig_hit, "content": merged}
+
+    order = {h.get("id"): i for i, h in enumerate(hits)}
+    result = [expanded.get(h.get("id"), h) for h in hits]
+    result.sort(key=lambda h: order.get(h.get("id"), 999))
+    return result
