@@ -57,6 +57,17 @@ def job_status(job_id: str):
     return status
 
 
+@router.delete("/jobs/{job_id}")
+def cancel_job(job_id: str):
+    status = get_job_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if status.get("status") in ("completed", "failed"):
+        raise HTTPException(status_code=409, detail="Job already finished")
+    set_job_status(job_id, status="failed", error="Cancelled by user")
+    return {"ok": True}
+
+
 @router.get("/documents")
 def documents(collections: list[str] = Depends(get_collections)):
     return list_documents(collections or None)

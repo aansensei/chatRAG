@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+﻿import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { flushSync } from "react-dom";
 import {
   Paperclip,
   ArrowUp,
@@ -34,9 +35,185 @@ import {
   EyeOff,
   Sparkles,
   X as XIcon,
+  Download,
+  Globe,
+  ExternalLink,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
+
+type Lang = "vi" | "en" | "zh" | "ja";
+
+const UI_STRINGS = {
+  vi: {
+    knowledgeBase: "Kho tài liệu",
+    kbDocs: (n: number) => `${n} tài liệu`,
+    memory: "Bộ nhớ",
+    memoryItems: (n: number) => `${n} mục`,
+    clearData: "Xóa dữ liệu & đặt lại",
+    today: "Hôm nay",
+    thisWeek: "7 ngày trước",
+    older: "Cũ hơn",
+    pinned: "Đã ghim",
+    deleteConfirmTitle: "Xóa chat này?",
+    deleteConfirmDesc: "Hành động này không thể hoàn tác. Lịch sử và ghi nhớ sẽ bị xóa vĩnh viễn.",
+    deleteBtn: "Xóa",
+    cancelBtn: "Hủy",
+    language: "Ngôn ngữ",
+    newChat: "Chat mới",
+    globalMemory: (n: number) => `Kinh nghiệm (${n})`,
+    chatMemory: "Chat này",
+    noFiles: "Không có tài liệu",
+    uploadFiles: "Tải lên tệp",
+    syncFolder: "Đồng bộ thư mục",
+    syncing: (done: number, total: number) => `Đồng bộ ${done}/${total}...`,
+    addToExisting: "Thêm vào thư mục có sẵn",
+    createNewFolder: "Tạo thư mục mới",
+    selectTargetFolder: "Chọn thư mục đích",
+    back: "← Trở lại",
+    noFoldersYet: "Chưa có thư mục nào.",
+    uploadTo: (name: string) => `Tải vào "${name}"`,
+    selectFolderFirst: "Chọn thư mục trước",
+    nameThisFolder: "Đặt tên thư mục",
+    filesWillUpload: (n: number) => `${n} tệp sẽ được tải lên`,
+    folderNamePlaceholder: "Tên thư mục...",
+    cancel: "Hủy",
+    upload: "Tải lên",
+    stepWebSearch: (q: string) => `Đang tìm web: "${q}"`,
+    stepEmbedding: (q: string) => `Đang phân tích: "${q}"`,
+    stepSearching: (q: string) => `Tìm tài liệu về "${q}"`,
+    stepFiltering: "Đọc và lọc các đoạn liên quan…",
+    stepGenerating: "Đang soạn câu trả lời…",
+    chatPlaceholder: "Hỏi Ciel bất cứ điều gì…",
+    webPlaceholder: "Hỏi Ciel — sẽ tự tìm web…",
+  },
+  en: {
+    knowledgeBase: "Knowledge base",
+    kbDocs: (n: number) => `${n} docs`,
+    memory: "Memory",
+    memoryItems: (n: number) => `${n} ${n === 1 ? "item" : "items"}`,
+    clearData: "Clear all data & reset",
+    today: "Today",
+    thisWeek: "Previous 7 days",
+    older: "Older",
+    pinned: "Pinned",
+    deleteConfirmTitle: "Delete this chat?",
+    deleteConfirmDesc: "This cannot be undone. Chat history and notes will be permanently deleted.",
+    deleteBtn: "Delete",
+    cancelBtn: "Cancel",
+    language: "Language",
+    newChat: "New Chat",
+    globalMemory: (n: number) => `Experience (${n})`,
+    chatMemory: "This chat",
+    noFiles: "No files yet",
+    uploadFiles: "Upload files",
+    syncFolder: "Sync folder",
+    syncing: (done: number, total: number) => `Syncing ${done}/${total}...`,
+    addToExisting: "Add to existing folder",
+    createNewFolder: "Create new folder",
+    selectTargetFolder: "Select target folder",
+    back: "← back",
+    noFoldersYet: "No folders yet. Create one first.",
+    uploadTo: (name: string) => `Upload to "${name}"`,
+    selectFolderFirst: "Select a folder first",
+    nameThisFolder: "Name this folder",
+    filesWillUpload: (n: number) => `${n} file${n !== 1 ? "s" : ""} will be uploaded`,
+    folderNamePlaceholder: "Folder name...",
+    cancel: "Cancel",
+    upload: "Upload",
+    stepWebSearch: (q: string) => `Searching web: "${q}"`,
+    stepEmbedding: (q: string) => `Analyzing: "${q}"`,
+    stepSearching: (q: string) => `Finding docs about "${q}"`,
+    stepFiltering: "Evaluating relevance…",
+    stepGenerating: "Generating answer…",
+    chatPlaceholder: "Ask Ciel anything…",
+    webPlaceholder: "Ask Ciel — will search the web…",
+  },
+  zh: {
+    knowledgeBase: "知识库",
+    kbDocs: (n: number) => `${n} 个文档`,
+    memory: "记忆",
+    memoryItems: (n: number) => `${n} 条`,
+    clearData: "清除所有数据并重置",
+    today: "今天",
+    thisWeek: "近 7 天",
+    older: "更早",
+    pinned: "已固定",
+    deleteConfirmTitle: "删除此对话？",
+    deleteConfirmDesc: "此操作无法撤销，聊天记录和笔记将被永久删除。",
+    deleteBtn: "删除",
+    cancelBtn: "取消",
+    language: "语言",
+    newChat: "新对话",
+    globalMemory: (n: number) => `经验 (${n})`,
+    chatMemory: "本对话",
+    noFiles: "暂无文档",
+    uploadFiles: "上传文件",
+    syncFolder: "同步文件夹",
+    syncing: (done: number, total: number) => `同步中 ${done}/${total}...`,
+    addToExisting: "添加到已有文件夹",
+    createNewFolder: "创建新文件夹",
+    selectTargetFolder: "选择目标文件夹",
+    back: "← 返回",
+    noFoldersYet: "暂无文件夹，请先创建。",
+    uploadTo: (name: string) => `上传到 "${name}"`,
+    selectFolderFirst: "请先选择文件夹",
+    nameThisFolder: "命名文件夹",
+    filesWillUpload: (n: number) => `将上传 ${n} 个文件`,
+    folderNamePlaceholder: "文件夹名称...",
+    cancel: "取消",
+    upload: "上传",
+    stepWebSearch: (q: string) => `搜索网络: "${q}"`,
+    stepEmbedding: (q: string) => `分析中: "${q}"`,
+    stepSearching: (q: string) => `查找文档: "${q}"`,
+    stepFiltering: "筛选相关内容…",
+    stepGenerating: "生成回答…",
+    chatPlaceholder: "向 Ciel 提问…",
+    webPlaceholder: "向 Ciel 提问 — 将自动搜索网络…",
+  },
+  ja: {
+    knowledgeBase: "ナレッジベース",
+    kbDocs: (n: number) => `${n} 件`,
+    memory: "メモリ",
+    memoryItems: (n: number) => `${n} 件`,
+    clearData: "全データをクリアしてリセット",
+    today: "今日",
+    thisWeek: "直近 7 日間",
+    older: "それ以前",
+    pinned: "ピン留め",
+    deleteConfirmTitle: "このチャットを削除しますか？",
+    deleteConfirmDesc: "この操作は元に戻せません。チャット履歴とメモが完全に削除されます。",
+    deleteBtn: "削除",
+    cancelBtn: "キャンセル",
+    language: "言語",
+    newChat: "新しいチャット",
+    globalMemory: (n: number) => `経験 (${n})`,
+    chatMemory: "このチャット",
+    noFiles: "ファイルなし",
+    uploadFiles: "ファイルをアップロード",
+    syncFolder: "フォルダを同期",
+    syncing: (done: number, total: number) => `同期中 ${done}/${total}...`,
+    addToExisting: "既存フォルダに追加",
+    createNewFolder: "新しいフォルダを作成",
+    selectTargetFolder: "対象フォルダを選択",
+    back: "← 戻る",
+    noFoldersYet: "フォルダがありません。先に作成してください。",
+    uploadTo: (name: string) => `"${name}" にアップロード`,
+    selectFolderFirst: "先にフォルダを選択",
+    nameThisFolder: "フォルダ名を入力",
+    filesWillUpload: (n: number) => `${n} ファイルがアップロードされます`,
+    folderNamePlaceholder: "フォルダ名...",
+    cancel: "キャンセル",
+    upload: "アップロード",
+    stepWebSearch: (q: string) => `ウェブ検索中: "${q}"`,
+    stepEmbedding: (q: string) => `解析中: "${q}"`,
+    stepSearching: (q: string) => `ドキュメント検索: "${q}"`,
+    stepFiltering: "関連箇所を絞り込み中…",
+    stepGenerating: "回答を生成中…",
+    chatPlaceholder: "Ciel に何でも質問…",
+    webPlaceholder: "Ciel に質問 — ウェブで検索します…",
+  },
+} as const;
 
 type UploadJob = {
   jobId: string;
@@ -45,6 +222,7 @@ type UploadJob = {
   step?: string;
   error?: string;
   progress?: number;
+  progressAt?: number;
 };
 
 type KBDocument = {
@@ -71,11 +249,14 @@ type Source = {
   filename?: string;
 };
 
+type WebSource = { title: string; href: string; domain: string; snippet?: string };
+
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
+  webSources?: WebSource[];
   isStreaming?: boolean;
   followUps?: string[];
   confidence?: number | null;
@@ -87,6 +268,7 @@ type Chat = {
   createdAt: number;
   messages: Message[];
   pinned?: boolean;
+  notes?: string[];
 };
 
 const STORAGE_KEY = "chatrag_sessions";
@@ -116,6 +298,50 @@ type ChatScope = { type: "all" } | { type: "selected"; collections: string[] };
 type Suggestion = { title: string; subtitle: string };
 
 const SUGGESTION_ICONS = [BarChart3, BookOpen, Shield, Database];
+
+
+async function translateStreamDirect(
+  text: string,
+  apiKey: string,
+  _provider: string,
+  onChunk: (t: string) => void,
+  onDone: () => void,
+  onError: (msg: string) => void,
+  model?: string
+) {
+  try {
+    const resp = await fetch("/chat/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, api_key: apiKey || null, model: model || null }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err?.detail || `HTTP ${resp.status}`);
+    }
+    const reader = resp.body!.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        try {
+          const json = JSON.parse(raw);
+          if (json.type === "token" && json.token) onChunk(json.token);
+        } catch {}
+      }
+    }
+    onDone();
+  } catch (err: unknown) {
+    onError(err instanceof Error ? err.message : "Lỗi không xác định");
+  }
+}
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
@@ -604,6 +830,40 @@ function ChatMessage({
           );
         })()}
 
+        {message.webSources && message.webSources.length > 0 && !message.isStreaming && (
+          <div className="mt-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Globe size={10} style={{ color: "#86868B" }} />
+              <span className="text-[11px]" style={{ color: "#86868B" }}>Nguồn từ web</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {message.webSources.map((src, i) => (
+                <a
+                  key={i}
+                  href={src.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-all"
+                  style={{
+                    background: "rgba(59,130,246,0.07)",
+                    border: "1px solid rgba(59,130,246,0.2)",
+                    color: "#93C5FD",
+                    textDecoration: "none",
+                    maxWidth: 200,
+                  }}
+                  title={src.title}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(59,130,246,0.15)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(59,130,246,0.07)")}
+                >
+                  <Globe size={10} style={{ flexShrink: 0 }} />
+                  <span className="truncate">{src.domain}</span>
+                  <ExternalLink size={9} style={{ flexShrink: 0, opacity: 0.6 }} />
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {message.followUps && message.followUps.length > 0 && !message.isStreaming && (
           <div className="mt-3 flex flex-wrap gap-2">
             {message.followUps.map((f, idx) => (
@@ -636,12 +896,14 @@ function ChatMessage({
   );
 }
 
-function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
+function RAGProcessing({ step, label, sources }: { step: string; label?: string; sources: string[] }) {
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [displayStep, setDisplayStep] = useState(step);
+  const [displayLabel, setDisplayLabel] = useState(label ?? "");
   const [phase, setPhase] = useState<"active" | "done" | "exit">("active");
 
   const LABELS: Record<string, string> = {
+    "web-search": "Researching online...",
     embedding: "Embedding query...",
     searching: "Searching knowledge base...",
     filtering: "Evaluating relevance...",
@@ -652,9 +914,13 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
     if (step === displayStep) return;
     setPhase("done");
     const t1 = setTimeout(() => setPhase("exit"), 280);
-    const t2 = setTimeout(() => { setDisplayStep(step); setPhase("active"); }, 460);
+    const t2 = setTimeout(() => {
+      setDisplayStep(step);
+      setDisplayLabel(label ?? "");
+      setPhase("active");
+    }, 460);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [step]);
+  }, [step, label]);
 
   const isDone = phase === "done";
   const isExit = phase === "exit";
@@ -707,18 +973,26 @@ function RAGProcessing({ step, sources }: { step: string; sources: string[] }) {
               transition: "color 0.15s ease",
             }}
           >
-            {LABELS[displayStep] ?? displayStep}
+            {displayLabel || LABELS[displayStep] || displayStep}
           </span>
         </div>
         
         {sources.length > 0 && (
           <div className="flex flex-col gap-1 ml-5 mt-1.5 transition-all duration-300">
-            {visibleSources.map((f, i) => (
-              <div key={i} className="flex items-center gap-1.5 step-item-enter">
-                <FileText size={10} style={{ color: "#3b82f6" }} />
-                <span className="text-[11px]" style={{ color: "#93c5fd" }}>Reading {f}</span>
-              </div>
-            ))}
+            {visibleSources.map((f, i) => {
+              const isWeb = /^[a-z0-9\-]+\.[a-z]{2,}$/i.test(f) && !f.includes(" ");
+              return (
+                <div key={i} className="flex items-center gap-1.5 step-item-enter">
+                  {isWeb
+                    ? <Globe size={10} style={{ color: "#3b82f6" }} />
+                    : <FileText size={10} style={{ color: "#3b82f6" }} />
+                  }
+                  <span className="text-[11px]" style={{ color: "#93c5fd" }}>
+                    {isWeb ? f : `Reading ${f}`}
+                  </span>
+                </div>
+              );
+            })}
 
             {sources.length > 3 && (
               <button
@@ -1016,11 +1290,12 @@ const STATUS_LABEL: Record<UploadJob["status"], string> = {
   failed: "Failed",
 };
 
-function SyncPanel({ onUploaded, onToast, targetCollection = "default", collections = [] }: {
+function SyncPanel({ onUploaded, onToast, targetCollection = "default", collections = [], lang = "vi" }: {
   onUploaded: (job: UploadJob) => void;
   onToast: (msg: string, type: Toast["type"]) => void;
   targetCollection?: string;
   collections?: Collection[];
+  lang?: Lang;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -1097,6 +1372,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
     setExistingTarget("");
   };
 
+  const T = UI_STRINGS[lang];
   const otherCollections = collections.filter((c) => c.name !== "default");
 
   return (
@@ -1122,7 +1398,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
         onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "#86868B"; }}
       >
         <Upload size={12} />
-        Upload files
+        {T.uploadFiles}
       </button>
 
       <div className="relative" ref={syncMenuRef}>
@@ -1138,8 +1414,8 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
           }}
         >
           {syncing
-            ? <><RefreshCw size={12} className="animate-spin" />Syncing {syncProgress.done}/{syncProgress.total}...</>
-            : <><FolderOpen size={12} />Sync folder</>
+            ? <><RefreshCw size={12} className="animate-spin" />{T.syncing(syncProgress.done, syncProgress.total)}</>
+            : <><FolderOpen size={12} />{T.syncFolder}</>
           }
         </button>
 
@@ -1154,7 +1430,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               <FolderOpen size={12} style={{ color: "#93c5fd" }} />
-              Add to existing folder
+              {T.addToExisting}
             </button>
             <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
             <button
@@ -1165,7 +1441,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               <Plus size={12} style={{ color: "#86efac" }} />
-              Create new folder
+              {T.createNewFolder}
             </button>
           </div>
         )}
@@ -1174,12 +1450,12 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
           <div className="absolute bottom-full left-0 right-0 mb-1.5 rounded-xl p-2"
             style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", zIndex: 60, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
             <div className="flex items-center justify-between mb-1.5 px-1">
-              <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.7)" }}>Select target folder</p>
-              <button onMouseDown={() => setSyncMenu("choose")} className="text-[10px]" style={{ color: "rgba(134,134,139,0.5)" }}>← back</button>
+              <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.7)" }}>{T.selectTargetFolder}</p>
+              <button onMouseDown={() => setSyncMenu("choose")} className="text-[10px]" style={{ color: "rgba(134,134,139,0.5)" }}>{T.back}</button>
             </div>
             <div className="flex flex-col gap-0.5 max-h-36 overflow-y-auto mb-2">
               {otherCollections.length === 0
-                ? <p className="text-[10px] px-2 py-1" style={{ color: "rgba(134,134,139,0.4)" }}>No folders yet. Create one first.</p>
+                ? <p className="text-[10px] px-2 py-1" style={{ color: "rgba(134,134,139,0.4)" }}>{T.noFoldersYet}</p>
                 : otherCollections.map((c) => (
                   <button
                     key={c.name}
@@ -1206,7 +1482,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
               }}
             >
               <Upload size={10} />
-              {existingTarget ? `Upload to "${existingTarget}"` : "Select a folder first"}
+              {existingTarget ? T.uploadTo(existingTarget) : T.selectFolderFirst}
             </button>
           </div>
         )}
@@ -1215,9 +1491,9 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
       {nameDialog.open && (
         <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", zIndex: 200 }}>
           <div className="rounded-2xl p-5 w-72" style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 60px rgba(0,0,0,0.7)" }}>
-            <p className="text-[13px] font-semibold mb-1" style={{ color: "#f5f5f7" }}>Name this folder</p>
+            <p className="text-[13px] font-semibold mb-1" style={{ color: "#f5f5f7" }}>{T.nameThisFolder}</p>
             <p className="text-[11px] mb-4" style={{ color: "rgba(134,134,139,0.7)" }}>
-              {pendingFiles.length} file{pendingFiles.length !== 1 ? "s" : ""} will be uploaded
+              {T.filesWillUpload(pendingFiles.length)}
             </p>
             <input
               value={nameDialog.value}
@@ -1226,7 +1502,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
               autoFocus
               className="w-full text-[12px] rounded-xl px-3 py-2 mb-4 outline-none"
               style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#f5f5f7" }}
-              placeholder="Folder name..."
+              placeholder={T.folderNamePlaceholder}
             />
             <div className="flex gap-2">
               <button
@@ -1234,7 +1510,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
                 className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium"
                 style={{ background: "rgba(255,255,255,0.06)", color: "#86868B" }}
               >
-                Cancel
+                {T.cancel}
               </button>
               <button
                 onClick={confirmNewFolder}
@@ -1242,7 +1518,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
                 className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium transition-opacity"
                 style={{ background: "#3B82F6", color: "white", opacity: nameDialog.value.trim() ? 1 : 0.4 }}
               >
-                Upload
+                {T.upload}
               </button>
             </div>
           </div>
@@ -1256,14 +1532,17 @@ const STATUS_FALLBACK_PCT: Record<UploadJob["status"], number> = {
   queued: 0, extracting: 10, chunking: 55, embedding: 65, completed: 100, failed: 100,
 };
 
-function JobBadge({ job }: { job: UploadJob }) {
+function JobBadge({ job, onCancel }: { job: UploadJob; onCancel?: () => void }) {
   const pct = job.progress ?? STATUS_FALLBACK_PCT[job.status];
   const isRunning = !["completed", "failed"].includes(job.status);
-  const color = job.status === "completed" ? "#10b981" : job.status === "failed" ? "#ef4444" : "#3B82F6";
+  const isStuck = isRunning && !!job.progressAt && (Date.now() - job.progressAt > 5 * 60 * 1000);
+  const color = job.status === "completed" ? "#10b981" : job.status === "failed" ? "#ef4444" : isStuck ? "#f59e0b" : "#3B82F6";
   const icon = job.status === "completed"
     ? <CheckCircle size={11} style={{ color: "#10b981" }} />
     : job.status === "failed"
     ? <AlertCircle size={11} style={{ color: "#ef4444" }} />
+    : isStuck
+    ? <AlertCircle size={11} style={{ color: "#f59e0b" }} />
     : <Loader size={11} className="animate-spin" style={{ color: "#3B82F6" }} />;
 
   return (
@@ -1272,7 +1551,7 @@ function JobBadge({ job }: { job: UploadJob }) {
       {icon}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-1">
-          <p className="text-[11px] truncate max-w-[120px]" style={{ color: isRunning ? "#d1d1d6" : color }}>
+          <p className="text-[11px] truncate max-w-[110px]" style={{ color: isRunning ? "#d1d1d6" : color }}>
             {job.filename}
           </p>
           <span className="text-[10px] shrink-0 ml-1" style={{ color }}>
@@ -1286,14 +1565,28 @@ function JobBadge({ job }: { job: UploadJob }) {
               width: `${pct}%`,
               background: job.status === "failed"
                 ? "#ef4444"
+                : isStuck
+                ? "#f59e0b"
                 : `linear-gradient(90deg, #2563EB, ${job.status === "completed" ? "#10b981" : "#3B82F6"})`,
             }}
           />
         </div>
-        <p className="text-[10px] mt-0.5" style={{ color: "rgba(134,134,139,0.6)" }}>
-          {STATUS_LABEL[job.status]}
+        <p className="text-[10px] mt-0.5" style={{ color: isStuck ? "#f59e0b" : "rgba(134,134,139,0.6)" }}>
+          {isStuck ? "Stuck? Try cancelling" : STATUS_LABEL[job.status]}
         </p>
       </div>
+      {isRunning && onCancel && (
+        <button
+          onClick={onCancel}
+          title="Cancel"
+          className="shrink-0 rounded p-0.5 transition-colors"
+          style={{ color: "rgba(134,134,139,0.5)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(134,134,139,0.5)")}
+        >
+          <X size={11} />
+        </button>
+      )}
     </div>
   );
 }
@@ -1670,11 +1963,314 @@ function ContextBar({
   );
 }
 
+function TranslatorPanel({
+  apiKeyGemini,
+  apiKeyGroq,
+  apiKeyOpenRouter,
+  apiKeyOpenAI,
+  apiKeyCerebras,
+  activeModel,
+  serverProviders,
+}: {
+  apiKeyGemini: string;
+  apiKeyGroq: string;
+  apiKeyOpenRouter: string;
+  apiKeyOpenAI: string;
+  apiKeyCerebras: string;
+  activeModel: string;
+  serverProviders: Record<string, boolean>;
+}) {
+  const [jpInput, setJpInput] = useState("");
+  const [vnOutput, setVnOutput] = useState("");
+  const [txStatus, setTxStatus] = useState<"idle" | "loading" | "streaming" | "done" | "error">("idle");
+  const [txError, setTxError] = useState("");
+  const [txCopied, setTxCopied] = useState(false);
+  const txAbortRef = useRef(false);
+
+  const getTranslateProvider = (): { key: string; provider: string; model: string } => {
+    const provider = getProviderOfModel(activeModel);
+    if (isGeminiModel(activeModel) && apiKeyGemini) return { key: apiKeyGemini, provider, model: activeModel };
+    if (isGroqModel(activeModel) && apiKeyGroq) return { key: apiKeyGroq, provider, model: activeModel };
+    if (isOpenRouterModel(activeModel) && apiKeyOpenRouter) return { key: apiKeyOpenRouter, provider, model: activeModel };
+    if (isCerebrasModel(activeModel) && apiKeyCerebras) return { key: apiKeyCerebras, provider, model: activeModel };
+    if (isOpenAIModel(activeModel) && apiKeyOpenAI) return { key: apiKeyOpenAI, provider, model: activeModel };
+    return { key: "", provider, model: activeModel };
+  };
+
+  const handleTranslate = async () => {
+    if (!jpInput.trim() || txStatus === "loading" || txStatus === "streaming") return;
+    const prov = getTranslateProvider();
+    if (!prov.key && !serverProviders[prov.provider]) {
+      setTxError(`Chưa có API Key cho ${prov.provider}. Vào ⚙ Model → nhập key, hoặc set ${prov.provider.toUpperCase()}_API_KEY trong .env`);
+      setTxStatus("error");
+      return;
+    }
+    txAbortRef.current = false;
+    setVnOutput("");
+    setTxError("");
+    setTxStatus("loading");
+    await new Promise((r) => setTimeout(r, 180));
+    if (txAbortRef.current) return;
+    setTxStatus("streaming");
+    translateStreamDirect(
+      jpInput,
+      prov.key,
+      prov.provider,
+      (chunk) => { if (!txAbortRef.current) setVnOutput((p) => p + chunk); },
+      () => { if (!txAbortRef.current) setTxStatus("done"); },
+      (msg) => { setTxError(msg); setTxStatus("error"); },
+      prov.model
+    );
+  };
+
+  const handleAbort = () => {
+    txAbortRef.current = true;
+    setTxStatus("idle");
+  };
+
+  const handleReset = () => {
+    txAbortRef.current = true;
+    setJpInput("");
+    setVnOutput("");
+    setTxStatus("idle");
+    setTxError("");
+  };
+
+  const isLoading = txStatus === "loading";
+  const isStreaming = txStatus === "streaming";
+  const prov = getTranslateProvider();
+  const txProgress = txStatus === "done" ? 100
+    : txStatus === "streaming" ? Math.min(95, Math.round((vnOutput.length / Math.max(1, jpInput.length * 1.7)) * 100))
+    : txStatus === "loading" ? 5
+    : 0;
+
+  return (
+    <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+      {/* Translator header bar */}
+      <div
+        className="shrink-0 flex items-center justify-between px-6 py-2.5"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] font-semibold" style={{ color: "#F5F5F7" }}>日本語 Translator</span>
+          <span
+            className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+            style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", color: "#fca5a5" }}
+          >
+            JP → VN
+          </span>
+          {(prov.key || serverProviders[prov.provider]) && (
+            <span
+              className="px-2 py-0.5 rounded-full text-[10px]"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#86868B" }}
+            >
+              via {prov.provider}{!prov.key && serverProviders[prov.provider] ? " (env)" : ""}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {isStreaming && (
+            <button
+              onClick={handleAbort}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium"
+              style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}
+            >
+              <Square size={10} fill="#f87171" />
+              Dừng
+            </button>
+          )}
+          {(jpInput || vnOutput) && !isStreaming && (
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] transition-all"
+              style={{ border: "1px solid rgba(255,255,255,0.1)", color: "#86868B" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "#F5F5F7"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}
+            >
+              <RefreshCw size={11} />
+              Làm mới
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 2-panel layout */}
+      <div className="flex-1 flex min-h-0">
+        {/* Left panel — JP input */}
+        <div
+          className="flex-1 flex flex-col min-w-0"
+          style={{ borderRight: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <div
+            className="shrink-0 flex items-center justify-between px-4 py-2"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+          >
+            <span className="text-[11px] font-semibold tracking-wider uppercase" style={{ color: "#86868B" }}>
+              🇯🇵 Nhật
+            </span>
+            {jpInput && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px]" style={{ color: "rgba(134,134,139,0.5)" }}>
+                  {jpInput.length.toLocaleString()} ký tự
+                </span>
+                <button
+                  onClick={() => setJpInput("")}
+                  style={{ color: "rgba(134,134,139,0.4)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "#86868B")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(134,134,139,0.4)")}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <textarea
+            value={jpInput}
+            onChange={(e) => setJpInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleTranslate(); } }}
+            placeholder={"日本語のテキストをここに貼り付けてください…\n\nCtrl+Enter để dịch nhanh"}
+            className="flex-1 bg-transparent resize-none outline-none p-4 text-sm leading-relaxed scrollbar-hide"
+            style={{
+              color: "#F5F5F7",
+              caretColor: "#3B82F6",
+              fontFamily: "inherit",
+              minHeight: 0,
+            }}
+            spellCheck={false}
+          />
+
+          <div
+            className="shrink-0 flex items-center justify-end px-4 py-2.5 gap-2"
+            style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+          >
+            <button
+              onClick={handleTranslate}
+              disabled={!jpInput.trim() || isLoading || isStreaming}
+              className="flex items-center gap-2 px-5 py-1.5 rounded-full text-[12px] font-semibold transition-all duration-200"
+              style={{
+                background: jpInput.trim() && !isLoading && !isStreaming
+                  ? "linear-gradient(135deg, #2563EB, #3B82F6)"
+                  : "rgba(255,255,255,0.06)",
+                color: jpInput.trim() && !isLoading && !isStreaming ? "#fff" : "rgba(134,134,139,0.4)",
+                boxShadow: jpInput.trim() && !isLoading && !isStreaming ? "0 0 14px rgba(59,130,246,0.25)" : "none",
+                cursor: !jpInput.trim() || isLoading || isStreaming ? "not-allowed" : "pointer",
+              }}
+            >
+              {isLoading || isStreaming ? (
+                <><Loader size={11} className="animate-spin" />Đang dịch…</>
+              ) : (
+                "Dịch ngay →"
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Right panel — VN output */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <div
+            className="shrink-0 flex items-center justify-between px-4 py-2"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold tracking-wider uppercase" style={{ color: "#86868B" }}>
+                🇻🇳 Việt
+              </span>
+              {txStatus === "streaming" && (
+                <span className="text-[10px]" style={{ color: "#3B82F6" }}>Đang dịch… {txProgress}%</span>
+              )}
+              {txStatus === "done" && (
+                <span className="text-[10px]" style={{ color: "#10b981" }}>✓ Hoàn tất</span>
+              )}
+              {txStatus === "error" && (
+                <span className="text-[10px]" style={{ color: "#f87171" }}>Lỗi</span>
+              )}
+            </div>
+            {vnOutput && !isStreaming && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(vnOutput);
+                  setTxCopied(true);
+                  setTimeout(() => setTxCopied(false), 1500);
+                }}
+                className="flex items-center gap-1 text-[10px] transition-all"
+                style={{ color: txCopied ? "#10b981" : "#86868B" }}
+                onMouseEnter={(e) => { if (!txCopied) e.currentTarget.style.color = "#d1d1d6"; }}
+                onMouseLeave={(e) => { if (!txCopied) e.currentTarget.style.color = "#86868B"; }}
+              >
+                {txCopied ? <Check size={11} /> : <Copy size={11} />}
+                {txCopied ? "Copied" : "Copy"}
+              </button>
+            )}
+          </div>
+
+          {(isLoading || isStreaming || txStatus === "done") && (
+            <div className="shrink-0 h-[2px] w-full" style={{ background: "rgba(255,255,255,0.05)" }}>
+              <div
+                className="h-[2px] transition-all duration-300"
+                style={{
+                  width: `${txProgress}%`,
+                  background: txStatus === "done"
+                    ? "#10b981"
+                    : "linear-gradient(90deg, #2563EB, #3B82F6)",
+                }}
+              />
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-hide">
+            {txStatus === "error" ? (
+              <div
+                className="text-[13px] p-3 rounded-xl leading-relaxed"
+                style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#f87171" }}
+              >
+                ⚠ {txError}
+              </div>
+            ) : isLoading ? (
+              <div className="flex flex-col gap-3 pt-1">
+                {[75, 60, 70, 50, 65].map((w, i) => (
+                  <div
+                    key={i}
+                    className="h-3.5 rounded-md animate-pulse"
+                    style={{ width: `${w}%`, background: "rgba(255,255,255,0.05)" }}
+                  />
+                ))}
+              </div>
+            ) : vnOutput ? (
+              <div
+                className="text-[14px] leading-[1.9] whitespace-pre-wrap break-words"
+                style={{ color: "#d1d1d6", fontFamily: "inherit" }}
+              >
+                {vnOutput}
+                {isStreaming && (
+                  <span
+                    className="inline-block w-[2px] h-[1em] ml-0.5 align-middle animate-pulse"
+                    style={{ background: "#3B82F6", verticalAlign: "middle" }}
+                  />
+                )}
+              </div>
+            ) : (
+              <div
+                className="h-full flex flex-col items-center justify-center gap-2"
+                style={{ color: "rgba(134,134,139,0.25)" }}
+              >
+                <span style={{ fontSize: 36, fontFamily: "serif" }}>翻</span>
+                <span className="text-[12px]">Bản dịch sẽ hiển thị ở đây</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ───────────────────────────────────────────────────────────────
 
 export default function App() {
   const [chats, setChats] = useState<Chat[]>(loadChatsFromStorage);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [mode, setMode] = useState<"chat" | "translate">("chat");
 
   const getProviderKeyInfo = (provider: string) => {
     switch (provider) {
@@ -1737,6 +2333,12 @@ export default function App() {
   const [input, setInput] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [browsePreview, setBrowsePreview] = useState<{ url: string; domain: string } | null>(null);
+  const [isBrowsing, setIsBrowsing] = useState(false);
+  const [webSearchMode, setWebSearchMode] = useState(false);
+  const [isWebSearching, setIsWebSearching] = useState(false);
+  const webSearchResultsRef = useRef<WebSource[]>([]);
+  const isWebSearchActiveRef = useRef(false);
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null;
   const [activeSource, setActiveSource] = useState<Source | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1745,7 +2347,20 @@ export default function App() {
   const activeChatIdRef = useRef<string | null>(null);
   const chatsRef = useRef<Chat[]>(chats);
   const [processingStep, setProcessingStep] = useState("embedding");
+  const [processingLabel, setProcessingLabel] = useState("");
   const [readingSources, setReadingSources] = useState<string[]>([]);
+
+  const getContextualLabel = (step: string, question: string): string => {
+    const q = question.length > 36 ? question.slice(0, 36) + "…" : question;
+    const map: Record<string, string> = {
+      "web-search": S.stepWebSearch(q),
+      embedding: S.stepEmbedding(q),
+      searching: S.stepSearching(q),
+      filtering: S.stepFiltering,
+      generating: S.stepGenerating,
+    };
+    return map[step] ?? step;
+  };
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1771,6 +2386,11 @@ export default function App() {
   });
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [uiLang, setUiLang] = useState<Lang>(() => (localStorage.getItem("ui_lang") as Lang) || "vi");
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const S = UI_STRINGS[uiLang];
+  const handleSetLang = (lang: Lang) => { localStorage.setItem("ui_lang", lang); setUiLang(lang); };
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
@@ -1788,6 +2408,7 @@ export default function App() {
   const [apiKeyGemini, setApiKeyGemini] = useState(() => localStorage.getItem("chatrag_api_key_gemini") || "");
   const [apiKeyOpenRouter, setApiKeyOpenRouter] = useState(() => localStorage.getItem("chatrag_api_key_openrouter") || "");
   const [apiKeyCerebras, setApiKeyCerebras] = useState(() => localStorage.getItem("chatrag_api_key_cerebras") || "");
+  const [serverProviders, setServerProviders] = useState<Record<string, boolean>>({});
   const [orModels, setOrModels] = useState<{id:string,label:string,note:string}[]>(OPENROUTER_MODELS_FALLBACK);
   const [orLoading, setOrLoading] = useState(false);
 
@@ -1796,6 +2417,8 @@ export default function App() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
+  const [memoryTab, setMemoryTab] = useState<"global" | "chat">("global");
+  const [chatNoteInput, setChatNoteInput] = useState("");
   const [kbBrowserOpen, setKbBrowserOpen] = useState(false);
   const [kbBrowserFolder, setKbBrowserFolder] = useState<string | null>(null);
   const [kbBrowserSearch, setKbBrowserSearch] = useState("");
@@ -1817,16 +2440,66 @@ export default function App() {
     if (!c) return;
     const r = await fetch("/memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: c }) });
     if (r.ok) { setNewMemory(""); refreshMemories(); }
+    else { const err = await r.json().catch(() => ({})); addToast(err?.detail || "Không thể lưu bộ nhớ", "error"); }
   };
   const deleteMemory = async (id: string) => {
     const r = await fetch(`/memory/${id}`, { method: "DELETE" });
     if (r.ok) refreshMemories();
   };
+  const addChatNote = () => {
+    if (!activeChatId || !chatNoteInput.trim()) return;
+    const text = chatNoteInput.trim();
+    setChats((prev) => {
+      const updated = prev.map((c) => {
+        if (c.id !== activeChatId) return c;
+        const existing = Array.isArray(c.notes) ? c.notes : c.notes ? [c.notes as unknown as string] : [];
+        return { ...c, notes: [...existing, text] };
+      });
+      saveChatsToStorage(updated);
+      return updated;
+    });
+    setChatNoteInput("");
+  };
+  const deleteChatNote = (idx: number) => {
+    if (!activeChatId) return;
+    setChats((prev) => {
+      const updated = prev.map((c) => {
+        if (c.id !== activeChatId) return c;
+        const existing = Array.isArray(c.notes) ? c.notes : c.notes ? [c.notes as unknown as string] : [];
+        return { ...c, notes: existing.filter((_, i) => i !== idx) };
+      });
+      saveChatsToStorage(updated);
+      return updated;
+    });
+  };
   useEffect(() => { refreshMemories(); }, []);
+
+  useEffect(() => {
+    fetch("/chat/providers").then(r => r.ok ? r.json() : {}).then(setServerProviders).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    sessionStorage.setItem("uploadJobs", JSON.stringify(uploadJobs));
+  }, [uploadJobs]);
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem("uploadJobs");
+    if (!raw) return;
+    try {
+      const saved: UploadJob[] = JSON.parse(raw);
+      if (!saved.length) return;
+      setUploadJobs(saved);
+      saved
+        .filter((j) => !["completed", "failed"].includes(j.status))
+        .forEach((j) => pollJob(j.jobId, j.filename));
+    } catch {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const profileRef = useRef<HTMLDivElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const kbSectionRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const pollIntervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -1843,6 +2516,7 @@ export default function App() {
   }, []);
 
   const pollJob = useCallback((jobId: string, filename: string) => {
+    if (pollIntervalsRef.current.has(jobId)) return;
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`/ingest/jobs/${jobId}`);
@@ -1850,17 +2524,35 @@ export default function App() {
         const data = await res.json();
         const status = data.status as UploadJob["status"];
         const progress = data.progress !== undefined ? parseInt(data.progress) : undefined;
-        setUploadJobs((prev) => prev.map((j) => j.jobId === jobId ? { ...j, status, step: data.step, error: data.error, progress } : j));
+        setUploadJobs((prev) => prev.map((j) => {
+          if (j.jobId !== jobId) return j;
+          const progressChanged = progress !== undefined && progress !== j.progress;
+          return { ...j, status, step: data.step, error: data.error, progress, progressAt: progressChanged ? Date.now() : j.progressAt };
+        }));
         if (status === "completed") {
           addToast(`"${filename}" is ready to query`, "success");
           clearInterval(interval);
+          pollIntervalsRef.current.delete(jobId);
         } else if (status === "failed") {
-          addToast(`"${filename}" failed to process`, "error");
+          const isCancelled = data.error === "Cancelled by user";
+          if (!isCancelled) addToast(`"${filename}" failed to process`, "error");
           clearInterval(interval);
+          pollIntervalsRef.current.delete(jobId);
         }
-      } catch { clearInterval(interval); }
+      } catch {
+        clearInterval(interval);
+        pollIntervalsRef.current.delete(jobId);
+      }
     }, 2000);
+    pollIntervalsRef.current.set(jobId, interval);
   }, [addToast]);
+
+  const cancelJob = useCallback(async (jobId: string) => {
+    const iv = pollIntervalsRef.current.get(jobId);
+    if (iv) { clearInterval(iv); pollIntervalsRef.current.delete(jobId); }
+    await fetch(`/ingest/jobs/${jobId}`, { method: "DELETE" }).catch(() => {});
+    setUploadJobs((prev) => prev.map((j) => j.jobId === jobId ? { ...j, status: "failed", error: "Cancelled by user" } : j));
+  }, []);
 
   const loadKbDocs = useCallback(async () => {
     setKbLoading(true);
@@ -1877,13 +2569,13 @@ export default function App() {
     if (res.ok) setCollections(await res.json());
   }, []);
 
-  const fetchSuggestions = useCallback(async (scope: ChatScope) => {
+  const fetchSuggestions = useCallback(async (scope: ChatScope, lang?: Lang) => {
     setLoadingSuggestions(true);
     try {
-      const param = scope.type === "selected"
-        ? `?collections=${scope.collections.map(encodeURIComponent).join(",")}`
-        : "";
-      const res = await fetch(`/chat/suggestions${param}`);
+      const params = new URLSearchParams();
+      if (scope.type === "selected") params.set("collections", scope.collections.map(encodeURIComponent).join(","));
+      params.set("lang", lang || "vi");
+      const res = await fetch(`/chat/suggestions?${params}`);
       if (res.ok) setSuggestions(await res.json());
     } finally {
       setLoadingSuggestions(false);
@@ -1992,6 +2684,7 @@ export default function App() {
     return () => document.removeEventListener("mousedown", close);
   }, [modelMenuOpen]);
 
+  useEffect(() => { if (!profileOpen) setLangMenuOpen(false); }, [profileOpen]);
   useEffect(() => {
     if (!profileOpen) return;
     const close = (e: MouseEvent) => {
@@ -2004,13 +2697,27 @@ export default function App() {
 
   useEffect(() => {
     fetchCollections();
-    fetchSuggestions({ type: "all" });
+    fetchSuggestions({ type: "all" }, uiLang);
     loadKbDocs();
     fetch("/chat/models")
       .then((r) => r.ok ? r.json() : { models: [] })
       .then((data) => setOllamaModels(data.models ?? []))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const m = input.match(/https?:\/\/[^\s]+/);
+    if (m) {
+      try {
+        const domain = new URL(m[0]).hostname;
+        setBrowsePreview({ url: m[0], domain });
+      } catch {
+        setBrowsePreview(null);
+      }
+    } else {
+      setBrowsePreview(null);
+    }
+  }, [input]);
 
   useEffect(() => {
     if (modelMenuView !== "openrouter") return;
@@ -2033,11 +2740,52 @@ export default function App() {
       .finally(() => setOrLoading(false));
   }, [modelMenuView]);
 
+  const serverSyncReadyRef = useRef(false);
+
+  useEffect(() => {
+    fetch("/chat/sessions")
+      .then((r) => r.json())
+      .then((serverChats: Chat[]) => {
+        if (Array.isArray(serverChats) && serverChats.length > 0) {
+          setChats(serverChats);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { serverSyncReadyRef.current = true; });
+  }, []);
+
+  useEffect(() => {
+    if (!serverSyncReadyRef.current) return;
+    const t = setTimeout(() => {
+      fetch("/chat/sessions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(chats),
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [chats]);
+
   const autoResize = () => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
+  };
+
+  const exportChat = () => {
+    if (!activeChat) return;
+    const lines: string[] = [`# ${activeChat.title}`, ""];
+    for (const m of messages) {
+      const role = m.role === "user" ? "**Bạn**" : "**Ciel**";
+      lines.push(`${role}: ${m.content}`, "");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown; charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${activeChat.title.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 60)}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   };
 
   const persistChat = useCallback((chatId: string, updatedMessages: Message[]) => {
@@ -2052,13 +2800,104 @@ export default function App() {
     const content = (text ?? input).trim();
     if (!content || isProcessing) return;
 
+    flushSync(() => {
+      setInput("");
+    });
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+
     const userMsg: Message = { id: Date.now().toString(), role: "user", content };
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
-    setInput("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
     userScrolledRef.current = false;
     setShowScrollBtn(false);
+
+    // If URL detected, fetch page content and inject as context
+    let questionToSend = content;
+    const urlMatch = content.match(/https?:\/\/[^\s]+/);
+    if (urlMatch) {
+      const url = urlMatch[0];
+      setIsBrowsing(true);
+      try {
+        const browseRes = await fetch("/chat/browse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        if (browseRes.ok) {
+          const data = await browseRes.json();
+          if (data.text) {
+            questionToSend = `[Nội dung trang ${url}:\n${data.text}]\n\n${content}`;
+          }
+        }
+      } catch {
+        // browse failed — send original question
+      }
+      setIsBrowsing(false);
+      setBrowsePreview(null);
+    }
+
+    // Web search mode — call DuckDuckGo and inject results as context
+    isWebSearchActiveRef.current = false;
+    webSearchResultsRef.current = [];
+    const hasWebIntent = /tìm trên web|trên web|duyệt web|tìm web|tìm trên mạng|trên mạng|tìm kiếm trên|search (the )?web|search online|look (it )?up online|find online|google (it|this)|搜索网络|网上搜|上网搜|搜一下|ウェブで|ネットで調べ|検索して/i.test(content);
+    if (hasWebIntent) setWebSearchMode(true);
+    if ((webSearchMode || hasWebIntent) && !urlMatch) {
+      isWebSearchActiveRef.current = true;
+      setIsProcessing(true);
+      setProcessingStep("web-search");
+      const shortQ = content.split(/[\n.。]/)[0].trim().slice(0, 50);
+      setProcessingLabel(getContextualLabel("web-search", shortQ || content));
+      setIsWebSearching(true);
+      try {
+        const buildSearchQuery = (text: string): string => {
+          // Cut off at meta-instruction keywords that follow the real search intent
+          const cutoffMatch = text.match(/\b(kẻ bảng|lịch trình chi tiết|vag gửi|vag|gửi cho|tìm trên web mà|xuất phát từ)\b/i);
+          let q = cutoffMatch ? text.slice(0, cutoffMatch.index) : text;
+          // Strip remaining meta-instruction phrases
+          q = q
+            .replace(/\btìm trên web\b/gi, "")
+            .replace(/\bduyệt web\b/gi, "")
+            .replace(/\btrên web\b/gi, "")
+            .replace(/\bweb\b/gi, "")
+            .replace(/\s{2,}/g, " ")
+            .trim();
+          // Prefer first line/sentence, fall back to full cleaned text
+          const firstLine = q.split(/[\n.。]/)[0].trim();
+          return (firstLine || q).slice(0, 80);
+        };
+        const searchQuery = buildSearchQuery(content);
+        const searchRes = await fetch("/chat/web-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: searchQuery }),
+        });
+        if (searchRes.ok) {
+          const data = await searchRes.json();
+          if (data.results && data.results.length > 0) {
+            const results = data.results as { title: string; body: string; href: string }[];
+            // Store as WebSource for display
+            webSearchResultsRef.current = results.slice(0, 5).map((r) => {
+              let domain = r.href;
+              try { domain = new URL(r.href).hostname.replace(/^www\./, ""); } catch {}
+              return { title: r.title, href: r.href, domain, snippet: r.body };
+            });
+            // Show domains in step indicator
+            setReadingSources(webSearchResultsRef.current.map((s) => s.domain));
+            const snippets = results
+              .map((r, i) => `${i + 1}. ${r.title}\n${r.body}\nURL: ${r.href}`)
+              .join("\n\n");
+            const fullSection = data.top_content
+              ? `\n\nNội dung đầy đủ từ ${data.top_url}:\n${data.top_content}`
+              : "";
+            questionToSend = `[Kết quả tìm web cho "${content}":\n${snippets}${fullSection}]\n\n${content}`;
+          }
+        }
+      } catch {
+        // search failed — send without web context
+      }
+      setIsWebSearching(false);
+    }
+
     setIsProcessing(true);
     setProcessingStep("embedding");
     setReadingSources([]);
@@ -2105,11 +2944,12 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          question: content,
+          question: questionToSend,
           collections: chatScope.type === "selected" ? chatScope.collections : null,
           hybrid: hybridMode,
           model: migrateModel(activeModel),
           history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          chat_notes: (() => { const n = chats.find((c) => c.id === activeChatId)?.notes; return Array.isArray(n) ? n.join("\n") : (n as unknown as string) || ""; })(),
           api_key: getActiveApiKey(migrateModel(activeModel)),
         }),
       });
@@ -2141,7 +2981,9 @@ export default function App() {
           setTimeout(() => setMemParticles((p) => p.filter((x) => x !== pid)), 1600);
           setTimeout(() => refreshMemories(), 200);
         } else if (ev.type === "step") {
-          setProcessingStep(ev.step as string);
+          const s = ev.step as string;
+          setProcessingStep(s);
+          setProcessingLabel(getContextualLabel(s, content));
         } else if (ev.type === "sources") {
           const srcs = ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>;
           setReadingSources(srcs.map((s) => s.filename));
@@ -2160,7 +3002,7 @@ export default function App() {
           if (ev.confidence !== undefined) {
             finalConfidence = ev.confidence as number | null;
           }
-          if ((ev.sources as unknown[])?.length > 0) {
+          if (Array.isArray(ev.sources)) {
             finalSources = (ev.sources as Array<{ id: string; content: string; section?: string; similarity: number; filename: string }>).map(mapSrc);
           }
         }
@@ -2180,13 +3022,17 @@ export default function App() {
         reader.releaseLock();
       }
 
-      // Finalize: mark streaming done, attach sources, fallback if empty
+      // Finalize: mark streaming done, attach sources + web sources, fallback if empty
+      const capturedWebSources = isWebSearchActiveRef.current && webSearchResultsRef.current.length > 0
+        ? webSearchResultsRef.current
+        : undefined;
+      isWebSearchActiveRef.current = false;
       let finalContent = "";
       updateStreamMsg((prev) => {
         const existing = prev.find((m) => m.id === aiId);
         const content = existing?.content?.trim() ? existing.content : "No answer returned.";
         finalContent = content;
-        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: finalSources, confidence: finalConfidence, isStreaming: false };
+        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: capturedWebSources ? [] : finalSources, webSources: capturedWebSources, confidence: finalConfidence, isStreaming: false };
         return existing
           ? prev.map((m) => m.id === aiId ? finalMsg : m)
           : [...prev, finalMsg];
@@ -2393,7 +3239,7 @@ export default function App() {
             }}
           >
             <Plus size={12} />
-            New Chat
+            {S.newChat}
           </button>
         </div>
 
@@ -2412,7 +3258,7 @@ export default function App() {
                   return c.messages.some((m) => m.content.toLowerCase().includes(sq));
                 });
               if (items.length === 0) return null;
-              const label = group === "pinned" ? "Pinned" : group === "today" ? "Today" : group === "week" ? "Previous 7 Days" : "Older";
+              const label = group === "pinned" ? S.pinned : group === "today" ? S.today : group === "week" ? S.thisWeek : S.older;
               return (
                 <div key={group} className="mb-4">
                   <p className="text-[10px] font-medium uppercase tracking-widest px-2 mb-1.5"
@@ -2450,13 +3296,13 @@ export default function App() {
                         <span style={{ fontSize: 11 }}>★</span>
                       </button>
                       <button
-                        onClick={() => deleteChat(chat.id)}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
-                        style={{ color: "#ef4444" }}
-                        title="Delete"
-                      >
-                        <X size={11} />
-                      </button>
+                          onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); }}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
+                          style={{ color: "#ef4444" }}
+                          title="Delete"
+                        >
+                          <X size={11} />
+                        </button>
                     </div>
                   ))}
                 </div>
@@ -2472,7 +3318,7 @@ export default function App() {
           <div className="flex items-center justify-between px-3 pt-3 pb-1.5 shrink-0 gap-2">
             <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest shrink-0" style={{ color: "rgba(134,134,139,0.5)" }}>
               <Database size={10} />
-              Knowledge base
+              {S.knowledgeBase}
               {kbDocs.length > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold" style={{ background: "rgba(59,130,246,0.15)", color: "#93c5fd" }}>
                   {kbDocs.length}
@@ -2527,7 +3373,7 @@ export default function App() {
             ) : Object.keys(folderMap).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-5 gap-1">
                 <Database size={18} style={{ color: "rgba(134,134,139,0.2)" }} />
-                <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.35)" }}>No files yet</p>
+                <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.35)" }}>{S.noFiles}</p>
               </div>
             ) : Object.entries(folderMap)
                 .sort(([a], [b]) => a === "default" ? -1 : b === "default" ? 1 : a.localeCompare(b))
@@ -2699,7 +3545,7 @@ export default function App() {
         {uploadJobs.length > 0 && (
           <div className="max-h-[140px] overflow-y-auto scrollbar-hide shrink-0"
             style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-            {uploadJobs.slice(-4).reverse().map((j) => <JobBadge key={j.jobId} job={j} />)}
+            {uploadJobs.slice(-4).reverse().map((j) => <JobBadge key={j.jobId} job={j} onCancel={() => cancelJob(j.jobId)} />)}
           </div>
         )}
 
@@ -2707,6 +3553,7 @@ export default function App() {
         <div className="shrink-0" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
           <SyncPanel
             onToast={addToast}
+            lang={uiLang}
             targetCollection={kbFilter || "default"}
             collections={Object.entries(folderMap)
               .filter(([name]) => name !== "default")
@@ -2741,12 +3588,50 @@ export default function App() {
         >
           <div className="flex items-center gap-3">
             <Logo />
-            {activeChat && (
+            {/* Mode toggle */}
+            <div
+              className="flex items-center rounded-full p-0.5"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)" }}
+            >
+              <button
+                onClick={() => setMode("chat")}
+                className="flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-medium transition-all duration-200"
+                style={{
+                  background: mode === "chat" ? "#1C1C1E" : "transparent",
+                  color: mode === "chat" ? "#F5F5F7" : "rgba(134,134,139,0.6)",
+                  boxShadow: mode === "chat" ? "0 1px 4px rgba(0,0,0,0.35)" : "none",
+                }}
+              >
+                💬 Chat
+              </button>
+              <button
+                onClick={() => setMode("translate")}
+                className="flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-medium transition-all duration-200"
+                style={{
+                  background: mode === "translate" ? "#1C1C1E" : "transparent",
+                  color: mode === "translate" ? "#F5F5F7" : "rgba(134,134,139,0.6)",
+                  boxShadow: mode === "translate" ? "0 1px 4px rgba(0,0,0,0.35)" : "none",
+                }}
+              >
+                🇯🇵 Dịch JP
+              </button>
+            </div>
+            {mode === "chat" && activeChat && (
               <>
                 <span style={{ color: "rgba(255,255,255,0.15)" }}>/</span>
-                <span className="text-[13px] truncate max-w-[320px]" style={{ color: "#86868B" }}>
+                <span className="text-[13px] truncate max-w-[220px]" style={{ color: "#86868B" }}>
                   {activeChat.title}
                 </span>
+                <button
+                  onClick={exportChat}
+                  title="Xuất hội thoại (.md)"
+                  className="flex items-center justify-center w-6 h-6 rounded-md transition-all"
+                  style={{ color: "#3C3C3E" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "#86868B"; e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "#3C3C3E"; e.currentTarget.style.background = "transparent"; }}
+                >
+                  <Download size={12} />
+                </button>
               </>
             )}
           </div>
@@ -2770,7 +3655,7 @@ export default function App() {
               }}
             >
               <Plus size={12} />
-              New Chat
+              {S.newChat}
             </button>
             {activeChatId && messages.length > 0 && (
               <button
@@ -2824,6 +3709,12 @@ export default function App() {
                           { id: "openrouter", label: "Cloud · OpenRouter" },
                         ].map((prov) => {
                           const isCurrent = getProviderOfModel(activeModel) === prov.id;
+                          const localKeyMap: Record<string, string> = {
+                            groq: apiKeyGroq, openai: apiKeyOpenAI, gemini: apiKeyGemini,
+                            openrouter: apiKeyOpenRouter, cerebras: apiKeyCerebras,
+                          };
+                          const hasLocalKey = !!localKeyMap[prov.id];
+                          const hasServerKey = !!serverProviders[prov.id];
                           return (
                             <button
                               key={prov.id}
@@ -2837,7 +3728,15 @@ export default function App() {
                               onMouseLeave={(e) => { if (!isCurrent) e.currentTarget.style.background = "transparent"; }}
                             >
                               <span>{prov.label}</span>
-                              <ChevronRight size={10} style={{ opacity: 0.5 }} />
+                              <div className="flex items-center gap-1.5">
+                                {hasServerKey && !hasLocalKey && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(16,185,129,0.15)", color: "#34d399", border: "1px solid rgba(16,185,129,0.25)" }}>via .env</span>
+                                )}
+                                {hasLocalKey && (
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#10b981" }} />
+                                )}
+                                <ChevronRight size={10} style={{ opacity: 0.5 }} />
+                              </div>
                             </button>
                           );
                         })}
@@ -3026,7 +3925,7 @@ export default function App() {
                       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
                       <Database size={12} style={{ color: "#86868B" }} />
-                      Knowledge base: {kbDocs.length} docs
+                      {S.knowledgeBase}: {S.kbDocs(kbDocs.length)}
                     </button>
                     <button
                       onClick={() => { setProfileOpen(false); setMemoryPanelOpen(true); refreshMemories(); }}
@@ -3036,8 +3935,38 @@ export default function App() {
                       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
                       <Sparkles size={12} style={{ color: "#86868B" }} />
-                      Memory: {memories.length} {memories.length === 1 ? "item" : "items"}
+                      {S.memory}: {S.memoryItems(memories.length)}
                     </button>
+                    <button
+                      onClick={() => setLangMenuOpen((o) => !o)}
+                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
+                      style={{ color: "#c7c7cc" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Globe size={12} style={{ color: "#86868B" }} />
+                        {S.language}
+                      </div>
+                      <ChevronRight size={10} style={{ color: "#86868B", transform: langMenuOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
+                    </button>
+                    {langMenuOpen && (
+                      <div className="mx-1 mb-1 rounded-lg overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                        {(([["vi", "Tiếng Việt"], ["en", "English"], ["zh", "中文"], ["ja", "日本語"]] as [Lang, string][]).map(([code, label]) => (
+                          <button
+                            key={code}
+                            onClick={() => { handleSetLang(code); setLangMenuOpen(false); }}
+                            className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
+                            style={{ color: uiLang === code ? "#f5f5f7" : "#86868B" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                          >
+                            <span>{label}</span>
+                            {uiLang === code && <Check size={11} style={{ color: "#c7c7cc" }} />}
+                          </button>
+                        )))}
+                      </div>
+                    )}
                     <button
                       onClick={() => {
                         localStorage.clear();
@@ -3049,7 +3978,7 @@ export default function App() {
                       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                     >
                       <RefreshCw size={12} />
-                      Clear all data &amp; reset
+                      {S.clearData}
                     </button>
                   </div>
                   <div className="px-4 py-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
@@ -3061,6 +3990,18 @@ export default function App() {
           </div>
         </header>
 
+        {mode === "translate" && (
+          <TranslatorPanel
+            apiKeyGemini={apiKeyGemini}
+            apiKeyGroq={apiKeyGroq}
+            apiKeyOpenRouter={apiKeyOpenRouter}
+            apiKeyOpenAI={apiKeyOpenAI}
+            apiKeyCerebras={apiKeyCerebras}
+            activeModel={activeModel}
+            serverProviders={serverProviders}
+          />
+        )}
+
         {memoryPanelOpen && (
           <div
             className="fixed inset-0 z-[100] flex items-center justify-center"
@@ -3069,67 +4010,153 @@ export default function App() {
           >
             <div
               className="rounded-2xl flex flex-col"
-              style={{ width: 480, maxHeight: "75vh", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}
+              style={{ width: 500, maxHeight: "80vh", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Header */}
               <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                 <div className="flex items-center gap-2">
                   <Sparkles size={14} style={{ color: "#a78bfa" }} />
                   <h2 className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Memory</h2>
-                  <span className="text-[10px]" style={{ color: "#86868B" }}>{memories.length} {memories.length === 1 ? "item" : "items"}</span>
                 </div>
                 <button onClick={() => setMemoryPanelOpen(false)} className="p-1 rounded hover:bg-white/5">
                   <XIcon size={14} style={{ color: "#86868B" }} />
                 </button>
               </div>
-              <div className="px-5 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                <p className="text-[10px] mb-2" style={{ color: "#86868B" }}>
-                  Ciel sẽ luôn nhớ những điều bạn ghi ở đây trong mọi cuộc trò chuyện.
-                </p>
-                <div className="flex gap-2">
-                  <textarea
-                    value={newMemory}
-                    onChange={(e) => setNewMemory(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addMemory(); } }}
-                    placeholder="VD: Tôi tên Phong, làm AI engineer..."
-                    rows={2}
-                    className="flex-1 rounded-lg px-3 py-2 text-[12px] resize-none outline-none"
-                    style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7" }}
-                  />
+
+              {/* Tabs */}
+              <div className="flex px-5 pt-3 gap-1" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                {(["global", "chat"] as const).map((tab) => (
                   <button
-                    onClick={addMemory}
-                    disabled={!newMemory.trim()}
-                    className="px-3 py-2 rounded-lg text-[11px] font-medium shrink-0"
+                    key={tab}
+                    onClick={() => setMemoryTab(tab)}
+                    className="px-3 py-1.5 rounded-t text-[11px] font-medium transition-colors"
                     style={{
-                      background: newMemory.trim() ? "linear-gradient(135deg, #8b5cf6, #6366f1)" : "rgba(255,255,255,0.04)",
-                      color: newMemory.trim() ? "#fff" : "#52525b",
-                      cursor: newMemory.trim() ? "pointer" : "not-allowed",
+                      background: memoryTab === tab ? "rgba(139,92,246,0.15)" : "transparent",
+                      color: memoryTab === tab ? "#a78bfa" : "#86868B",
+                      borderBottom: memoryTab === tab ? "2px solid #a78bfa" : "2px solid transparent",
                     }}
                   >
-                    Add
+                    {tab === "global" ? S.globalMemory(memories.length) : S.chatMemory}
                   </button>
-                </div>
+                ))}
               </div>
-              <div className="flex-1 overflow-y-auto scrollbar-hide px-3 py-2">
-                {memories.length === 0 ? (
-                  <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
-                    Chưa có memory nào. Thêm thông tin trên để Ciel ghi nhớ.
-                  </p>
-                ) : (
-                  memories.map((m) => (
-                    <div key={m.id} className="group flex items-start gap-2 px-3 py-2 rounded-lg hover:bg-white/5">
-                      <Sparkles size={10} className="mt-1 shrink-0" style={{ color: "#a78bfa" }} />
-                      <p className="flex-1 text-[12px] leading-relaxed" style={{ color: "#d1d1d6" }}>{m.content}</p>
+
+              {/* Tab: Kinh nghiệm (global) */}
+              {memoryTab === "global" && (
+                <>
+                  <div className="px-5 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    <p className="text-[10px] mb-2" style={{ color: "#86868B" }}>
+                      Ciel sẽ luôn nhớ những điều này trong <strong style={{ color: "#c7c7cc" }}>mọi cuộc trò chuyện</strong>. Paste prompt dài cũng được.
+                    </p>
+                    <div className="flex gap-2 items-start">
+                      <textarea
+                        value={newMemory}
+                        onChange={(e) => setNewMemory(e.target.value)}
+                        placeholder="VD: Tôi tên Phong, làm AI engineer..."
+                        rows={4}
+                        className="flex-1 rounded-lg px-3 py-2 text-[12px] resize-y outline-none"
+                        style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7", minHeight: 72 }}
+                      />
                       <button
-                        onClick={() => deleteMemory(m.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity"
+                        onClick={addMemory}
+                        disabled={!newMemory.trim()}
+                        className="px-3 py-2 rounded-lg text-[11px] font-medium shrink-0"
+                        style={{
+                          background: newMemory.trim() ? "linear-gradient(135deg, #8b5cf6, #6366f1)" : "rgba(255,255,255,0.04)",
+                          color: newMemory.trim() ? "#fff" : "#52525b",
+                          cursor: newMemory.trim() ? "pointer" : "not-allowed",
+                        }}
                       >
-                        <Trash2 size={11} style={{ color: "#f87171" }} />
+                        Add
                       </button>
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto scrollbar-hide px-3 py-2">
+                    {memories.length === 0 ? (
+                      <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
+                        Chưa có memory nào. Thêm thông tin trên để Ciel ghi nhớ.
+                      </p>
+                    ) : (
+                      memories.map((m) => (
+                        <div key={m.id} className="group flex items-start gap-2 px-3 py-2 rounded-lg hover:bg-white/5">
+                          <Sparkles size={10} className="mt-1 shrink-0" style={{ color: "#a78bfa" }} />
+                          <p className="flex-1 text-[12px] leading-relaxed" style={{ color: "#d1d1d6", whiteSpace: "pre-wrap" }}>{m.content}</p>
+                          <button onClick={() => deleteMemory(m.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity">
+                            <Trash2 size={11} style={{ color: "#f87171" }} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Tab: Chat này (per-chat) */}
+              {memoryTab === "chat" && (() => {
+                const displayChatId = activeChatId ?? chats[0]?.id ?? null;
+                const displayChat = chats.find(c => c.id === displayChatId);
+                const raw = displayChat?.notes;
+                const chatNotes: string[] = Array.isArray(raw) ? raw : raw ? [raw as unknown as string] : [];
+                const activeTitle = displayChat?.title || "này";
+                const isFallback = !activeChatId && !!displayChatId;
+                return (
+                  <>
+                    <div className="px-5 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      <p className="text-[10px] mb-2" style={{ color: "#86868B" }}>
+                        {isFallback
+                          ? <>Đang xem ghi chú của chat gần nhất: <strong style={{ color: "#c7c7cc" }}>"{activeTitle}"</strong>. Mở chat để thêm.</>
+                          : <>Ciel sẽ đọc những điều này trong chat <strong style={{ color: "#c7c7cc" }}>"{activeTitle}"</strong> trước khi trả lời.</>
+                        }
+                      </p>
+                      <div className="flex gap-2 items-start">
+                        <textarea
+                          value={chatNoteInput}
+                          onChange={(e) => setChatNoteInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addChatNote(); } }}
+                          placeholder="VD: Đây là dự án X của công ty Y..."
+                          rows={4}
+                          className="flex-1 rounded-lg px-3 py-2 text-[12px] resize-y outline-none"
+                          style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7", minHeight: 72 }}
+                        />
+                        <button
+                          onClick={addChatNote}
+                          disabled={!chatNoteInput.trim() || !activeChatId}
+                          className="px-3 py-2 rounded-lg text-[11px] font-medium shrink-0"
+                          style={{
+                            background: chatNoteInput.trim() && activeChatId ? "linear-gradient(135deg, #8b5cf6, #6366f1)" : "rgba(255,255,255,0.04)",
+                            color: chatNoteInput.trim() && activeChatId ? "#fff" : "#52525b",
+                            cursor: chatNoteInput.trim() && activeChatId ? "pointer" : "not-allowed",
+                          }}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto scrollbar-hide px-3 py-2">
+                      {!displayChatId ? (
+                        <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
+                          Chưa có chat nào. Bắt đầu trò chuyện để tạo ghi chú.
+                        </p>
+                      ) : chatNotes.length === 0 ? (
+                        <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
+                          Chưa có ghi chú. Thêm thông tin trên để Ciel ghi nhớ trong chat này.
+                        </p>
+                      ) : (
+                        chatNotes.map((note, idx) => (
+                          <div key={idx} className="group flex items-start gap-2 px-3 py-2 rounded-lg hover:bg-white/5">
+                            <Sparkles size={10} className="mt-1 shrink-0" style={{ color: "#a78bfa" }} />
+                            <p className="flex-1 text-[12px] leading-relaxed" style={{ color: "#d1d1d6", whiteSpace: "pre-wrap" }}>{note}</p>
+                            <button onClick={() => deleteChatNote(idx)} className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity">
+                              <Trash2 size={11} style={{ color: "#f87171" }} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -3446,6 +4473,7 @@ export default function App() {
         <div
           ref={messagesContainerRef}
           className={`flex-1 ${isEmpty ? "overflow-hidden" : "overflow-y-auto"} scrollbar-hide relative`}
+          style={{ display: mode === "translate" ? "none" : undefined }}
           onScroll={(e) => {
             const el = e.currentTarget;
             const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -3487,7 +4515,7 @@ export default function App() {
               {messages.map((msg) => (
                 <ChatMessage key={msg.id} message={msg} onSourceClick={handleSourceClick} activeSource={activeSourceId} onFollowUp={(t) => sendMessage(t)} />
               ))}
-              {isProcessing && <RAGProcessing step={processingStep} sources={readingSources} />}
+              {isProcessing && <RAGProcessing step={processingStep} label={processingLabel} sources={readingSources} />}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -3519,9 +4547,25 @@ export default function App() {
           className="shrink-0 px-6 pb-4 pt-2"
           style={{
             background: "linear-gradient(to top, #121214 60%, transparent)",
+            display: mode === "translate" ? "none" : undefined,
           }}
         >
           <div className="max-w-[850px] mx-auto">
+            {browsePreview && (
+              <div
+                className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-xl text-xs"
+                style={{ background: "rgba(10,102,194,0.12)", border: "1px solid rgba(10,102,194,0.25)", color: "#8BB8E8" }}
+              >
+                {isBrowsing ? (
+                  <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</span>
+                ) : (
+                  <span>📄</span>
+                )}
+                <span className="font-medium">{isBrowsing ? "Đang đọc..." : "Đang đọc:"}</span>
+                <span style={{ color: "#A8C8F0" }}>{browsePreview.domain}</span>
+                <span className="truncate opacity-60" style={{ maxWidth: 260 }}>{browsePreview.url}</span>
+              </div>
+            )}
             <ContextBar
               scope={chatScope}
               collections={[
@@ -3535,19 +4579,24 @@ export default function App() {
               ]}
               hybridMode={hybridMode}
               totalDocs={kbDocs.length}
-              onScopeChange={(s) => { setChatScope(s); fetchSuggestions(s); }}
+              onScopeChange={(s) => { setChatScope(s); fetchSuggestions(s, uiLang); }}
               onHybridChange={(h) => { setHybridMode(h); localStorage.setItem("chatrag_hybrid", String(h)); }}
             />
             <div
               className="flex items-end gap-3 px-4 py-3 rounded-3xl transition-all duration-250"
               style={{
                 background: "#1C1C1E",
-                border: inputFocused
-                  ? "1px solid #0A66C2"
-                  : "1px solid rgba(255,255,255,0.1)",
-                boxShadow: inputFocused
-                  ? "0 0 12px rgba(10,102,194,0.2), inset 0 0 12px rgba(10,102,194,0.04)"
-                  : "none",
+                ...(webSearchMode
+                  ? {
+                      border: "1px solid rgba(59,130,246,0.45)",
+                      animation: "siri-glow 2.8s ease-in-out infinite",
+                    }
+                  : {
+                      border: inputFocused ? "1px solid #0A66C2" : "1px solid rgba(255,255,255,0.1)",
+                      boxShadow: inputFocused
+                        ? "0 0 12px rgba(10,102,194,0.2), inset 0 0 12px rgba(10,102,194,0.04)"
+                        : "none",
+                    }),
               }}
             >
               <input
@@ -3575,6 +4624,19 @@ export default function App() {
                 }}
               />
               <button
+                className="shrink-0 mb-0.5 transition-all duration-150"
+                title={webSearchMode ? "Tắt tìm web (DuckDuckGo)" : "Bật tìm web (DuckDuckGo)"}
+                onClick={() => setWebSearchMode((v) => !v)}
+                style={{
+                  color: webSearchMode ? "#3B82F6" : "rgba(134,134,139,0.6)",
+                  filter: webSearchMode ? "drop-shadow(0 0 6px rgba(59,130,246,0.5))" : "none",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#60a5fa")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = webSearchMode ? "#3B82F6" : "rgba(134,134,139,0.6)")}
+              >
+                <Globe size={16} />
+              </button>
+              <button
                 className="shrink-0 mb-0.5 transition-colors duration-150"
                 title="Upload file to knowledge base"
                 onClick={() => chatFileInputRef.current?.click()}
@@ -3601,7 +4663,7 @@ export default function App() {
                     sendMessage();
                   }
                 }}
-                placeholder="Ask anything from your knowledge base..."
+                placeholder={webSearchMode ? S.webPlaceholder : S.chatPlaceholder}
                 className="flex-1 bg-transparent resize-none outline-none text-sm leading-relaxed"
                 style={{
                   color: "#F5F5F7",
@@ -3668,6 +4730,50 @@ export default function App() {
             setExpandedFolders(new Set(collections.map((c) => c.name).concat(["default"])));
           }}
         />
+      )}
+
+      {deletingChatId && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setDeletingChatId(null)}
+        >
+          <div
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 320, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
+                <Trash2 size={16} style={{ color: "#f87171" }} />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>{S.deleteConfirmTitle}</p>
+                <p className="text-[11px] mt-1 leading-relaxed" style={{ color: "#86868B" }}>{S.deleteConfirmDesc}</p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setDeletingChatId(null)}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                onClick={() => { deleteChat(deletingChatId); setDeletingChatId(null); }}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "#ef4444", color: "#fff" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#dc2626")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#ef4444")}
+              >
+                {S.deleteBtn}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />

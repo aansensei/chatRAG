@@ -364,3 +364,23 @@
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+@keyframes siri-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 10px rgba(59, 130, 246, 0.3),
+      0 0 0px rgba(139, 92, 246, 0);
+  }
+  35% {
+    box-shadow:
+      0 0 22px rgba(59, 130, 246, 0.6),
+      0 0 40px rgba(139, 92, 246, 0.3),
+      inset 0 0 16px rgba(99, 102, 241, 0.08);
+  }
+  65% {
+    box-shadow:
+      0 0 16px rgba(139, 92, 246, 0.5),
+      0 0 32px rgba(59, 130, 246, 0.25),
+      inset 0 0 12px rgba(139, 92, 246, 0.06);
+  }
+}

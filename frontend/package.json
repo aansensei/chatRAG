@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:deploy": "vite build && xcopy /E /Y /I dist\\* ..\\backend\\app\\static\\"
+    "build:deploy": "vite build",
+    "watch": "vite build --watch"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

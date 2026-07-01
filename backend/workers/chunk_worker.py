@@ -32,13 +32,13 @@ def handle(message: dict) -> None:
     text = message["text"]
 
     logger.info(f"job={job_id} text={len(text)} chars")
-    set_job_status(job_id, status="chunking", step="chunk")
+    set_job_status(job_id, status="chunking", step="chunk", progress=40)
 
     try:
         chunks = chunk_text(text, UUID(document_id), ChunkConfig())
 
         logger.info(f"job={job_id} produced {len(chunks)} chunks")
-        set_job_status(job_id, status="embedding", step="embed")
+        set_job_status(job_id, status="embedding", step="embed", progress=55)
 
         publish(QUEUE_OUT, {
             "job_id": job_id,

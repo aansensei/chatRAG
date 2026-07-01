@@ -35,7 +35,7 @@ def get_memories() -> list[dict[str, Any]]:
 def add_memory_internal(content: str) -> dict[str, Any] | None:
     """Add a memory directly (called from auto-extract in retrieval). Skips duplicates."""
     content = (content or "").strip()
-    if not content or len(content) > 500:
+    if not content or len(content.split()) > 3000:
         return None
     items = _load()
     norm = content.lower()
@@ -62,8 +62,8 @@ def add_memory(body: AddMemoryBody):
     content = body.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="content cannot be empty")
-    if len(content) > 500:
-        raise HTTPException(status_code=400, detail="content too long (max 500 chars)")
+    if len(content.split()) > 3000:
+        raise HTTPException(status_code=400, detail="content too long (max 3000 words)")
     items = _load()
     item = {"id": uuid.uuid4().hex[:12], "content": content, "created_at": int(time.time())}
     items.append(item)

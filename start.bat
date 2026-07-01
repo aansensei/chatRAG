@@ -1,20 +1,19 @@
 @echo off
-title chatRAG Launcher
+title chatRAG
 set PYTHONPATH=%~dp0backend
 
-:: Embed missing chunks in background (non-blocking)
+:: Embed missing chunks (non-blocking)
 cd /d "%~dp0backend"
-echo [chatRAG] Embedding missing chunks in background...
 start /b python scripts/migrate_to_bge_m3.py > nul 2>&1
 
-:: Start frontend in separate window
-echo [chatRAG] Starting frontend...
-start "chatRAG Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
+:: Backend — single server at http://localhost:8000
+echo [chatRAG] Starting backend at http://localhost:8000 ...
+start /min "chatRAG Backend" cmd /k "%~dp0_backend.bat"
 
-:: Backend with auto-restart loop
-echo [chatRAG] Backend starting on :8000...
-:loop
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
-echo [chatRAG] Server crashed or stopped. Restarting in 3 seconds...
-timeout /t 3 /nobreak >nul
-goto loop
+timeout /t 2 /nobreak >nul
+
+:: Vite watch — auto-rebuilds to backend/app/static on every file save
+:: Refresh browser manually after save (F5)
+echo [chatRAG] Vite watch mode — edit frontend, F5 to refresh at http://localhost:8000
+cd /d "%~dp0frontend"
+npm run watch

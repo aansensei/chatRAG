@@ -1,6 +1,8 @@
+import ast
 import datetime
 import json
 import logging
+import operator as _operator
 import os
 import random
 import re
@@ -53,11 +55,64 @@ _SOFT_ENDING = re.compile(
     re.IGNORECASE
 )
 
+_CALC_TRIGGER = re.compile(
+    r'^(?:tính|calculate|tính\s+toán|calc)\s+([\d\s\+\-\*\/\(\)\.,%^×÷]+)$',
+    re.IGNORECASE,
+)
+_PERCENT_OF_RE = re.compile(r'([\d,.]+)\s*%\s+of\s+([\d,.]+)', re.IGNORECASE)
+_WEB_BROWSE_PREFIX = re.compile(
+    r'^\[Nội dung trang (https?://[^\n]+):\n(.*?)\]\n\n(.+)$',
+    re.DOTALL,
+)
+_WEB_SEARCH_PREFIX = re.compile(
+    r'^\[Kết quả tìm web cho "([^"]+)":\n(.*?)\]\n\n(.+)$',
+    re.DOTALL,
+)
+
+_SAFE_OPS: dict = {
+    ast.Add: _operator.add,
+    ast.Sub: _operator.sub,
+    ast.Mult: _operator.mul,
+    ast.Div: _operator.truediv,
+    ast.Pow: _operator.pow,
+    ast.Mod: _operator.mod,
+    ast.FloorDiv: _operator.floordiv,
+    ast.USub: _operator.neg,
+    ast.UAdd: _operator.pos,
+}
+
+
+def _safe_eval(expr: str) -> float | None:
+    try:
+        expr = expr.replace(",", "").replace("^", "**").replace("×", "*").replace("÷", "/")
+        tree = ast.parse(expr.strip(), mode="eval")
+
+        def _ev(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return node.value
+            if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_OPS:
+                return _SAFE_OPS[type(node.op)](_ev(node.left), _ev(node.right))
+            if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_OPS:
+                return _SAFE_OPS[type(node.op)](_ev(node.operand))
+            raise ValueError("unsafe")
+
+        return _ev(tree.body)
+    except Exception:
+        return None
+
+
+def _fmt_num(n: float) -> str:
+    if n == int(n) and abs(n) < 1e15:
+        s = f"{int(n):,}".replace(",", "_")
+        return s.replace("_", ".")
+    return f"{n:,.4f}".rstrip("0").rstrip(".").replace(",", ".")
+
+
 _DATETIME_PAT = re.compile(
     r'\b(?:'
     r'hôm\s+nay|ngày\s+(?:hôm\s+nay|nay|mấy|bao\s+nhiêu)|mấy\s+giờ|bây\s+giờ\s+là|hiện\s+tại\s+là|'
     r'thứ\s+mấy|ngày\s+tháng|tháng\s+mấy|năm\s+nay|'
-    r"what(?:'s|\s+is)\s+(?:the\s+)?(?:date|time|day)|today(?:'s\s+date)?|current\s+(?:time|date)|'
+    r"what(?:'s|\s+is)\s+(?:the\s+)?(?:date|time|day)|today(?:'s\s+date)?|current\s+(?:time|date)|"
     r'what\s+day\s+is|now|'
     r'今日|今|何時|いつ'
     r')\b',
@@ -229,7 +284,8 @@ _IDENTITY_SYSTEM_VI = (
     "Trả lời tự nhiên, thân thiện — như đang chat. Không dùng danh sách bullet dài. "
     "Nếu hỏi tên: 'Tôi là Ciel'. "
     "Nếu hỏi khả năng: mô tả rõ bạn giúp tra cứu và tổng hợp tài liệu nội bộ qua RAG. "
-    "Nếu hỏi giới hạn: nói thật — chưa tạo được hình ảnh, chưa nhớ session, chưa duyệt web, chưa gửi email, chưa chạy code. "
+    "Nếu hỏi giới hạn: nói thật — chưa tạo được hình ảnh, chưa nhớ session, chưa gửi email, chưa chạy code. "
+    "Đặc biệt: CÓ THỂ đọc nội dung trang web khi user paste URL vào câu hỏi. "
     "Nếu hỏi tính năng cụ thể (ví dụ 'có tạo ảnh không'): trả lời thẳng có/không, giải thích ngắn. "
     "Trả lời bằng tiếng Việt."
 )
@@ -240,7 +296,8 @@ _IDENTITY_SYSTEM_EN = (
     "Reply naturally and briefly — like a chat message. "
     "If asked your name: say 'I'm Ciel'. "
     "If asked capabilities: explain you help search and summarize internal documents via RAG. "
-    "If asked limitations: be honest — you can't generate images, don't remember sessions, can't browse the web or send emails. "
+    "If asked limitations: be honest — you can't generate images, don't remember sessions, can't send emails or run code. "
+    "You CAN read web pages when the user pastes a URL in their message. "
     "If asked about a specific feature (e.g. 'can you create images'): answer directly yes/no with a short reason. "
     "Respond in English."
 )
@@ -288,12 +345,12 @@ _CIEL_INTRO_VI = """Tôi là **Ciel** — trợ lý AI nội bộ của **chatRA
 • Trích dẫn nguồn rõ ràng để bạn kiểm chứng.
 • Tìm kiếm theo thư mục hoặc toàn bộ kho.
 • Chế độ Hybrid: kết hợp tài liệu với kiến thức chung khi tài liệu chưa đủ.
+• Đọc nội dung trang web khi bạn paste URL vào câu hỏi.
 • Hiểu tiếng Việt, tiếng Anh, tiếng Nhật và nhiều ngôn ngữ khác.
 • Chạy local (Ollama) hoặc cloud nhanh (Groq).
 
 **Tôi chưa làm được:**
 • Tự học hay ghi nhớ cuộc hội thoại qua các session.
-• Truy cập internet hoặc dữ liệu ngoài tài liệu đã tải lên.
 • Thực thi code, gửi email, hay điều khiển hệ thống khác.
 • Trả lời chính xác khi tài liệu liên quan chưa được upload.
 
@@ -525,12 +582,6 @@ def _is_wakeup_query(question: str) -> bool:
     return any(p in q for p in _WAKEUP_VI) or any(p in q for p in _WAKEUP_EN)
 
 
-def _intro_lang(question: str) -> str:
-    """Vietnamese by default; English only when the query is clearly English."""
-    if _detect_lang(question) == "vi":
-        return "vi"
-    q = _strip_vi(question).rstrip("?!. ").strip()
-    return "en" if any(p in q for p in _IDENTITY_EN) else "vi"
 
 
 def _stream_text_gradually(text: str, delay: float = 0.008) -> Generator[str, None, None]:
@@ -613,8 +664,11 @@ def _llm_filter_chunks(
     ollama_model: str,
     api_key: str | None,
     groq_model: str | None,
-) -> list[dict]:
-    """Ask the LLM which chunks are genuinely relevant. Falls back to all chunks on error."""
+) -> list[dict] | None:
+    """Ask the LLM which chunks are genuinely relevant.
+    Returns None on error (caller should fall back to all chunks).
+    Returns [] when LLM explicitly says none are relevant.
+    """
     if not chunks:
         return chunks
 
@@ -634,10 +688,10 @@ def _llm_filter_chunks(
             if resp.status_code == 200:
                 raw = resp.json().get("response", "").strip()
     except Exception:
-        return chunks
+        return None  # error → caller falls back to all chunks
 
     if not raw or raw.lower().strip() == "none":
-        return []
+        return []  # explicit "none relevant" — do not fall back
 
     kept = []
     for part in re.split(r"[,\s]+", raw):
@@ -647,7 +701,24 @@ def _llm_filter_chunks(
             if 0 <= idx < len(chunks):
                 kept.append(chunks[idx])
 
-    return kept if kept else chunks
+    return kept if kept else None  # empty parse → treat as error, fall back
+
+
+_CEREBRAS_MODEL_IDS = {"gpt-oss-120b", "gemma-4-31b", "zai-glm-4.7", "llama-3.3-70b", "llama3.1-70b", "llama3.1-8b"}
+
+
+def _resolve_env_key(model: str) -> str:
+    """Pick the right env API key based on the model name when no key was supplied by the client."""
+    m = model.lower()
+    if "gemini" in m:
+        return os.environ.get("GEMINI_API_KEY", "")
+    if model in _CEREBRAS_MODEL_IDS:
+        return os.environ.get("CEREBRAS_API_KEY", "")
+    if any(p in m for p in ("gpt-", "o1-", "o3-", "o4-")):
+        return os.environ.get("OPENAI_API_KEY", "")
+    if "/" in m:
+        return os.environ.get("OPENROUTER_API_KEY", "")
+    return os.environ.get("GROQ_API_KEY", "")
 
 
 def _stream_llm(
@@ -659,9 +730,10 @@ def _stream_llm(
     fallback_en: str | None = None,
 ) -> Generator[str, None, None]:
     """Stream a prompt through Cloud API (Groq, OpenAI, Gemini, OpenRouter, Cerebras) or Ollama."""
-    if api_key:
-        api_key_str = str(api_key).strip()
-        model_str = str(groq_model or "").strip()
+    model_str = str(groq_model or "").strip()
+    resolved_key = str(api_key).strip() if api_key else _resolve_env_key(model_str)
+    if resolved_key:
+        api_key_str = resolved_key
         model_lower = model_str.lower()
 
         # Route by API key prefix first — most reliable signal
@@ -686,7 +758,7 @@ def _stream_llm(
             return
 
         # 3. OpenRouter
-        if api_key_str.startswith("sk-or-") or ("/" in model_lower and ":free" in model_lower):
+        if api_key_str.startswith("sk-or-") or "/" in model_lower:
             yield from _stream_openai_compatible(
                 prompt,
                 model_str or "meta-llama/llama-3.3-70b-instruct:free",
@@ -751,13 +823,18 @@ def _stream_llm(
 
 def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[str, None, None]:
     model_clean = model.replace("models/", "")
-    api_ver = "v1beta" if any(x in model_clean for x in ["2.5", "preview", "exp", "latest"]) else "v1"
+    is_25 = "2.5" in model_clean
+    api_ver = "v1beta" if is_25 or any(x in model_clean for x in ["preview", "exp", "latest"]) else "v1"
     url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{model_clean}:streamGenerateContent?alt=sse&key={api_key}"
     headers = {"Content-Type": "application/json"}
+    gen_cfg: dict = {"maxOutputTokens": 4096}
+    if is_25:
+        gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
     json_data = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 2048},
+        "generationConfig": gen_cfg,
     }
+    token_count = 0
     try:
         with httpx.stream(
             "POST",
@@ -782,15 +859,23 @@ def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[st
                 if line.startswith("data: "):
                     try:
                         data = json.loads(line[6:])
-                        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                        token = "".join(p.get("text", "") for p in parts)
+                        candidates = data.get("candidates") or []
+                        if not candidates:
+                            continue
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        token = "".join(p.get("text", "") for p in parts if not p.get("thought", False))
                         if token:
+                            token_count += 1
                             yield _sse({"type": "token", "token": token})
                     except Exception:
                         pass
     except Exception as e:
         logger.warning("Gemini stream error: %s", e)
         yield _sse({"type": "token", "token": f"Lỗi kết nối Gemini API: {e}"})
+        return
+    if token_count == 0:
+        logger.warning("Gemini %s returned no tokens", model_clean)
+        yield _sse({"type": "token", "token": f"⚠️ Gemini **{model_clean}** không phản hồi. Kiểm tra API key hoặc thử lại."})
 
 
 def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: str) -> Generator[str, None, None]:
@@ -809,6 +894,7 @@ def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: s
         "max_tokens": 2048,
     }
     
+    token_count = 0
     try:
         with httpx.stream(
             "POST",
@@ -833,15 +919,23 @@ def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: s
                 if line.startswith("data: "):
                     try:
                         data = json.loads(line[6:])
-                        delta = data["choices"][0].get("delta", {})
+                        choices = data.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
                         token = delta.get("content") or ""
                         if token:
+                            token_count += 1
                             yield _sse({"type": "token", "token": token})
                     except Exception:
                         pass
     except Exception as e:
         logger.warning("API stream error (%s): %s", base_url, e)
         yield _sse({"type": "token", "token": f"Lỗi kết nối API: {e}"})
+        return
+    if token_count == 0:
+        logger.warning("API stream (%s) returned no tokens for model %s", base_url, model)
+        yield _sse({"type": "token", "token": f"⚠️ Model **{model}** không phản hồi. Thử đổi sang model khác (Gemini Flash, Llama 3.3...)."})
 
 
 _MAX_HISTORY_TURNS = 4
@@ -976,8 +1070,20 @@ def stream_ask(
     model: str | None = None,
     api_key: str | None = None,
     history: list[dict] | None = None,
+    chat_notes: str = "",
 ) -> Generator[str, None, None]:
     ollama_model = model or _OLLAMA_MODEL
+
+    # Strip web search prefix early — before memory extraction and fast-paths
+    # so they only see the real question, not injected web content
+    web_extra_context = ""
+    web_search_query = ""
+    _ws_match = _WEB_SEARCH_PREFIX.match(question)
+    if _ws_match:
+        web_search_query = _ws_match.group(1).strip()
+        web_extra_context = _ws_match.group(2).strip()
+        question = _ws_match.group(3).strip()
+
     lang = _detect_lang(question)
     history_block = _format_history(history)
 
@@ -992,6 +1098,10 @@ def stream_ask(
         if saved:
             _new_memories.append(_fact)
     memory_block = _format_memory_block()
+    chat_note_block = (
+        f"[Ghi chú cho cuộc trò chuyện này — ưu tiên cao]\n{chat_notes.strip()}\n\n"
+        if chat_notes and chat_notes.strip() else ""
+    )
     for _mem in _new_memories:
         yield _sse({"type": "memory_saved", "content": _mem})
 
@@ -1057,7 +1167,7 @@ def stream_ask(
             system = _IDENTITY_SYSTEM_VI
         else:
             system = _IDENTITY_SYSTEM_EN
-        prompt_identity = f"{system}\n\n{memory_block}{history_block}Question: {question}\nCiel:"
+        prompt_identity = f"{system}\n\n{memory_block}{history_block}{chat_note_block}Question: {question}\nCiel:"
         yield from _stream_llm(prompt_identity, ollama_model, api_key, model)
         yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
         return
@@ -1065,9 +1175,52 @@ def stream_ask(
     # RAG explanation — LLM for natural response.
     if _is_rag_query(question):
         system = _RAG_SYSTEM_VI if lang == "vi" else _RAG_SYSTEM_EN
-        prompt_rag = f"{system}\n\n{memory_block}{history_block}Question: {question}\nCiel:"
+        prompt_rag = f"{system}\n\n{memory_block}{history_block}{chat_note_block}Question: {question}\nCiel:"
         yield from _stream_llm(prompt_rag, ollama_model, api_key, model)
         yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
+        return
+
+    # Calculate fast-path — safe AST eval, no RAG needed.
+    pct_match = _PERCENT_OF_RE.search(question)
+    calc_match = _CALC_TRIGGER.match(question.strip())
+    if pct_match:
+        pct = float(pct_match.group(1).replace(",", ""))
+        base = float(pct_match.group(2).replace(",", ""))
+        result = pct / 100 * base
+        label = f"{pct_match.group(1)}% of {pct_match.group(2)}"
+        yield from _stream_text_gradually(f"**{label} = {_fmt_num(result)}**")
+        yield _sse({"type": "done", "sources": [], "confidence": 1.0})
+        return
+    if calc_match:
+        expr_str = calc_match.group(1).strip()
+        result = _safe_eval(expr_str)
+        if result is not None:
+            yield from _stream_text_gradually(f"**{expr_str} = {_fmt_num(result)}**")
+            yield _sse({"type": "done", "sources": [], "confidence": 1.0})
+            return
+
+    # Web browse fast-path — frontend injected page content, skip vector search.
+    web_match = _WEB_BROWSE_PREFIX.match(question)
+    if web_match:
+        web_url = web_match.group(1).strip()
+        web_content = web_match.group(2).strip()
+        real_question = web_match.group(3).strip()
+        web_system = (
+            f"{_CIEL_IDENTITY}"
+            "Người dùng đã cung cấp nội dung trang web. Trả lời câu hỏi DỰA TRÊN NỘI DUNG ĐÓ. "
+            "Nếu nội dung không đủ, nói rõ. KHÔNG bịa thêm. Ngắn gọn. Tiếng Việt."
+            if lang == "vi"
+            else "The user provided web page content. Answer the question BASED ON THAT CONTENT. "
+                 "If content is insufficient, say so. Do NOT fabricate. Be concise."
+        )
+        web_prompt = (
+            f"{web_system}\n\n{memory_block}{history_block}"
+            f"Nội dung trang {web_url}:\n{web_content}\n\n"
+            f"Câu hỏi: {real_question}\nCiel:"
+        )
+        yield _sse({"type": "step", "step": "generating"})
+        yield from _stream_llm(web_prompt, ollama_model, api_key, model)
+        yield _sse({"type": "done", "sources": [{"id": 1, "content": web_content[:200], "filename": web_url, "similarity": 1.0}], "confidence": 1.0})
         return
 
     try:
@@ -1144,7 +1297,7 @@ def stream_ask(
 
         has_prior_context = any(h.get("role") == "assistant" for h in (history or []))
 
-        if not chunks and not hybrid and not has_prior_context:
+        if not chunks and not hybrid and not has_prior_context and not web_extra_context:
             msg = (
                 "Không tìm thấy thông tin liên quan trong tài liệu."
                 if lang == "vi"
@@ -1153,36 +1306,11 @@ def stream_ask(
             yield _sse({"type": "done", "answer": msg, "sources": [], "confidence": confidence_val})
             return
 
-        sources = []
-        _seen_doc_ids: set[str] = set()
-        for c in chunks:
-            doc_id = c.get("document_id", "")
-            if doc_id and doc_id in _seen_doc_ids:
-                continue
-            if doc_id:
-                _seen_doc_ids.add(doc_id)
-            meta = c.get("metadata") or {}
-            raw_src = meta.get("source", "") if isinstance(meta, dict) else ""
-            filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {len(sources)+1}"
-            section = (c.get("section_title") or "").strip()
-            if section.upper() in _GENERIC_SECTION_TITLES:
-                section = ""
-            sources.append({
-                "id": len(sources) + 1,
-                "content": c["content"][:200],
-                "section": section or None,
-                "similarity": round(c["similarity"], 3),
-                "filename": filename,
-                "document_id": doc_id,
-            })
-
-        yield _sse({"type": "sources", "sources": sources})
-
         if chunks:
             has_tabular = any("  |  " in (c.get("content") or "") for c in chunks[:5])
             if filename_doc_ids or has_tabular:
                 filtered = chunks
-            elif _RERANKER_ENABLED and _bge_rerank is not None:
+            elif _RERANKER_ENABLED and _bge_rerank is not None and not web_extra_context:
                 yield _sse({"type": "step", "step": "filtering"})
                 try:
                     filtered = _bge_rerank(question, chunks, top_n=_TOP_K)
@@ -1198,11 +1326,24 @@ def stream_ask(
             else:
                 yield _sse({"type": "step", "step": "filtering"})
                 groq_filter_model = model if (api_key and api_key.startswith("gsk_")) else None
-                filtered = _llm_filter_chunks(question, chunks, ollama_model, api_key, groq_filter_model)
-                if not filtered:
-                    filtered = chunks
+                filter_result = _llm_filter_chunks(question, chunks, ollama_model, api_key, groq_filter_model)
+                if filter_result is None:
+                    filtered = chunks  # error → use all chunks
+                elif not filter_result:
+                    # LLM explicitly said nothing is relevant — don't fall back
+                    if not has_prior_context and not web_extra_context:
+                        msg = (
+                            "Không tìm thấy thông tin liên quan trong tài liệu."
+                            if lang == "vi"
+                            else "No relevant information found in the documents."
+                        )
+                        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
+                        return
+                    filtered = []
+                else:
+                    filtered = filter_result
 
-            # Rebuild sources — deduplicated by document_id
+            # Build sources from filtered chunks (post-filter, so only relevant docs appear)
             sources = []
             _seen_doc_ids_f: set[str] = set()
             for c in filtered:
@@ -1225,6 +1366,9 @@ def stream_ask(
                     "filename": filename,
                     "document_id": doc_id,
                 })
+
+            # Yield sources AFTER filtering so only relevant docs are shown
+            yield _sse({"type": "sources", "sources": sources})
 
             parts = []
             for i, c in enumerate(filtered):
@@ -1249,7 +1393,11 @@ def stream_ask(
                 )
             else:
                 system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN
-            prompt = f"{system}\n\n{memory_block}{history_block}Context:\n{context}\n\nQuestion: {question}\nAnswer:"
+            web_supplement = (
+                f"\n\nNguồn bổ sung từ web ('{web_search_query}'):\n{web_extra_context}"
+                if web_extra_context else ""
+            )
+            prompt = f"{system}\n\n{memory_block}{history_block}Context:\n{context}{web_supplement}\n\n{chat_note_block}Question: {question}\nAnswer:"
         elif not chunks and has_prior_context:
             continuation_system = (
                 f"{_CIEL_IDENTITY}"
@@ -1262,18 +1410,36 @@ def stream_ask(
                      "Use conversation history to answer — you may calculate, compare, or summarize from prior answers. "
                      "Do NOT fabricate information not present in the conversation. Be concise."
             )
-            prompt = f"{continuation_system}\n\n{memory_block}{history_block}Question: {question}\nAnswer:"
+            prompt = f"{continuation_system}\n\n{memory_block}{history_block}{chat_note_block}Question: {question}\nAnswer:"
         else:
-            hybrid_system = (
-                f"{_CIEL_IDENTITY}"
-                "Không tìm thấy tài liệu liên quan trong kho. Hãy trả lời dựa trên kiến thức chung của bạn. "
-                "Ghi chú ngắn rằng câu trả lời dựa trên kiến thức chung, không phải tài liệu nội bộ. "
-                "Ngắn gọn, tự nhiên. Tiếng Việt."
-                if lang == "vi"
-                else f"{_CIEL_IDENTITY}No relevant documents found. Answer using your general knowledge. "
-                     "Briefly note the answer comes from general knowledge, not internal documents. Be concise."
-            )
-            prompt = f"{hybrid_system}\n\n{memory_block}{history_block}Question: {question}\nAnswer:"
+            if web_extra_context:
+                web_only_system = (
+                    f"{_CIEL_IDENTITY}"
+                    "Kết quả tìm web đã được cung cấp bên dưới. "
+                    "Hãy đọc kỹ và trả lời câu hỏi trực tiếp dựa trên nội dung đó. "
+                    "TUYỆT ĐỐI KHÔNG nói 'không có tài liệu', 'không có thông tin nội bộ' hay câu tương tự — kết quả web ĐÃ CÓ SẴN. "
+                    "Trả lời bằng Tiếng Việt, ngắn gọn, trực tiếp vào vấn đề."
+                    if lang == "vi"
+                    else f"{_CIEL_IDENTITY}"
+                         "Web search results are provided below. Read them and answer the question directly. "
+                         "Do NOT say 'no documents' or 'no information' — the web results ARE available. Be concise."
+                )
+                prompt = (
+                    f"{web_only_system}\n\n{memory_block}{history_block}"
+                    f"Kết quả tìm web cho '{web_search_query}':\n{web_extra_context}\n\n"
+                    f"{chat_note_block}Question: {question}\nAnswer:"
+                )
+            else:
+                hybrid_system = (
+                    f"{_CIEL_IDENTITY}"
+                    "Không tìm thấy tài liệu liên quan trong kho. Hãy trả lời dựa trên kiến thức chung của bạn. "
+                    "Ghi chú ngắn rằng câu trả lời dựa trên kiến thức chung, không phải tài liệu nội bộ. "
+                    "Ngắn gọn, tự nhiên. Tiếng Việt."
+                    if lang == "vi"
+                    else f"{_CIEL_IDENTITY}No relevant documents found. Answer using your general knowledge. "
+                         "Briefly note the answer comes from general knowledge, not internal documents. Be concise."
+                )
+                prompt = f"{hybrid_system}\n\n{memory_block}{history_block}{chat_note_block}Question: {question}\nAnswer:"
 
         yield _sse({"type": "step", "step": "generating"})
         yield from _stream_llm(prompt, ollama_model, api_key, model)

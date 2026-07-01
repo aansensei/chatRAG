@@ -181,7 +181,24 @@ def search_chunks(
     result = client.rpc("match_chunks", params).execute()
     hits = result.data
     if not hits:
-        return hits
+        return hits or []
+
+    # Enforce collection filter client-side — defense against the RPC ignoring it.
+    if collections:
+        hit_doc_ids = list({h.get("document_id") for h in hits if h.get("document_id")})
+        if hit_doc_ids:
+            allowed_rows = (
+                client.table("chunks")
+                .select("document_id")
+                .in_("collection", collections)
+                .in_("document_id", hit_doc_ids)
+                .limit(len(hit_doc_ids))
+                .execute()
+            )
+            allowed = {r["document_id"] for r in (allowed_rows.data or [])}
+            hits = [h for h in hits if h.get("document_id") in allowed]
+        if not hits:
+            return []
 
     # Expand hits: for each hit, fetch all chunks in the same section (same doc + section_title).
     # Falls back to fetching neighbors (+1..+5) when section_title is None.

@@ -34,10 +34,17 @@ export default defineConfig({
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 
+  build: {
+    outDir: '../backend/app/static',
+    emptyOutDir: true,
+  },
+
   server: {
     proxy: {
       '/chat': 'http://localhost:8000',
       '/ingest': 'http://localhost:8000',
+      '/memory': 'http://localhost:8000',
+      '/health': 'http://localhost:8000',
     },
   },
 })
