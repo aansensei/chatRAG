@@ -1155,7 +1155,7 @@ def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: s
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
-        "max_tokens": 2048,
+        "max_tokens": 4096,
     }
     
     token_count = 0
