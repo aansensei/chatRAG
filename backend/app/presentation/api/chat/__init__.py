@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from app.application.retrieval.ask_question import stream_ask, _call_llm_once, _stream_llm
 from app.infrastructure.vector.supabase.repository import list_documents
 from app.presentation.api.auth import get_collections
+from app.shared.utils.metrics import log_query_metric
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,20 @@ class QuestionRequest(BaseModel):
     chat_notes: str | None = None
 
 
+def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, chat_notes):
+    t0 = time.time()
+    success = True
+    error: str | None = None
+    try:
+        yield from stream_ask(question, active, hybrid, model, api_key, history, chat_notes)
+    except Exception as exc:
+        success = False
+        error = str(exc)
+        raise
+    finally:
+        log_query_metric(model, int((time.time() - t0) * 1000), len(question), success, error)
+
+
 @router.post("")
 def chat(body: QuestionRequest, dep_collections: list[str] = Depends(get_collections)):
     if dep_collections:
@@ -59,7 +75,7 @@ def chat(body: QuestionRequest, dep_collections: list[str] = Depends(get_collect
         active = None
     history = [h.model_dump() for h in body.history] if body.history else None
     return StreamingResponse(
-        stream_ask(body.question, active, body.hybrid, body.model, body.api_key, history, body.chat_notes or ""),
+        _instrumented_stream_ask(body.question, active, body.hybrid, body.model, body.api_key, history, body.chat_notes or ""),
         media_type="text/event-stream",
     )
 
