@@ -392,6 +392,15 @@ _LOW_QUALITY_DOMAIN_RE = re.compile(
     r"123doc\.|slideshare\.net|scribd\.com|tailieu\.",
     re.IGNORECASE,
 )
+_TRUSTED_DOMAINS = {
+    # Vietnamese national news
+    "dantri.com.vn", "vnexpress.net", "tuoitre.vn", "thanhnien.vn", "vietnamnet.vn",
+    "laodong.vn", "nld.com.vn", "vietnamplus.vn", "baochinhphu.vn", "vov.vn", "vtv.vn",
+    "cafef.vn", "zingnews.vn", "tienphong.vn", "baotintuc.vn",
+    # International news / reference
+    "bbc.com", "reuters.com", "apnews.com", "aljazeera.com", "cnn.com", "nytimes.com",
+    "theguardian.com", "wsj.com", "bloomberg.com", "npr.org", "wikipedia.org",
+}
 _VI_STOPWORDS = {
     "hien", "tai", "cua", "trong", "nhung", "duoc", "khong", "voi", "cho", "nhu", "the",
     "nao", "van", "day", "nay", "vay", "cac", "nguoi", "minh", "chung", "moi", "lai", "tinh", "hinh",
@@ -404,65 +413,138 @@ def _norm_tokens(s: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]+", s) if len(w) >= 4}
 
 
-def _filter_web_results(query: str, results: list[dict]) -> list[dict]:
-    """DuckDuckGo results were used as-is with no quality/relevance check — an
-    off-topic or low-credibility source (spam blog, unrelated-topic site) could
-    slip through and get cited alongside real news. Drop results that share no
-    real vocabulary with the query, and drop known low-quality domain patterns.
+def _domain_of(url: str) -> str:
+    try:
+        return urlparse(url).netloc.lower().removeprefix("www.")
+    except Exception:
+        return ""
+
+
+def _rank_web_results(query: str, results: list[dict]) -> list[dict]:
+    """
+    Score each result by domain trust + query/result vocabulary overlap, drop
+    low-quality domains and off-topic results outright, then sort best-first.
+    Raw search-engine order is not a reliability signal — an off-topic or
+    low-credibility source can rank above real news for a given query.
     """
     q_tokens = _norm_tokens(query) - _VI_STOPWORDS
-    kept = []
+    scored: list[tuple[float, dict]] = []
     for r in results:
         href = r.get("href", "")
         if _LOW_QUALITY_DOMAIN_RE.search(href):
             continue
         text_tokens = _norm_tokens(f"{r.get('title', '')} {r.get('body', '')}")
-        if q_tokens and not (q_tokens & text_tokens):
+        overlap = len(q_tokens & text_tokens) / len(q_tokens) if q_tokens else 1.0
+        if q_tokens and overlap == 0:
             continue
-        kept.append(r)
-    return kept
+        trust = 1.0 if _domain_of(href) in _TRUSTED_DOMAINS else 0.0
+        scored.append((trust * 2 + overlap, r))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [r for _, r in scored]
+
+
+def _ddg_search(query: str, max_results: int) -> list[dict]:
+    from ddgs import DDGS
+    with DDGS() as ddgs:
+        return list(ddgs.text(query.strip(), max_results=max_results))
+
+
+def _google_search(query: str, max_results: int) -> list[dict]:
+    """Google Custom Search JSON API — returns up to 10 results per call, so
+    paginate via `start`. Requires GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_ENGINE_ID
+    (https://programmablesearchengine.google.com/). Raises on quota/auth errors
+    so the caller can fall back to DuckDuckGo."""
+    api_key = os.environ.get("GOOGLE_SEARCH_API_KEY", "")
+    cx = os.environ.get("GOOGLE_SEARCH_ENGINE_ID", "")
+    if not api_key or not cx:
+        return []
+    results: list[dict] = []
+    start = 1
+    while len(results) < max_results:
+        num = min(10, max_results - len(results))
+        r = httpx.get(
+            "https://www.googleapis.com/customsearch/v1",
+            params={"key": api_key, "cx": cx, "q": query, "num": num, "start": start},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            raise RuntimeError(f"Google Search API {r.status_code}: {r.text[:200]}")
+        items = r.json().get("items", [])
+        if not items:
+            break
+        results += [{"title": it.get("title", ""), "href": it.get("link", ""), "body": it.get("snippet", "")} for it in items]
+        start += len(items)
+    return results[:max_results]
+
+
+async def _web_search_multi(query: str, max_results: int = 30) -> tuple[list[dict], str]:
+    """Google first if configured, falling back to DuckDuckGo on missing config,
+    quota errors, or any failure. Returns (results, provider_used)."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    if os.environ.get("GOOGLE_SEARCH_API_KEY") and os.environ.get("GOOGLE_SEARCH_ENGINE_ID"):
+        try:
+            results = await loop.run_in_executor(None, _google_search, query, max_results)
+            if results:
+                return results, "google"
+        except Exception as exc:
+            logger.warning("Google Search failed, falling back to DuckDuckGo: %s", exc)
+    try:
+        return await loop.run_in_executor(None, _ddg_search, query, max_results), "duckduckgo"
+    except Exception as exc:
+        logger.warning("DuckDuckGo search failed: %s", exc)
+        return [], "none"
+
+
+async def _fetch_page_content(client: httpx.AsyncClient, url: str) -> str:
+    try:
+        resp = await client.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept-Language": "vi,en;q=0.9",
+            },
+        )
+        if resp.status_code == 200:
+            _, content = _extract_page(resp.text, url)
+            return content[:2000]
+    except Exception:
+        pass
+    return ""
 
 
 @router.post("/web-search")
 async def web_search_endpoint(body: WebSearchRequest):
     import asyncio
     try:
-        from ddgs import DDGS
-    except ImportError:
-        raise HTTPException(status_code=503, detail="ddgs chưa cài. Chạy: pip install ddgs")
-
-    def _search():
-        with DDGS() as ddgs:
-            return list(ddgs.text(body.query.strip(), max_results=10))
-
-    try:
-        raw_results = await asyncio.get_event_loop().run_in_executor(None, _search)
-        filtered = _filter_web_results(body.query, raw_results)
-        results = (filtered or raw_results)[:5]
-
-        top_content = ""
-        top_url = ""
-        if results:
-            top_url = results[0].get("href", "")
-            if top_url:
-                try:
-                    async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
-                        resp = await client.get(
-                            top_url,
-                            headers={
-                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                "Accept-Language": "vi,en;q=0.9",
-                            },
-                        )
-                        if resp.status_code == 200:
-                            _, top_content = _extract_page(resp.text, top_url)
-                            top_content = top_content[:2000]
-                except Exception:
-                    pass
-
-        return {"results": results, "top_content": top_content, "top_url": top_url}
+        raw_results, provider = await _web_search_multi(body.query, max_results=30)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Tìm kiếm thất bại: {e}")
+
+    ranked = _rank_web_results(body.query, raw_results) or raw_results
+    results = ranked[:10]
+
+    # Fetch full page content for the top 3 ranked results concurrently — cheap
+    # relative to fetching them one-by-one, and gives the LLM real content to
+    # ground its answer in instead of just search-engine snippets.
+    full_contents: list[dict] = []
+    top_results = results[:3]
+    if top_results:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+            pages = await asyncio.gather(*(_fetch_page_content(client, r.get("href", "")) for r in top_results))
+        for r, content in zip(top_results, pages):
+            if content:
+                full_contents.append({"url": r.get("href", ""), "content": content})
+
+    top_content = full_contents[0]["content"] if full_contents else ""
+    top_url = full_contents[0]["url"] if full_contents else ""
+    return {
+        "results": results,
+        "full_contents": full_contents,
+        "top_content": top_content,
+        "top_url": top_url,
+        "provider": provider,
+    }
 
 
 class FollowUpsBody(BaseModel):

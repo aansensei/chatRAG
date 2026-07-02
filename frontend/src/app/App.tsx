@@ -3120,8 +3120,9 @@ export default function App() {
             const snippets = results
               .map((r, i) => `${i + 1}. ${r.title}\n${r.body}\nURL: ${r.href}`)
               .join("\n\n");
-            const fullSection = data.top_content
-              ? `\n\nNội dung đầy đủ từ ${data.top_url}:\n${data.top_content}`
+            const fullContents = (data.full_contents as { url: string; content: string }[] | undefined) || [];
+            const fullSection = fullContents.length > 0
+              ? "\n\n" + fullContents.map((f) => `Nội dung đầy đủ từ ${f.url}:\n${f.content}`).join("\n\n")
               : "";
             questionToSend = `[Kết quả tìm web cho "${content}":\n${snippets}${fullSection}]\n\n${content}`;
           }
