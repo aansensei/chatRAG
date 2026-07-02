@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import math
+from concurrent.futures import ThreadPoolExecutor
 import operator as _operator
 import os
 import random
@@ -829,8 +830,11 @@ def _llm_filter_chunks(
     except Exception:
         return None  # error → caller falls back to all chunks
 
-    if not raw or raw.lower().strip() == "none":
+    if raw.lower().strip() == "none":
         return []  # explicit "none relevant" — do not fall back
+    if not raw:
+        return None  # API/network failure (e.g. rate limit) — fall back to all chunks,
+        # NOT the same as the LLM explicitly saying nothing is relevant
 
     kept = []
     for part in re.split(r"[,\s]+", raw):
@@ -1470,35 +1474,48 @@ def stream_ask(
             if filename_doc_ids:
                 chunks = filename_chunks
             else:
-                stripped_question = _strip_accents(question)
-                if stripped_question != question:
-                    vector_stripped = embed_text(stripped_question)
-                    chunks_stripped = search_chunks(vector_stripped, match_count=_TOP_K, threshold=0.1, collections=collections or None)
-                    seen_ids = {c.get("id") for c in chunks if c.get("id")}
-                    for c in chunks_stripped:
-                        c_id = c.get("id")
-                        if c_id and c_id not in seen_ids:
-                            chunks.append(c)
-                            seen_ids.add(c_id)
+                # Supplementary searches (accent-stripped question, LLM-paraphrased
+                # multi-query variants) used to run one-after-another, adding real
+                # wall-clock latency before the answer could start streaming. They're
+                # independent of each other, so run them concurrently instead.
+                def _search_text(q: str) -> list[dict]:
+                    try:
+                        vec = embed_text(q)
+                        return search_chunks(vec, match_count=_TOP_K, threshold=0.1, collections=collections or None)
+                    except Exception as exc:
+                        logger.warning("supplementary search failed for %r: %s", q, exc)
+                        return []
 
-                # Multi-query retrieval: search with LLM-paraphrased variants too —
-                # catches relevant chunks that use different vocabulary than the
-                # user's exact wording. Skipped for very short/vague questions
-                # where a paraphrase adds little signal.
-                if _hyde_key and len(question.strip()) >= 15:
-                    for variant in _generate_query_variants(question, lang, model, _hyde_key):
-                        try:
-                            variant_vec = embed_text(variant)
-                            variant_chunks = search_chunks(variant_vec, match_count=_TOP_K, threshold=0.1, collections=collections or None)
-                        except Exception as exc:
-                            logger.warning("multi-query variant search failed: %s", exc)
-                            continue
-                        seen_ids = {c.get("id") for c in chunks if c.get("id")}
-                        for c in variant_chunks:
-                            c_id = c.get("id")
-                            if c_id and c_id not in seen_ids:
-                                chunks.append(c)
-                                seen_ids.add(c_id)
+                stripped_question = _strip_accents(question)
+                needs_stripped = stripped_question != question
+                needs_multi_query = bool(_hyde_key) and len(question.strip()) >= 15
+                seen_ids = {c.get("id") for c in chunks if c.get("id")}
+
+                if needs_stripped or needs_multi_query:
+                    with ThreadPoolExecutor(max_workers=3) as ex:
+                        stripped_future = ex.submit(_search_text, stripped_question) if needs_stripped else None
+                        variants_future = (
+                            ex.submit(_generate_query_variants, question, lang, model, _hyde_key)
+                            if needs_multi_query else None
+                        )
+
+                        if stripped_future:
+                            for c in stripped_future.result():
+                                c_id = c.get("id")
+                                if c_id and c_id not in seen_ids:
+                                    chunks.append(c)
+                                    seen_ids.add(c_id)
+
+                        if variants_future:
+                            variants = variants_future.result() or []
+                            if variants:
+                                variant_search_futures = [ex.submit(_search_text, v) for v in variants]
+                                for vf in variant_search_futures:
+                                    for c in vf.result():
+                                        c_id = c.get("id")
+                                        if c_id and c_id not in seen_ids:
+                                            chunks.append(c)
+                                            seen_ids.add(c_id)
 
             kw_tokens = _KEYWORD_RE.findall(question)
             kw_tokens += [w for w in re.findall(r'\w+', question) if len(w) >= 4]

@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -386,6 +387,42 @@ class WebSearchRequest(BaseModel):
     query: str
 
 
+_LOW_QUALITY_DOMAIN_RE = re.compile(
+    r"blogspot\.|wordpress\.com|tumblr\.com|weebly\.com|wixsite\.com|sites\.google\.com|"
+    r"123doc\.|slideshare\.net|scribd\.com|tailieu\.",
+    re.IGNORECASE,
+)
+_VI_STOPWORDS = {
+    "hien", "tai", "cua", "trong", "nhung", "duoc", "khong", "voi", "cho", "nhu", "the",
+    "nao", "van", "day", "nay", "vay", "cac", "nguoi", "minh", "chung", "moi", "lai", "tinh", "hinh",
+}
+
+
+def _norm_tokens(s: str) -> set[str]:
+    s = unicodedata.normalize("NFD", s.lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return {w for w in re.findall(r"[a-z0-9]+", s) if len(w) >= 4}
+
+
+def _filter_web_results(query: str, results: list[dict]) -> list[dict]:
+    """DuckDuckGo results were used as-is with no quality/relevance check — an
+    off-topic or low-credibility source (spam blog, unrelated-topic site) could
+    slip through and get cited alongside real news. Drop results that share no
+    real vocabulary with the query, and drop known low-quality domain patterns.
+    """
+    q_tokens = _norm_tokens(query) - _VI_STOPWORDS
+    kept = []
+    for r in results:
+        href = r.get("href", "")
+        if _LOW_QUALITY_DOMAIN_RE.search(href):
+            continue
+        text_tokens = _norm_tokens(f"{r.get('title', '')} {r.get('body', '')}")
+        if q_tokens and not (q_tokens & text_tokens):
+            continue
+        kept.append(r)
+    return kept
+
+
 @router.post("/web-search")
 async def web_search_endpoint(body: WebSearchRequest):
     import asyncio
@@ -396,10 +433,12 @@ async def web_search_endpoint(body: WebSearchRequest):
 
     def _search():
         with DDGS() as ddgs:
-            return list(ddgs.text(body.query.strip(), max_results=5))
+            return list(ddgs.text(body.query.strip(), max_results=10))
 
     try:
-        results = await asyncio.get_event_loop().run_in_executor(None, _search)
+        raw_results = await asyncio.get_event_loop().run_in_executor(None, _search)
+        filtered = _filter_web_results(body.query, raw_results)
+        results = (filtered or raw_results)[:5]
 
         top_content = ""
         top_url = ""
