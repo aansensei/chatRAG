@@ -5038,7 +5038,7 @@ export default function App() {
             </div>
 
 
-            <p className="text-center text-[11px] mt-2.5" style={{ color: "rgba(134,134,139,0.5)" }}>
+            <p className="text-center text-[11px] mt-2.5 select-none" style={{ color: "rgba(134,134,139,0.5)" }}>
               chatRAG can make mistakes. Verify information from internal databases.{" "}
               <span style={{ color: "rgba(134,134,139,0.3)" }}>|</span>{" "}
               Copyright © aansensei
