@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 import httpx
 
-from app.infrastructure.vector.supabase.repository import search_chunks, keyword_search_chunks, filename_search_chunks, fetch_context_windows
+from app.infrastructure.vector.supabase.repository import search_chunks, keyword_search_chunks, filename_search_chunks, fetch_context_windows, list_documents
 from app.shared.utils.embedders.text_embedder import embed_text
 
 try:
@@ -579,6 +579,39 @@ def _extract_filename_tokens(question: str) -> tuple[list[str], bool]:
             tokens.append(stripped_clean)
 
     return tokens, bool(strong)
+
+
+def _split_collection_words(name: str) -> list[str]:
+    """'AanJSC_Documents' -> ['aan', 'jsc']; 'EBooks(PDF)2026' -> ['ebooks', 'pdf', '2026']."""
+    s = re.sub(r'[_\-().]+', ' ', name)
+    s = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', s)
+    stop = {"documents", "document", "docs", "pdf", "files", "file"}
+    return [w for w in (w.lower() for w in s.split()) if len(w) >= 2 and w not in stop]
+
+
+def _detect_collections_from_query(question: str) -> list[str] | None:
+    """
+    If the question names a folder/collection (e.g. "aan jsc" -> "AanJSC_Documents"),
+    scope search to it. Guards against the embedding model's weak topic discrimination
+    letting unrelated folders outrank the right one when searching across everything —
+    e.g. a Japanese-study PDF outscoring the actual company doc for a Vietnamese query.
+    Only called when no folder was already explicitly selected in the UI.
+    """
+    try:
+        all_collections = {d.get("collection") for d in list_documents() if d.get("collection")}
+    except Exception as exc:
+        logger.warning("_detect_collections_from_query: list_documents failed: %s", exc)
+        return None
+    q_words = set(re.findall(r'\w+', _strip_accents(question.lower())))
+    matches = []
+    for col in all_collections:
+        words = _split_collection_words(col)
+        if not words or len(words) > 4:
+            continue
+        hit_count = sum(1 for w in words if w in q_words)
+        if hit_count >= len(words) - (1 if len(words) > 1 else 0) and hit_count >= 1:
+            matches.append(col)
+    return matches or None
 
 
 _IDENTITY_REGEX_VI = re.compile(r"\bban\s+(?:co\s+)?(?:phai\s+)?la\s+\S{2,20}\b")
@@ -1415,6 +1448,13 @@ def stream_ask(
 
         yield _sse({"type": "step", "step": "searching"})
         try:
+            # No folder explicitly selected in the UI ("All folders") — if the question
+            # names a real folder/collection, scope to it. See _detect_collections_from_query.
+            if not collections:
+                _detected_collections = _detect_collections_from_query(question)
+                if _detected_collections:
+                    collections = _detected_collections
+
             # Filename-first: if query looks like "summarize <filename>", fetch that doc directly.
             fn_tokens, fn_strong = _extract_filename_tokens(question)
             filename_chunks: list[dict] = []
