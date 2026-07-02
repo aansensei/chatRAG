@@ -3115,7 +3115,12 @@ export default function App() {
   const applyTemplate = (t: PromptTemplate, send = false) => {
     const combined = input.trim() ? `${t.prompt}${input}` : t.prompt;
     setTemplateMenuOpen(false);
-    if (send) {
+    // Templates are prefixes expecting something after them ("Tóm tắt tài
+    // liệu sau: ") — sending one with nothing filled in produces a vague
+    // request with no specific document/topic, which sends the RAG search
+    // off in random directions instead of failing loudly. Only allow
+    // one-click send when there's actual content to go with the template.
+    if (send && input.trim()) {
       setInput("");
       sendMessage(combined);
       return;
