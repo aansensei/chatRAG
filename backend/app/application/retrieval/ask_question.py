@@ -705,14 +705,14 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
                            json={"model": mod or "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
                            timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
             if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
+                return (r.json()["choices"][0]["message"]["content"] or "").strip()
             return ""
         if key.startswith("csk-"):
             r = httpx.post("https://api.cerebras.ai/v1/chat/completions", headers=headers,
                            json={"model": mod or "llama-3.3-70b", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens},
                            timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
             if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
+                return (r.json()["choices"][0]["message"]["content"] or "").strip()
             logger.warning("Cerebras filter call %s: %s", r.status_code, r.text[:200])
             return ""
         if key.startswith("sk-or-") or (":free" in mod_lower and "/" in mod_lower):
@@ -721,7 +721,7 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
             r = httpx.post("https://openrouter.ai/api/v1/chat/completions", headers=headers,
                            json={"model": mod, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
             if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
+                return (r.json()["choices"][0]["message"]["content"] or "").strip()
             logger.warning("OpenRouter filter call %s: %s", r.status_code, r.text[:200])
             return ""
         if "gemini" in mod_lower or key.startswith("AIzaSy"):
@@ -748,7 +748,7 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
             r = httpx.post("https://api.openai.com/v1/chat/completions", headers=headers,
                            json={"model": mod or "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
             if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip()
+                return (r.json()["choices"][0]["message"]["content"] or "").strip()
     except Exception as exc:
         logger.warning("_call_llm_once failed: %s", exc)
     return ""
