@@ -314,7 +314,12 @@ _SYSTEM_EN = (
     "Extract numbers and data from tables in the context when present. "
     "CITATION RULE: When you use information from chunk [N], append [N] at the end of that sentence. Example: 'Revenue reached $28M [2].' "
     "If the user asks multiple questions in one message, answer EACH one separately, numbered 1/ 2/ "
-    "Respond in English. Be concise."
+    "IMPORTANT: this prompt template is in English, but the document context below may be in a "
+    "different language (e.g. Vietnamese) than the user's actual question (e.g. Japanese, Chinese, "
+    "or any other language). Translate/synthesize across languages as needed per the ALLOWED rule "
+    "above — do NOT say 'no information' just because the context isn't in the same language as the "
+    "question. Respond in the SAME language the user's question is written in — do not default to "
+    "English unless the question itself is in English. Be concise."
 )
 
 _SYSTEM_VI = (
@@ -615,6 +620,45 @@ def _detect_collections_from_query(question: str) -> list[str] | None:
         if hit_count >= len(words) - (1 if len(words) > 1 else 0) and hit_count >= 1:
             matches.append(col)
     return matches or None
+
+
+def _list_collection_names() -> list[str]:
+    try:
+        return sorted({d.get("collection") for d in list_documents() if d.get("collection")})
+    except Exception as exc:
+        logger.warning("_list_collection_names failed: %s", exc)
+        return []
+
+
+def _search_per_collection(vector: list[float], match_count: int, threshold: float) -> list[dict]:
+    """
+    Search each collection separately (in parallel) and merge by score, instead
+    of one flat search across everything. A flat search lets a large collection's
+    many so-so matches statistically bury a strong match in a smaller, genuinely
+    relevant collection — e.g. a cross-lingual query (Japanese) about company HR
+    policy loses to an unrelated Python textbook when searched unscoped, even
+    though scoping to the right collection finds the HR doc immediately. Only
+    used when no folder is explicitly selected and none was name-detected.
+    """
+    collections = _list_collection_names()
+    if not collections:
+        return search_chunks(vector, match_count=match_count, threshold=threshold, collections=None)
+    per_collection_k = max(3, match_count // len(collections) + 1)
+    results: list[dict] = []
+    seen_ids: set = set()
+    with ThreadPoolExecutor(max_workers=min(8, len(collections))) as ex:
+        futures = [ex.submit(search_chunks, vector, per_collection_k, threshold, [c]) for c in collections]
+        for f in futures:
+            try:
+                for h in f.result():
+                    hid = h.get("id")
+                    if hid and hid not in seen_ids:
+                        results.append(h)
+                        seen_ids.add(hid)
+            except Exception as exc:
+                logger.warning("per-collection search failed: %s", exc)
+    results.sort(key=lambda h: h.get("similarity", 0.0), reverse=True)
+    return results[:match_count]
 
 
 _IDENTITY_REGEX_VI = re.compile(r"\bban\s+(?:co\s+)?(?:phai\s+)?la\s+\S{2,20}\b")
@@ -1469,8 +1513,13 @@ def stream_ask(
                 filename_chunks = filename_search_chunks(fn_tokens, collections=collections or None)
                 filename_doc_ids = {c.get("document_id") for c in filename_chunks if c.get("document_id")}
 
-            # Vector search — if filename match found, exclude those docs to avoid duplicate context
-            chunks = search_chunks(vector, match_count=_TOP_K, threshold=0.1, collections=collections or None)
+            # Vector search — if filename match found, exclude those docs to avoid duplicate context.
+            # No folder scoped: search each collection separately and merge (see
+            # _search_per_collection) instead of one flat search across everything.
+            if collections:
+                chunks = search_chunks(vector, match_count=_TOP_K, threshold=0.1, collections=collections)
+            else:
+                chunks = _search_per_collection(vector, match_count=_TOP_K, threshold=0.1)
 
             # Filename match: use only those chunks — no vector supplement from unrelated docs.
             if filename_doc_ids:
