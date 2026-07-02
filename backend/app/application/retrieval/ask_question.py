@@ -736,6 +736,32 @@ def _hyde_query_vector(question: str, lang: str, model: str | None, api_key: str
         return None
 
 
+def _generate_query_variants(question: str, lang: str, model: str | None, api_key: str, n: int = 2) -> list[str]:
+    """Ask the LLM for alternate phrasings of the question (multi-query retrieval).
+    Improves recall when the user's exact wording doesn't match the document's
+    vocabulary — each variant is embedded and searched separately, then merged.
+    Returns at most `n` non-empty variants; empty list on any failure (caller
+    just skips the extra searches, original query still runs).
+    """
+    prompt = (
+        f"Viết lại câu hỏi sau thành {n} cách diễn đạt khác nhưng giữ nguyên ý nghĩa, "
+        f"mỗi cách một dòng, KHÔNG đánh số, KHÔNG giải thích:\n{question}"
+        if lang == "vi"
+        else f"Rewrite the following question in {n} different ways with the same meaning, "
+        f"one per line, NO numbering, NO explanation:\n{question}"
+    )
+    raw = _call_llm_once(prompt, model, api_key, max_tokens=120)
+    if not raw:
+        return []
+    variants = [
+        line.strip().lstrip("-•*0123456789. ").strip()
+        for line in raw.splitlines()
+        if line.strip()
+    ]
+    variants = [v for v in variants if v and v.lower() != question.strip().lower()]
+    return variants[:n]
+
+
 def _llm_filter_chunks(
     question: str,
     chunks: list[dict],
@@ -1412,6 +1438,25 @@ def stream_ask(
                         if c_id and c_id not in seen_ids:
                             chunks.append(c)
                             seen_ids.add(c_id)
+
+                # Multi-query retrieval: search with LLM-paraphrased variants too —
+                # catches relevant chunks that use different vocabulary than the
+                # user's exact wording. Skipped for very short/vague questions
+                # where a paraphrase adds little signal.
+                if _hyde_key and len(question.strip()) >= 15:
+                    for variant in _generate_query_variants(question, lang, model, _hyde_key):
+                        try:
+                            variant_vec = embed_text(variant)
+                            variant_chunks = search_chunks(variant_vec, match_count=_TOP_K, threshold=0.1, collections=collections or None)
+                        except Exception as exc:
+                            logger.warning("multi-query variant search failed: %s", exc)
+                            continue
+                        seen_ids = {c.get("id") for c in chunks if c.get("id")}
+                        for c in variant_chunks:
+                            c_id = c.get("id")
+                            if c_id and c_id not in seen_ids:
+                                chunks.append(c)
+                                seen_ids.add(c_id)
 
             kw_tokens = _KEYWORD_RE.findall(question)
             kw_tokens += [w for w in re.findall(r'\w+', question) if len(w) >= 4]
