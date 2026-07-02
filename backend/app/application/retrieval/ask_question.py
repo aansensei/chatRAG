@@ -610,7 +610,12 @@ def _detect_collections_from_query(question: str) -> list[str] | None:
     except Exception as exc:
         logger.warning("_detect_collections_from_query: list_documents failed: %s", exc)
         return None
-    q_words = set(re.findall(r'\w+', _strip_accents(question.lower())))
+    # "tiếng <language>" (dịch sang tiếng nhật/anh/việt...) is almost always a
+    # translation target, not a folder name — even if a folder happens to share
+    # the words (e.g. a "tieng nhat" Japanese-study folder). Strip it before
+    # matching so "translate to Japanese" doesn't get scoped to that folder.
+    q_for_matching = re.sub(r'\btiếng\s+\w+', ' ', question, flags=re.IGNORECASE)
+    q_words = set(re.findall(r'\w+', _strip_accents(q_for_matching.lower())))
     matches = []
     for col in all_collections:
         words = _split_collection_words(col)
