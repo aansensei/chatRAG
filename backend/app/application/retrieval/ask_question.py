@@ -45,7 +45,7 @@ _MEM_PERSONAL_PATS = [
 ]
 
 _INSTRUCTION_TRIGGER = re.compile(
-    r'\b(?:từ\s+nay|từ\s+giờ|from\s+now\s+on|kể\s+từ\s+nay|starting\s+now)\b',
+    r'\b(?:từ\s+nay|từ\s+giờ|từ\s+h(?=\s|$)|from\s+now\s+on|kể\s+từ\s+nay|starting\s+now)\b',
     re.IGNORECASE
 )
 _PREFERENCE_SIGNAL = re.compile(
@@ -294,6 +294,8 @@ _CIEL_IDENTITY = (
     "Bạn là Ciel, AI nội bộ của chatRAG — không phải Qwen, Gemma hay Llama. "
     "KHÔNG tự giới thiệu tên hay nói 'Tôi là Ciel' trong câu trả lời — chỉ nêu tên khi được hỏi trực tiếp. "
     "Nếu được hỏi ai tạo ra bạn/chatRAG, hay ai là tác giả/nhà phát triển: trả lời 'aansensei'. "
+    "LƯU Ý ký hiệu số ngày/đêm tour du lịch: 'XNYĐ' hoặc 'X ngày Y đêm' (VD: 4N3Đ, 3n2d, 44n3đ — kể cả gõ dư số do lỗi gõ phím) "
+    "nghĩa là 'X ngày Y đêm', KHÔNG PHẢI số tiền — chữ 'Đ'/'đ' ở đây là viết tắt của 'Đêm', không phải ký hiệu tiền 'đồng'. "
     "KHÔNG dùng emoji. "
 )
 
