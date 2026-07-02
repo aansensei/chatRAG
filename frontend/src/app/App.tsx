@@ -37,6 +37,7 @@ import {
   X as XIcon,
   Globe,
   ExternalLink,
+  RotateCcw,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -910,11 +911,13 @@ function ChatMessage({
   onSourceClick,
   activeSource,
   onFollowUp,
+  onRegenerate,
 }: {
   message: Message;
   onSourceClick: (source: Source) => void;
   activeSource: string | null;
   onFollowUp?: (text: string) => void;
+  onRegenerate?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
@@ -1072,16 +1075,31 @@ function ChatMessage({
           </div>
         )}
 
-        <button
-          onClick={() => copyText(message.content)}
-          className="mt-2 flex items-center gap-1.5 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-200"
-          style={{ color: "#86868B" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
-        >
-          {copied ? <Check size={11} style={{ color: "#10b981" }} /> : <Copy size={11} />}
-          <span className="text-[10px]">{copied ? "Copied" : "Copy"}</span>
-        </button>
+        <div className="mt-2 flex items-center gap-3 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-200">
+          <button
+            onClick={() => copyText(message.content)}
+            className="flex items-center gap-1.5"
+            style={{ color: "#86868B" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
+          >
+            {copied ? <Check size={11} style={{ color: "#10b981" }} /> : <Copy size={11} />}
+            <span className="text-[10px]">{copied ? "Copied" : "Copy"}</span>
+          </button>
+          {onRegenerate && !message.isStreaming && (
+            <button
+              onClick={onRegenerate}
+              title="Trả lời lại với model đang chọn"
+              className="flex items-center gap-1.5"
+              style={{ color: "#86868B" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
+            >
+              <RotateCcw size={11} />
+              <span className="text-[10px]">Thử lại</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -4860,8 +4878,19 @@ export default function App() {
             <EmptyState onSuggestion={(text) => sendMessage(text)} suggestions={suggestions} loadingSuggestions={loadingSuggestions} />
           ) : (
             <div className="max-w-[850px] mx-auto px-6 pt-8 pb-4">
-              {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} onSourceClick={handleSourceClick} activeSource={activeSourceId} onFollowUp={(t) => sendMessage(t)} />
+              {messages.map((msg, idx) => (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  onSourceClick={handleSourceClick}
+                  activeSource={activeSourceId}
+                  onFollowUp={(t) => sendMessage(t)}
+                  onRegenerate={
+                    msg.role === "assistant" && messages[idx - 1]?.role === "user" && !isProcessing
+                      ? () => sendMessage(messages[idx - 1].content)
+                      : undefined
+                  }
+                />
               ))}
               {isProcessing && <RAGProcessing step={processingStep} label={processingLabel} sources={readingSources} />}
               <div ref={messagesEndRef} />
