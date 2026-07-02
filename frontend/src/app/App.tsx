@@ -1522,7 +1522,7 @@ function TypewriterSubtitle() {
   const text = useTypewriter(TYPEWRITER_PHRASES);
   return (
     <p
-      className="font-semibold tracking-tight text-center"
+      className="font-semibold tracking-tight text-center select-none"
       style={{
         fontSize: "1.75rem",
         lineHeight: 1.3,
