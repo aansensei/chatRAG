@@ -20,6 +20,7 @@ _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 from app.presentation.api.chat import router as chat_router
 from app.presentation.api.ingest import router as ingest_router
 from app.presentation.api.memory import router as memory_router
+from app.shared.utils.embedders.text_embedder import embed_text
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("chatrag")
@@ -65,6 +66,16 @@ async def lifespan(app: FastAPI):
 
     t = threading.Thread(target=_watchdog, daemon=True)
     t.start()
+
+    # Load the embedding model now instead of on the first user request — importing
+    # sentence-transformers/torch and moving the model onto the GPU takes ~15-20s,
+    # which otherwise stalls whichever user happens to ask the first question.
+    try:
+        t0 = time.time()
+        embed_text("warmup")
+        logger.info(f"[lifespan] embedding model warmed up in {time.time() - t0:.1f}s")
+    except Exception as exc:
+        logger.warning(f"[lifespan] embedding model warmup failed (will load on first request): {exc}")
 
     yield
 

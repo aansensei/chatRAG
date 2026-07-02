@@ -1,5 +1,14 @@
 import os
 
+# huggingface_hub reads HF_HUB_OFFLINE once at import time and caches it as a
+# module constant — setting it later (e.g. inside a function, after
+# sentence_transformers is already imported) has no effect. Once a model is
+# cached locally, being "online" still costs ~15-20s of HF Hub freshness-check
+# requests on every process start; skip them by default. If the model isn't
+# cached yet (first-ever run), unset this env var once to let it download,
+# then it can stay on for every run after.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import httpx
 from sentence_transformers import SentenceTransformer
 
