@@ -38,6 +38,7 @@ import {
   Globe,
   ExternalLink,
   RotateCcw,
+  LayoutTemplate,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -105,6 +106,13 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `Đã xuất "${name}"`,
     tableColItem: "Mục",
     tableColContent: "Nội dung",
+    promptTemplatesBtn: "Mẫu prompt có sẵn",
+    promptTemplatesHeader: "Mẫu prompt",
+    deleteTemplateTitle: "Xóa mẫu",
+    templateNamePlaceholder: "Tên mẫu...",
+    templatePromptPlaceholder: "Nội dung prompt...",
+    saveBtn: "Lưu",
+    addTemplateBtn: "Thêm mẫu mới",
   },
   en: {
     knowledgeBase: "Knowledge base",
@@ -166,6 +174,13 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `Exported "${name}"`,
     tableColItem: "Item",
     tableColContent: "Content",
+    promptTemplatesBtn: "Prompt templates",
+    promptTemplatesHeader: "Templates",
+    deleteTemplateTitle: "Delete template",
+    templateNamePlaceholder: "Template name...",
+    templatePromptPlaceholder: "Prompt content...",
+    saveBtn: "Save",
+    addTemplateBtn: "Add new template",
   },
   zh: {
     knowledgeBase: "知识库",
@@ -227,6 +242,13 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `已导出 "${name}"`,
     tableColItem: "项目",
     tableColContent: "内容",
+    promptTemplatesBtn: "提示词模板",
+    promptTemplatesHeader: "模板",
+    deleteTemplateTitle: "删除模板",
+    templateNamePlaceholder: "模板名称...",
+    templatePromptPlaceholder: "提示词内容...",
+    saveBtn: "保存",
+    addTemplateBtn: "添加新模板",
   },
   ja: {
     knowledgeBase: "ナレッジベース",
@@ -288,6 +310,13 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `"${name}" をエクスポートしました`,
     tableColItem: "項目",
     tableColContent: "内容",
+    promptTemplatesBtn: "プロンプトテンプレート",
+    promptTemplatesHeader: "テンプレート",
+    deleteTemplateTitle: "テンプレートを削除",
+    templateNamePlaceholder: "テンプレート名...",
+    templatePromptPlaceholder: "プロンプト内容...",
+    saveBtn: "保存",
+    addTemplateBtn: "新しいテンプレートを追加",
   },
 } as const;
 
@@ -360,6 +389,31 @@ function loadChatsFromStorage(): Chat[] {
 
 function saveChatsToStorage(chats: Chat[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
+}
+
+type PromptTemplate = { id: string; name: string; prompt: string };
+
+const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
+  { id: "d1", name: "Tóm tắt báo cáo", prompt: "Tóm tắt tài liệu sau thành các gạch đầu dòng ngắn gọn, nêu rõ số liệu quan trọng: " },
+  { id: "d2", name: "Dịch sang tiếng Anh", prompt: "Dịch đoạn văn sau sang tiếng Anh, giữ nguyên văn phong: " },
+  { id: "d3", name: "Hỏi đáp chính sách", prompt: "Câu hỏi thường gặp về " },
+  { id: "d4", name: "So sánh chi tiết", prompt: "So sánh chi tiết các phương án/tài liệu sau, trình bày dạng bảng: " },
+  { id: "d5", name: "Giải thích đơn giản", prompt: "Giải thích nội dung sau như đang nói với người mới bắt đầu, tránh thuật ngữ chuyên môn: " },
+];
+
+const PROMPT_TEMPLATES_KEY = "chatrag_prompt_templates";
+
+function loadPromptTemplates(): PromptTemplate[] {
+  try {
+    const raw = localStorage.getItem(PROMPT_TEMPLATES_KEY);
+    return raw ? JSON.parse(raw) : DEFAULT_PROMPT_TEMPLATES;
+  } catch {
+    return DEFAULT_PROMPT_TEMPLATES;
+  }
+}
+
+function savePromptTemplates(templates: PromptTemplate[]) {
+  localStorage.setItem(PROMPT_TEMPLATES_KEY, JSON.stringify(templates));
 }
 
 function chatGroup(createdAt: number): "today" | "week" | "older" {
@@ -2634,6 +2688,12 @@ export default function App() {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>(loadPromptTemplates);
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [addingTemplate, setAddingTemplate] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [newTemplatePrompt, setNewTemplatePrompt] = useState("");
+  const templateMenuRef = useRef<HTMLDivElement>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>(() => (localStorage.getItem("ui_lang") as Lang) || "vi");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
@@ -2964,6 +3024,41 @@ export default function App() {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [exportMenuOpen]);
+
+  useEffect(() => {
+    if (!templateMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (templateMenuRef.current?.contains(e.target as Node)) return;
+      setTemplateMenuOpen(false);
+      setAddingTemplate(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [templateMenuOpen]);
+
+  const applyTemplate = (t: PromptTemplate) => {
+    setInput((prev) => (prev.trim() ? `${t.prompt}${prev}` : t.prompt));
+    setTemplateMenuOpen(false);
+    setTimeout(() => { textareaRef.current?.focus(); autoResize(); }, 0);
+  };
+
+  const addTemplate = () => {
+    const name = newTemplateName.trim();
+    const prompt = newTemplatePrompt.trim();
+    if (!name || !prompt) return;
+    const updated = [...promptTemplates, { id: Date.now().toString(36), name, prompt }];
+    setPromptTemplates(updated);
+    savePromptTemplates(updated);
+    setNewTemplateName("");
+    setNewTemplatePrompt("");
+    setAddingTemplate(false);
+  };
+
+  const deleteTemplate = (id: string) => {
+    const updated = promptTemplates.filter((t) => t.id !== id);
+    setPromptTemplates(updated);
+    savePromptTemplates(updated);
+  };
 
   useEffect(() => { if (!profileOpen) setLangMenuOpen(false); }, [profileOpen]);
   useEffect(() => {
@@ -5000,6 +5095,101 @@ export default function App() {
                   e.target.value = "";
                 }}
               />
+              <div className="relative shrink-0" ref={templateMenuRef}>
+                <button
+                  className="mb-0.5 transition-colors duration-150"
+                  title={S.promptTemplatesBtn}
+                  onClick={() => setTemplateMenuOpen((v) => !v)}
+                  style={{ color: templateMenuOpen ? "#60a5fa" : "rgba(134,134,139,0.6)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "#60a5fa")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = templateMenuOpen ? "#60a5fa" : "rgba(134,134,139,0.6)")}
+                >
+                  <LayoutTemplate size={16} />
+                </button>
+                {templateMenuOpen && (
+                  <div
+                    className="absolute left-0 bottom-full mb-2 rounded-xl overflow-hidden z-50 py-1"
+                    style={{ minWidth: 240, maxHeight: 320, overflowY: "auto", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+                  >
+                    <div className="px-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                      <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>{S.promptTemplatesHeader}</p>
+                    </div>
+                    {promptTemplates.map((t) => (
+                      <div key={t.id} className="group/tpl flex items-center px-1">
+                        <button
+                          onClick={() => applyTemplate(t)}
+                          className="flex-1 text-left px-2 py-2 text-[11px] rounded-lg transition-colors"
+                          style={{ color: "#c7c7cc" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          {t.name}
+                        </button>
+                        <button
+                          onClick={() => deleteTemplate(t.id)}
+                          title={S.deleteTemplateTitle}
+                          className="p-1.5 rounded opacity-0 group-hover/tpl:opacity-100 transition-opacity"
+                        >
+                          <XIcon size={10} style={{ color: "#f87171" }} />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="px-1 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                      {addingTemplate ? (
+                        <div className="p-2 flex flex-col gap-1.5">
+                          <input
+                            autoFocus
+                            value={newTemplateName}
+                            onChange={(e) => setNewTemplateName(e.target.value)}
+                            placeholder={S.templateNamePlaceholder}
+                            className="px-2 py-1.5 rounded-lg text-[11px] outline-none"
+                            style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7" }}
+                          />
+                          <textarea
+                            value={newTemplatePrompt}
+                            onChange={(e) => setNewTemplatePrompt(e.target.value)}
+                            placeholder={S.templatePromptPlaceholder}
+                            rows={2}
+                            className="px-2 py-1.5 rounded-lg text-[11px] outline-none resize-none"
+                            style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7" }}
+                          />
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={addTemplate}
+                              disabled={!newTemplateName.trim() || !newTemplatePrompt.trim()}
+                              className="flex-1 py-1.5 rounded-lg text-[10px] font-medium"
+                              style={{
+                                background: newTemplateName.trim() && newTemplatePrompt.trim() ? "linear-gradient(135deg, #8b5cf6, #6366f1)" : "rgba(255,255,255,0.04)",
+                                color: newTemplateName.trim() && newTemplatePrompt.trim() ? "#fff" : "#52525b",
+                              }}
+                            >
+                              {S.saveBtn}
+                            </button>
+                            <button
+                              onClick={() => { setAddingTemplate(false); setNewTemplateName(""); setNewTemplatePrompt(""); }}
+                              className="flex-1 py-1.5 rounded-lg text-[10px] font-medium"
+                              style={{ background: "rgba(255,255,255,0.04)", color: "#c7c7cc" }}
+                            >
+                              {S.cancel}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setAddingTemplate(true)}
+                          className="w-full flex items-center gap-1.5 px-2 py-2 text-[11px] rounded-lg transition-colors"
+                          style={{ color: "rgba(134,134,139,0.7)" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = "#fff")}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(134,134,139,0.7)")}
+                        >
+                          <Plus size={11} />
+                          {S.addTemplateBtn}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 className="shrink-0 mb-0.5 transition-all duration-150"
                 title={webSearchMode ? "Tắt tìm web (DuckDuckGo)" : "Bật tìm web (DuckDuckGo)"}
