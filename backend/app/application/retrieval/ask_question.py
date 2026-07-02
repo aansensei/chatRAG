@@ -1623,47 +1623,43 @@ def stream_ask(
                 else:
                     filtered = filter_result
 
-            # Build sources from filtered chunks (post-filter, so only relevant docs appear)
-            sources = []
-            _seen_doc_ids_f: set[str] = set()
-            for c in filtered:
-                doc_id = c.get("document_id", "")
-                if doc_id and doc_id in _seen_doc_ids_f:
-                    continue
-                if doc_id:
-                    _seen_doc_ids_f.add(doc_id)
-                meta = c.get("metadata") or {}
-                raw_src = meta.get("source", "") if isinstance(meta, dict) else ""
-                filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {len(sources)+1}"
-                section = (c.get("section_title") or "").strip()
-                if section.upper() in _GENERIC_SECTION_TITLES:
-                    section = ""
-                sources.append({
-                    "id": len(sources) + 1,
-                    "content": c["content"][:200],
-                    "section": section or None,
-                    "similarity": round(c["similarity"], 3),
-                    "filename": filename,
-                    "document_id": doc_id,
-                })
-
-            # Yield sources AFTER filtering so only relevant docs are shown
-            yield _sse({"type": "sources", "sources": sources})
-
             # Parent-child context expansion: expand each matched chunk with neighboring
             # chunks from the same document, giving the LLM more context to answer from.
             # Skip for filename/tabular queries — those already have full doc context.
+            # Must happen BEFORE building sources/prompt numbering below — doing it after
+            # used to change how many chunks exist without updating the citation numbers,
+            # so the LLM could cite [9]/[10]/[11] for chunks that were never sent as sources.
             if not filename_doc_ids and not has_tabular:
                 try:
                     filtered = fetch_context_windows(filtered, window=1)
                 except Exception as e:
                     logger.warning("fetch_context_windows failed: %s", e)
 
+            # Build sources and the prompt's [N] numbering from the SAME final list, with
+            # the SAME index — otherwise a citation the LLM emits has no matching source
+            # for the frontend to make clickable.
+            sources = []
             parts = []
             for i, c in enumerate(filtered):
-                section = c.get("section_title") or ""
-                header = f"[{i+1}]" + (f" [{section}]" if section else "")
+                doc_id = c.get("document_id", "")
+                meta = c.get("metadata") or {}
+                raw_src = meta.get("source", "") if isinstance(meta, dict) else ""
+                filename = raw_src.split("\\")[-1].split("/")[-1] if raw_src else f"Source {i + 1}"
+                section = (c.get("section_title") or "").strip()
+                if section.upper() in _GENERIC_SECTION_TITLES:
+                    section = ""
+                sources.append({
+                    "id": i + 1,
+                    "content": c["content"][:200],
+                    "section": section or None,
+                    "similarity": round(c["similarity"], 3),
+                    "filename": filename,
+                    "document_id": doc_id,
+                })
+                header = f"[{i + 1}]" + (f" [{section}]" if section else "")
                 parts.append(f"{header}\n{c['content'][:_MAX_CHUNK_CHARS * 2]}")
+
+            yield _sse({"type": "sources", "sources": sources})
             context = "\n\n".join(parts)
 
             if has_faq_intent:
