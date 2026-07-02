@@ -393,23 +393,48 @@ function saveChatsToStorage(chats: Chat[]) {
 
 type PromptTemplate = { id: string; name: string; prompt: string };
 
-const DEFAULT_PROMPT_TEMPLATES: PromptTemplate[] = [
-  { id: "d1", name: "Tóm tắt báo cáo", prompt: "Tóm tắt tài liệu sau thành các gạch đầu dòng ngắn gọn, nêu rõ số liệu quan trọng: " },
-  { id: "d2", name: "Dịch sang tiếng Anh", prompt: "Dịch đoạn văn sau sang tiếng Anh, giữ nguyên văn phong: " },
-  { id: "d3", name: "Hỏi đáp chính sách", prompt: "Câu hỏi thường gặp về " },
-  { id: "d4", name: "So sánh chi tiết", prompt: "So sánh chi tiết các phương án/tài liệu sau, trình bày dạng bảng: " },
-  { id: "d5", name: "Giải thích đơn giản", prompt: "Giải thích nội dung sau như đang nói với người mới bắt đầu, tránh thuật ngữ chuyên môn: " },
-];
+const DEFAULT_PROMPT_TEMPLATES: Record<Lang, PromptTemplate[]> = {
+  vi: [
+    { id: "d1", name: "Tóm tắt báo cáo", prompt: "Tóm tắt tài liệu sau thành các gạch đầu dòng ngắn gọn, nêu rõ số liệu quan trọng: " },
+    { id: "d2", name: "Dịch sang tiếng Anh", prompt: "Dịch đoạn văn sau sang tiếng Anh, giữ nguyên văn phong: " },
+    { id: "d3", name: "Hỏi đáp chính sách", prompt: "Câu hỏi thường gặp về " },
+    { id: "d4", name: "So sánh chi tiết", prompt: "So sánh chi tiết các phương án/tài liệu sau, trình bày dạng bảng: " },
+    { id: "d5", name: "Giải thích đơn giản", prompt: "Giải thích nội dung sau như đang nói với người mới bắt đầu, tránh thuật ngữ chuyên môn: " },
+  ],
+  en: [
+    { id: "d1", name: "Summarize report", prompt: "Summarize the following document into concise bullet points, highlighting key figures: " },
+    { id: "d2", name: "Translate to English", prompt: "Translate the following passage into English, keeping the original tone: " },
+    { id: "d3", name: "Policy FAQ", prompt: "Frequently asked questions about " },
+    { id: "d4", name: "Detailed comparison", prompt: "Compare the following options/documents in detail, presented as a table: " },
+    { id: "d5", name: "Explain simply", prompt: "Explain the following as if talking to a beginner, avoiding jargon: " },
+  ],
+  zh: [
+    { id: "d1", name: "总结报告", prompt: "将以下文档总结为简明的要点，突出重要数据：" },
+    { id: "d2", name: "翻译成英文", prompt: "将以下段落翻译成英文，保持原有风格：" },
+    { id: "d3", name: "政策问答", prompt: "关于以下内容的常见问题：" },
+    { id: "d4", name: "详细对比", prompt: "详细比较以下方案/文档，以表格形式呈现：" },
+    { id: "d5", name: "简单解释", prompt: "像对初学者解释一样说明以下内容，避免专业术语：" },
+  ],
+  ja: [
+    { id: "d1", name: "レポート要約", prompt: "以下の文書を簡潔な箇条書きにまとめ、重要な数値を明記してください：" },
+    { id: "d2", name: "英語に翻訳", prompt: "以下の文章を元の文体を保ったまま英語に翻訳してください：" },
+    { id: "d3", name: "よくある質問", prompt: "次についてのよくある質問：" },
+    { id: "d4", name: "詳細比較", prompt: "以下の選択肢・資料を表形式で詳しく比較してください：" },
+    { id: "d5", name: "簡単に説明", prompt: "専門用語を避け、初心者に説明するように以下の内容を説明してください：" },
+  ],
+};
 
 const PROMPT_TEMPLATES_KEY = "chatrag_prompt_templates";
 
 function loadPromptTemplates(): PromptTemplate[] {
   try {
     const raw = localStorage.getItem(PROMPT_TEMPLATES_KEY);
-    return raw ? JSON.parse(raw) : DEFAULT_PROMPT_TEMPLATES;
+    if (raw) return JSON.parse(raw);
   } catch {
-    return DEFAULT_PROMPT_TEMPLATES;
+    // fall through to defaults
   }
+  const lang = (localStorage.getItem("ui_lang") as Lang) || "vi";
+  return DEFAULT_PROMPT_TEMPLATES[lang] || DEFAULT_PROMPT_TEMPLATES.vi;
 }
 
 function savePromptTemplates(templates: PromptTemplate[]) {
@@ -5095,9 +5120,9 @@ export default function App() {
                   e.target.value = "";
                 }}
               />
-              <div className="relative shrink-0" ref={templateMenuRef}>
+              <div className="relative shrink-0 mb-0.5" ref={templateMenuRef}>
                 <button
-                  className="mb-0.5 transition-colors duration-150"
+                  className="block transition-colors duration-150"
                   title={S.promptTemplatesBtn}
                   onClick={() => setTemplateMenuOpen((v) => !v)}
                   style={{ color: templateMenuOpen ? "#60a5fa" : "rgba(134,134,139,0.6)" }}
