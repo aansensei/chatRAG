@@ -2724,6 +2724,21 @@ export default function App() {
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const S = UI_STRINGS[uiLang];
   const handleSetLang = (lang: Lang) => { localStorage.setItem("ui_lang", lang); setUiLang(lang); };
+  useEffect(() => {
+    // Re-derive default template names when the UI language changes (or on first
+    // mount, to self-heal a language cached from before this per-language default
+    // existed) — but only if the user never actually customized the defaults
+    // (added/removed any), so real user edits are never overwritten.
+    const defaultIds = new Set(["d1", "d2", "d3", "d4", "d5"]);
+    const currentIds = promptTemplates.map((t) => t.id);
+    const isUntouchedDefaults = currentIds.length === defaultIds.size && currentIds.every((id) => defaultIds.has(id));
+    if (isUntouchedDefaults) {
+      const fresh = DEFAULT_PROMPT_TEMPLATES[uiLang] || DEFAULT_PROMPT_TEMPLATES.vi;
+      setPromptTemplates(fresh);
+      savePromptTemplates(fresh);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiLang]);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
