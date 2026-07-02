@@ -119,6 +119,8 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "VD: Tôi tên Phong, làm AI engineer...",
     copyBtn: "Sao chép",
     copiedBtn: "Đã chép",
+    useAndSendTitle: "Dùng và gửi ngay",
+    editTemplateTitle: "Sửa mẫu",
   },
   en: {
     knowledgeBase: "Knowledge base",
@@ -193,6 +195,8 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "E.g. My name is Phong, I work as an AI engineer...",
     copyBtn: "Copy",
     copiedBtn: "Copied",
+    useAndSendTitle: "Use and send now",
+    editTemplateTitle: "Edit template",
   },
   zh: {
     knowledgeBase: "知识库",
@@ -267,6 +271,8 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "例：我叫阿峰，是一名 AI 工程师...",
     copyBtn: "复制",
     copiedBtn: "已复制",
+    useAndSendTitle: "使用并立即发送",
+    editTemplateTitle: "编辑模板",
   },
   ja: {
     knowledgeBase: "ナレッジベース",
@@ -341,6 +347,8 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "例：私はPhongです、AIエンジニアをしています...",
     copyBtn: "コピー",
     copiedBtn: "コピー済み",
+    useAndSendTitle: "使用してすぐに送信",
+    editTemplateTitle: "テンプレートを編集",
   },
 } as const;
 
@@ -2743,6 +2751,7 @@ export default function App() {
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>(loadPromptTemplates);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const [addingTemplate, setAddingTemplate] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTemplatePrompt, setNewTemplatePrompt] = useState("");
   const templateMenuRef = useRef<HTMLDivElement>(null);
@@ -3103,9 +3112,15 @@ export default function App() {
     return () => document.removeEventListener("mousedown", close);
   }, [templateMenuOpen]);
 
-  const applyTemplate = (t: PromptTemplate) => {
-    setInput((prev) => (prev.trim() ? `${t.prompt}${prev}` : t.prompt));
+  const applyTemplate = (t: PromptTemplate, send = false) => {
+    const combined = input.trim() ? `${t.prompt}${input}` : t.prompt;
     setTemplateMenuOpen(false);
+    if (send) {
+      setInput("");
+      sendMessage(combined);
+      return;
+    }
+    setInput(combined);
     setTimeout(() => { textareaRef.current?.focus(); autoResize(); }, 0);
   };
 
@@ -3113,12 +3128,22 @@ export default function App() {
     const name = newTemplateName.trim();
     const prompt = newTemplatePrompt.trim();
     if (!name || !prompt) return;
-    const updated = [...promptTemplates, { id: Date.now().toString(36), name, prompt }];
+    const updated = editingTemplateId
+      ? promptTemplates.map((t) => (t.id === editingTemplateId ? { ...t, name, prompt } : t))
+      : [...promptTemplates, { id: Date.now().toString(36), name, prompt }];
     setPromptTemplates(updated);
     savePromptTemplates(updated);
     setNewTemplateName("");
     setNewTemplatePrompt("");
     setAddingTemplate(false);
+    setEditingTemplateId(null);
+  };
+
+  const startEditTemplate = (t: PromptTemplate) => {
+    setEditingTemplateId(t.id);
+    setNewTemplateName(t.name);
+    setNewTemplatePrompt(t.prompt);
+    setAddingTemplate(true);
   };
 
   const deleteTemplate = (id: string) => {
@@ -5194,6 +5219,20 @@ export default function App() {
                           {t.name}
                         </button>
                         <button
+                          onClick={() => applyTemplate(t, true)}
+                          title={S.useAndSendTitle}
+                          className="p-1.5 rounded opacity-0 group-hover/tpl:opacity-100 transition-opacity"
+                        >
+                          <ArrowUp size={10} style={{ color: "#60a5fa" }} />
+                        </button>
+                        <button
+                          onClick={() => startEditTemplate(t)}
+                          title={S.editTemplateTitle}
+                          className="p-1.5 rounded opacity-0 group-hover/tpl:opacity-100 transition-opacity"
+                        >
+                          <Pencil size={10} style={{ color: "#86868B" }} />
+                        </button>
+                        <button
                           onClick={() => deleteTemplate(t.id)}
                           title={S.deleteTemplateTitle}
                           className="p-1.5 rounded opacity-0 group-hover/tpl:opacity-100 transition-opacity"
@@ -5234,7 +5273,7 @@ export default function App() {
                               {S.saveBtn}
                             </button>
                             <button
-                              onClick={() => { setAddingTemplate(false); setNewTemplateName(""); setNewTemplatePrompt(""); }}
+                              onClick={() => { setAddingTemplate(false); setEditingTemplateId(null); setNewTemplateName(""); setNewTemplatePrompt(""); }}
                               className="flex-1 py-1.5 rounded-lg text-[10px] font-medium"
                               style={{ background: "rgba(255,255,255,0.04)", color: "#c7c7cc" }}
                             >
