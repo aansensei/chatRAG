@@ -4061,7 +4061,8 @@ export default function App() {
                       const info = getProviderKeyInfo(modelMenuView);
                       if (!info) return null;
                       const hasKey = !!info.key.trim();
-                      const isEditing = editingProviderKey === modelMenuView || !hasKey;
+                      const hasServerKey = !!serverProviders[modelMenuView];
+                      const isEditing = editingProviderKey === modelMenuView || (!hasKey && !hasServerKey);
 
                       if (isEditing) {
                         return (
