@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import unicodedata
@@ -13,6 +14,8 @@ from pydantic import BaseModel
 from app.application.retrieval.ask_question import stream_ask, _call_llm_once, _stream_llm
 from app.infrastructure.vector.supabase.repository import list_documents
 from app.presentation.api.auth import get_collections
+
+logger = logging.getLogger(__name__)
 
 _OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 _OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
@@ -449,46 +452,9 @@ def _ddg_search(query: str, max_results: int) -> list[dict]:
         return list(ddgs.text(query.strip(), max_results=max_results))
 
 
-def _google_search(query: str, max_results: int) -> list[dict]:
-    """Google Custom Search JSON API — returns up to 10 results per call, so
-    paginate via `start`. Requires GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_ENGINE_ID
-    (https://programmablesearchengine.google.com/). Raises on quota/auth errors
-    so the caller can fall back to DuckDuckGo."""
-    api_key = os.environ.get("GOOGLE_SEARCH_API_KEY", "")
-    cx = os.environ.get("GOOGLE_SEARCH_ENGINE_ID", "")
-    if not api_key or not cx:
-        return []
-    results: list[dict] = []
-    start = 1
-    while len(results) < max_results:
-        num = min(10, max_results - len(results))
-        r = httpx.get(
-            "https://www.googleapis.com/customsearch/v1",
-            params={"key": api_key, "cx": cx, "q": query, "num": num, "start": start},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            raise RuntimeError(f"Google Search API {r.status_code}: {r.text[:200]}")
-        items = r.json().get("items", [])
-        if not items:
-            break
-        results += [{"title": it.get("title", ""), "href": it.get("link", ""), "body": it.get("snippet", "")} for it in items]
-        start += len(items)
-    return results[:max_results]
-
-
 async def _web_search_multi(query: str, max_results: int = 30) -> tuple[list[dict], str]:
-    """Google first if configured, falling back to DuckDuckGo on missing config,
-    quota errors, or any failure. Returns (results, provider_used)."""
     import asyncio
     loop = asyncio.get_event_loop()
-    if os.environ.get("GOOGLE_SEARCH_API_KEY") and os.environ.get("GOOGLE_SEARCH_ENGINE_ID"):
-        try:
-            results = await loop.run_in_executor(None, _google_search, query, max_results)
-            if results:
-                return results, "google"
-        except Exception as exc:
-            logger.warning("Google Search failed, falling back to DuckDuckGo: %s", exc)
     try:
         return await loop.run_in_executor(None, _ddg_search, query, max_results), "duckduckgo"
     except Exception as exc:
