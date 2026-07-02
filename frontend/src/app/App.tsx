@@ -468,7 +468,18 @@ function zipStore(files: { name: string; data: Uint8Array }[]): Blob {
   });
 }
 
-function buildDocx(title: string, messages: { role: string; content: string }[]): Blob {
+function formatSourceLines(m: Message): string[] {
+  const lines: string[] = [];
+  if (m.sources && m.sources.length) {
+    lines.push(...m.sources.map((s) => s.filename || s.title));
+  }
+  if (m.webSources && m.webSources.length) {
+    lines.push(...m.webSources.map((s) => `${s.title} (${s.href})`));
+  }
+  return lines;
+}
+
+function buildDocx(title: string, messages: { role: string; content: string; sourceLines?: string[] }[]): Blob {
   const enc = new TextEncoder();
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const para = (text: string, bold = false) => {
@@ -479,6 +490,9 @@ function buildDocx(title: string, messages: { role: string; content: string }[])
   for (const m of messages) {
     body.push(para(m.role === "user" ? "Bạn:" : "Ciel:", true));
     body.push(para(m.content.trim()));
+    if (m.sourceLines && m.sourceLines.length) {
+      body.push(para("Nguồn: " + m.sourceLines.join(", ")));
+    }
   }
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body.join("")}<w:sectPr/></w:body></w:document>`;
@@ -3381,18 +3395,19 @@ export default function App() {
         messages: chat.messages.map((m) => ({
           role: m.role,
           content: m.content,
-          sources: (m.sources || []).map((s) => s.filename || s.title),
+          sources: formatSourceLines(m),
         })),
       };
       blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
     } else if (format === "docx") {
-      blob = buildDocx(title, chat.messages);
+      blob = buildDocx(title, chat.messages.map((m) => ({ role: m.role, content: m.content, sourceLines: formatSourceLines(m) })));
     } else if (format === "txt") {
       const lines: string[] = [title, `Exported: ${now}`, `Created: ${date}`, ""];
       for (const m of chat.messages) {
         lines.push(m.role === "user" ? "Bạn:" : "Ciel:", m.content.trim(), "");
-        if (m.sources && m.sources.length) {
-          lines.push("Nguồn: " + m.sources.map((s) => s.filename || s.title).join(", "), "");
+        const srcLines = formatSourceLines(m);
+        if (srcLines.length) {
+          lines.push("Nguồn: " + srcLines.join(", "), "");
         }
       }
       blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
@@ -3401,9 +3416,10 @@ export default function App() {
       for (const m of chat.messages) {
         const speaker = m.role === "user" ? "**You**" : "**Ciel**";
         lines.push(`${speaker}:`, "", m.content.trim(), "");
-        if (m.sources && m.sources.length) {
+        const srcLines = formatSourceLines(m);
+        if (srcLines.length) {
           lines.push("_Sources:_");
-          for (const s of m.sources) lines.push(`- ${s.filename || s.title}`);
+          for (const s of srcLines) lines.push(`- ${s}`);
           lines.push("");
         }
         lines.push("---", "");
