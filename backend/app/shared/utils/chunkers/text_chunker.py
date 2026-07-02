@@ -26,13 +26,17 @@ def _is_heading(line: str) -> bool:
     if _SECTION_PREFIX_RE.match(s):
         return True
     # ALL-CAPS check: works for both ASCII and Unicode (Vietnamese, etc.)
-    # Require: 6-80 chars, at least one space (2+ words), mostly alphabetic, all uppercase
+    # Require: 6-80 chars, mostly alphabetic, all uppercase. Multi-word lines
+    # (has a space) qualify outright; single-word lines only qualify if they're
+    # a real word (letters only) — excludes short IDs like "CK-FIXED-01".
     letters = [c for c in s if c.isalpha()]
+    has_space = " " in s
+    single_real_word = not has_space and s.isalpha()
     return (
         6 <= len(s) <= 80
-        and " " in s
         and len(letters) >= 4
         and s.isupper()
+        and (has_space or single_real_word)
     )
 
 

@@ -2,6 +2,7 @@ import ast
 import datetime
 import json
 import logging
+import math
 import operator as _operator
 import os
 import random
@@ -174,6 +175,56 @@ def _format_memory_block() -> str:
     return "Ghi nhớ về người dùng (luôn tôn trọng):\n" + "\n".join(lines) + "\n\n"
 
 _KEYWORD_RE = re.compile(r'\b([A-Z]{2,}-\d{3,}|\d{7,}|MST|[A-Z]{3,}\d+)\b')
+
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _bm25_rank(query_tokens: list[str], docs: list[dict], k1: float = 1.5, b: float = 0.75) -> list[str]:
+    """
+    Rank candidate chunks by BM25 over their content, scored against query_tokens.
+    Pure-Python, no dependency — the candidate set here is at most a few dozen
+    chunks (already filtered by vector/keyword search), so no index is needed.
+    Returns chunk ids sorted best-to-worst.
+    """
+    if not docs or not query_tokens:
+        return []
+    q_terms = [t.lower() for t in query_tokens]
+    doc_tokens = [
+        (d.get("id"), _TOKEN_RE.findall((d.get("content") or "").lower()))
+        for d in docs
+    ]
+    doc_lens = [len(toks) for _, toks in doc_tokens]
+    avgdl = (sum(doc_lens) / len(doc_lens)) if doc_lens else 1.0
+    n = len(doc_tokens)
+
+    df: dict[str, int] = {}
+    for term in set(q_terms):
+        df[term] = sum(1 for _, toks in doc_tokens if term in toks)
+
+    scores: list[tuple[str, float]] = []
+    for (doc_id, toks), dl in zip(doc_tokens, doc_lens):
+        if not doc_id:
+            continue
+        score = 0.0
+        for term in q_terms:
+            f = toks.count(term)
+            if f == 0:
+                continue
+            idf = max(0.0, math.log((n - df.get(term, 0) + 0.5) / (df.get(term, 0) + 0.5) + 1))
+            denom = f + k1 * (1 - b + b * dl / avgdl)
+            score += idf * (f * (k1 + 1)) / denom
+        scores.append((doc_id, score))
+    scores.sort(key=lambda x: x[1], reverse=True)
+    return [doc_id for doc_id, s in scores if s > 0]
+
+
+def _reciprocal_rank_fusion(ranked_lists: list[list[str]], k: int = 60) -> dict[str, float]:
+    """Standard RRF: fuse multiple ranked id-lists into one score per id."""
+    fused: dict[str, float] = {}
+    for ranked in ranked_lists:
+        for rank, doc_id in enumerate(ranked):
+            fused[doc_id] = fused.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
+    return fused
 
 _WAKEUP_VI = (
     "ciel oi", "oi ciel", "hey ciel", "hi ciel", "chao ciel", "ciel chao",
@@ -1379,8 +1430,22 @@ def stream_ask(
                         chunks.append(kw_chunk)
                         seen_ids.add(kw_chunk.get("id"))
 
-            # Filename hits first, then by similarity. Cap at _TOP_K * 2.
-            chunks.sort(key=lambda x: (x.get("document_id") in filename_doc_ids, x.get("similarity", 0.0)), reverse=True)
+            # Fuse vector-similarity ranking with a BM25 keyword ranking via
+            # reciprocal rank fusion — vector search alone under-ranks exact
+            # matches (names, codes, numbers) that BM25 catches, and keyword
+            # search alone has no semantic signal. RRF combines both rankings
+            # without needing comparable score scales.
+            if not filename_doc_ids and chunks:
+                vector_rank_ids = [
+                    c["id"] for c in sorted(chunks, key=lambda x: x.get("similarity", 0.0), reverse=True)
+                    if c.get("id")
+                ]
+                bm25_rank_ids = _bm25_rank(kw_tokens or _TOKEN_RE.findall(question.lower()), chunks)
+                fused = _reciprocal_rank_fusion([vector_rank_ids, bm25_rank_ids])
+                chunks.sort(key=lambda x: fused.get(x.get("id"), 0.0), reverse=True)
+            else:
+                # Filename hits first, then by similarity.
+                chunks.sort(key=lambda x: (x.get("document_id") in filename_doc_ids, x.get("similarity", 0.0)), reverse=True)
             chunks = chunks[: _TOP_K * 2]
 
             # If STRONG filename tokens were extracted but NO matching document was found,
@@ -1413,6 +1478,10 @@ def stream_ask(
 
         if chunks:
             has_tabular = any("  |  " in (c.get("content") or "") for c in chunks[:5])
+            has_faq_intent = bool(re.search(
+                r"câu hỏi thường gặp|hỏi[\s-]*đáp|\bfaq\b|frequently asked questions|q\s*&\s*a",
+                question, re.IGNORECASE,
+            ))
             if filename_doc_ids or has_tabular:
                 filtered = chunks
             elif _RERANKER_ENABLED and _bge_rerank is not None and not web_extra_context:
@@ -1491,7 +1560,23 @@ def stream_ask(
                 parts.append(f"{header}\n{c['content'][:_MAX_CHUNK_CHARS * 2]}")
             context = "\n\n".join(parts)
 
-            if filename_doc_ids or has_tabular:
+            if has_faq_intent:
+                system = (
+                    "Người dùng muốn một danh sách CÂU HỎI THƯỜNG GẶP (FAQ) rút ra từ tài liệu, "
+                    "KHÔNG phải một bài tóm tắt văn xuôi liên tục. "
+                    "Tự đặt ra 4-8 câu hỏi mà người đọc tài liệu này thường thắc mắc, dựa trên các luận điểm/số liệu chính, "
+                    "rồi trả lời từng câu bằng nội dung trong tài liệu. Định dạng mỗi mục: "
+                    "'**Q: <câu hỏi>**' xuống dòng '<câu trả lời ngắn gọn, có trích dẫn [N] nếu có>'. "
+                    "TUYỆT ĐỐI KHÔNG viết 'Tôi là', 'Xin chào', hay câu giới thiệu. KHÔNG dùng emoji. Tiếng Việt."
+                    if lang == "vi"
+                    else "The user wants a list of FREQUENTLY ASKED QUESTIONS (FAQ) drawn from the document, "
+                    "NOT a continuous prose summary. "
+                    "Come up with 4-8 questions a reader of this document would likely ask, based on its key "
+                    "points/data, then answer each from the document content. Format each entry as "
+                    "'**Q: <question>**' on its own line, followed by '<concise answer, with [N] citation if available>'. "
+                    "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. No emojis."
+                )
+            elif filename_doc_ids or has_tabular:
                 system = (
                     "Bắt đầu ngay vào nội dung tóm tắt hoặc câu trả lời. "
                     "TUYỆT ĐỐI KHÔNG viết 'Tôi là', 'Xin chào', hay bất kỳ câu giới thiệu nào. "
