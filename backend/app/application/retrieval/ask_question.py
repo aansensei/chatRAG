@@ -648,6 +648,15 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
                 return "".join(p.get("text", "") for p in parts).strip()
             logger.warning("Gemini filter call %s: %s", r.status_code, r.text[:200])
             return ""
+        if key.startswith("sk-ant-"):
+            r = httpx.post("https://api.anthropic.com/v1/messages",
+                           headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                           json={"model": mod or "claude-sonnet-5", "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]}, timeout=t)
+            if r.status_code == 200:
+                blocks = r.json().get("content", [])
+                return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+            logger.warning("Anthropic filter call %s: %s", r.status_code, r.text[:200])
+            return ""
         if "gpt-" in mod_lower or "o1-" in mod_lower or key.startswith("sk-proj-") or key.startswith("sk-"):
             r = httpx.post("https://api.openai.com/v1/chat/completions", headers=headers,
                            json={"model": mod or "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}, timeout=t)
@@ -730,6 +739,8 @@ def _resolve_env_key(model: str) -> str:
     m = model.lower()
     if "gemini" in m:
         return os.environ.get("GEMINI_API_KEY", "")
+    if "claude" in m:
+        return os.environ.get("ANTHROPIC_API_KEY", "")
     if model in _CEREBRAS_MODEL_IDS:
         return os.environ.get("CEREBRAS_API_KEY", "")
     if any(p in m for p in ("gpt-", "o1-", "o3-", "o4-")):
@@ -794,7 +805,16 @@ def _stream_llm(
             )
             return
 
-        # 5. OpenAI
+        # 5. Anthropic (sk-ant- prefix — must come before generic OpenAI "sk-" check)
+        if "claude" in model_lower or api_key_str.startswith("sk-ant-"):
+            yield from _stream_anthropic_native(
+                prompt,
+                model_str or "claude-sonnet-5",
+                api_key_str
+            )
+            return
+
+        # 6. OpenAI
         if "gpt-" in model_lower or "o1-" in model_lower or api_key_str.startswith("sk-proj-") or api_key_str.startswith("sk-"):
             yield from _stream_openai_compatible(
                 prompt,
@@ -804,7 +824,7 @@ def _stream_llm(
             )
             return
 
-        # 6. Groq fallback by model name (no key prefix match above)
+        # 7. Groq fallback by model name (no key prefix match above)
         if "llama" in model_lower or "gemma2" in model_lower or "qwen" in model_lower:
             yield from _stream_openai_compatible(
                 prompt,
@@ -896,6 +916,63 @@ def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[st
     if token_count == 0:
         logger.warning("Gemini %s returned no tokens", model_clean)
         yield _sse({"type": "token", "token": f"⚠️ Gemini **{model_clean}** không phản hồi. Kiểm tra API key hoặc thử lại."})
+
+
+def _stream_anthropic_native(prompt: str, model: str, api_key: str) -> Generator[str, None, None]:
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    json_data = {
+        "model": model,
+        "max_tokens": 4096,
+        "stream": True,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    token_count = 0
+    try:
+        with httpx.stream(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=json_data,
+            timeout=httpx.Timeout(connect=15.0, read=180.0, write=10.0, pool=10.0),
+        ) as resp:
+            if resp.status_code != 200:
+                resp.read()
+                try:
+                    err = resp.json()
+                    msg = err.get("error", {}).get("message", resp.text)
+                except Exception:
+                    msg = resp.text
+                logger.warning("Anthropic %s error %s: %s", model, resp.status_code, msg[:300])
+                yield _sse({"type": "token", "token": f"Lỗi Anthropic API ({resp.status_code}): {msg}"})
+                return
+            event_type = None
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                if line.startswith("event: "):
+                    event_type = line[7:].strip()
+                    continue
+                if line.startswith("data: "):
+                    try:
+                        data = json.loads(line[6:])
+                    except Exception:
+                        continue
+                    if event_type == "content_block_delta":
+                        token = data.get("delta", {}).get("text") or ""
+                        if token:
+                            token_count += 1
+                            yield _sse({"type": "token", "token": token})
+    except Exception as e:
+        logger.warning("Anthropic stream error: %s", e)
+        yield _sse({"type": "token", "token": f"Lỗi kết nối Anthropic API: {e}"})
+        return
+    if token_count == 0:
+        logger.warning("Anthropic %s returned no tokens", model)
+        yield _sse({"type": "token", "token": f"⚠️ Model **{model}** không phản hồi. Kiểm tra API key hoặc thử lại."})
 
 
 def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: str) -> Generator[str, None, None]:

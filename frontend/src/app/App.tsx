@@ -35,7 +35,6 @@ import {
   EyeOff,
   Sparkles,
   X as XIcon,
-  Download,
   Globe,
   ExternalLink,
 } from "lucide-react";
@@ -86,6 +85,25 @@ const UI_STRINGS = {
     stepGenerating: "Đang soạn câu trả lời…",
     chatPlaceholder: "Hỏi Ciel bất cứ điều gì…",
     webPlaceholder: "Hỏi Ciel — sẽ tự tìm web…",
+    chatConversation: "Hội thoại",
+    chatNotes: "Ghi chú",
+    activeChatBadge: "Đang mở",
+    noteCount: (n: number) => `${n} ghi chú`,
+    noChatsForNotes: "Chưa có chat nào. Bắt đầu trò chuyện để tạo ghi chú.",
+    noQuestionsYet: "Chưa có câu hỏi nào.",
+    noNotesYet: "Chưa có ghi chú.",
+    addNotePlaceholder: "Thêm ghi chú...",
+    addBtn: "Thêm",
+    clearNotesTitle: "Xóa toàn bộ ghi chú",
+    exportBtn: "Xuất",
+    exportTitle: "Xuất hội thoại",
+    exportFormatTxt: "Văn bản",
+    exportFormatMd: "Markdown",
+    exportFormatDocx: "Word",
+    exportFormatJson: "JSON",
+    exportedToast: (name: string) => `Đã xuất "${name}"`,
+    tableColItem: "Mục",
+    tableColContent: "Nội dung",
   },
   en: {
     knowledgeBase: "Knowledge base",
@@ -128,6 +146,25 @@ const UI_STRINGS = {
     stepGenerating: "Generating answer…",
     chatPlaceholder: "Ask Ciel anything…",
     webPlaceholder: "Ask Ciel — will search the web…",
+    chatConversation: "Conversation",
+    chatNotes: "Notes",
+    activeChatBadge: "Active",
+    noteCount: (n: number) => `${n} ${n === 1 ? "note" : "notes"}`,
+    noChatsForNotes: "No chats yet. Start a conversation to add notes.",
+    noQuestionsYet: "No questions yet.",
+    noNotesYet: "No notes yet.",
+    addNotePlaceholder: "Add a note...",
+    addBtn: "Add",
+    clearNotesTitle: "Clear all notes",
+    exportBtn: "Export",
+    exportTitle: "Export chat",
+    exportFormatTxt: "Text",
+    exportFormatMd: "Markdown",
+    exportFormatDocx: "Word",
+    exportFormatJson: "JSON",
+    exportedToast: (name: string) => `Exported "${name}"`,
+    tableColItem: "Item",
+    tableColContent: "Content",
   },
   zh: {
     knowledgeBase: "知识库",
@@ -170,6 +207,25 @@ const UI_STRINGS = {
     stepGenerating: "生成回答…",
     chatPlaceholder: "向 Ciel 提问…",
     webPlaceholder: "向 Ciel 提问 — 将自动搜索网络…",
+    chatConversation: "对话",
+    chatNotes: "笔记",
+    activeChatBadge: "进行中",
+    noteCount: (n: number) => `${n} 条笔记`,
+    noChatsForNotes: "暂无对话。开始聊天以添加笔记。",
+    noQuestionsYet: "暂无问题。",
+    noNotesYet: "暂无笔记。",
+    addNotePlaceholder: "添加笔记...",
+    addBtn: "添加",
+    clearNotesTitle: "清除全部笔记",
+    exportBtn: "导出",
+    exportTitle: "导出对话",
+    exportFormatTxt: "文本",
+    exportFormatMd: "Markdown",
+    exportFormatDocx: "Word",
+    exportFormatJson: "JSON",
+    exportedToast: (name: string) => `已导出 "${name}"`,
+    tableColItem: "项目",
+    tableColContent: "内容",
   },
   ja: {
     knowledgeBase: "ナレッジベース",
@@ -212,6 +268,25 @@ const UI_STRINGS = {
     stepGenerating: "回答を生成中…",
     chatPlaceholder: "Ciel に何でも質問…",
     webPlaceholder: "Ciel に質問 — ウェブで検索します…",
+    chatConversation: "会話",
+    chatNotes: "メモ",
+    activeChatBadge: "開いています",
+    noteCount: (n: number) => `${n} 件のメモ`,
+    noChatsForNotes: "チャットがまだありません。会話を始めるとメモを追加できます。",
+    noQuestionsYet: "質問はまだありません。",
+    noNotesYet: "メモはまだありません。",
+    addNotePlaceholder: "メモを追加...",
+    addBtn: "追加",
+    clearNotesTitle: "メモを全て削除",
+    exportBtn: "エクスポート",
+    exportTitle: "チャットをエクスポート",
+    exportFormatTxt: "テキスト",
+    exportFormatMd: "Markdown",
+    exportFormatDocx: "Word",
+    exportFormatJson: "JSON",
+    exportedToast: (name: string) => `"${name}" をエクスポートしました`,
+    tableColItem: "項目",
+    tableColContent: "内容",
   },
 } as const;
 
@@ -341,6 +416,108 @@ async function translateStreamDirect(
   } catch (err: unknown) {
     onError(err instanceof Error ? err.message : "Lỗi không xác định");
   }
+}
+
+const CJK_RESIDUAL_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿]/g;
+
+function countResidualCJK(text: string): number {
+  return (text.match(CJK_RESIDUAL_RE) || []).length;
+}
+
+function crc32(bytes: Uint8Array): number {
+  let c = ~0;
+  for (let i = 0; i < bytes.length; i++) {
+    c ^= bytes[i];
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+
+function zipStore(files: { name: string; data: Uint8Array }[]): Blob {
+  const enc = new TextEncoder();
+  const u16 = (n: number) => [n & 0xff, (n >>> 8) & 0xff];
+  const u32 = (n: number) => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+  const parts: (Uint8Array | number[])[] = [];
+  const central: (Uint8Array | number[])[] = [];
+  let offset = 0;
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const size = f.data.length;
+    const header = [
+      0x50, 0x4b, 0x03, 0x04, ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(size), ...u32(size), ...u16(nameBytes.length), ...u16(0),
+    ];
+    parts.push(header, nameBytes, f.data);
+    central.push([
+      0x50, 0x4b, 0x01, 0x02, ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(size), ...u32(size), ...u16(nameBytes.length),
+      ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset),
+    ], nameBytes);
+    offset += header.length + nameBytes.length + size;
+  }
+  const centralSize = central.reduce((a, c) => a + c.length, 0);
+  const end = [
+    0x50, 0x4b, 0x05, 0x06, ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
+    ...u32(centralSize), ...u32(offset), ...u16(0),
+  ];
+  const toBytes = (x: Uint8Array | number[]) => (x instanceof Uint8Array ? x : new Uint8Array(x));
+  const blobParts = [...parts, ...central, end].map(toBytes);
+  return new Blob(blobParts as BlobPart[], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+function buildDocx(title: string, messages: { role: string; content: string }[]): Blob {
+  const enc = new TextEncoder();
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const para = (text: string, bold = false) => {
+    const runs = esc(text).split("\n").map((ln, i) => (i > 0 ? "<w:br/>" : "") + `<w:t xml:space="preserve">${ln}</w:t>`).join("");
+    return `<w:p><w:r>${bold ? "<w:rPr><w:b/></w:rPr>" : ""}${runs}</w:r></w:p>`;
+  };
+  const body = [para(title, true)];
+  for (const m of messages) {
+    body.push(para(m.role === "user" ? "Bạn:" : "Ciel:", true));
+    body.push(para(m.content.trim()));
+  }
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body.join("")}<w:sectPr/></w:body></w:document>`;
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  return zipStore([
+    { name: "[Content_Types].xml", data: enc.encode(contentTypes) },
+    { name: "_rels/.rels", data: enc.encode(rels) },
+    { name: "word/document.xml", data: enc.encode(documentXml) },
+  ]);
+}
+
+const BULLET_KV_RE = /^[-*]\s+([^:：]+)[:：]\s*(.+)$/;
+
+function tryConvertListToTable(text: string, colItem: string, colContent: string): string {
+  if (text.includes("|")) return text;
+  const lines = text.split("\n");
+  const items: { label: string; value: string }[] = [];
+  let start = -1;
+  let end = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(BULLET_KV_RE);
+    if (m) {
+      if (start === -1) start = i;
+      end = i;
+      items.push({ label: m[1].trim(), value: m[2].trim() });
+    } else if (start !== -1) {
+      break;
+    }
+  }
+  if (items.length < 3) return text;
+  const table = [
+    `| ${colItem} | ${colContent} |`,
+    "|---|---|",
+    ...items.map((it) => `| ${it.label} | ${it.value} |`),
+  ];
+  return [...lines.slice(0, start), ...table, ...lines.slice(end + 1)].join("\n");
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
@@ -1660,6 +1837,12 @@ const CEREBRAS_MODELS = [
   { id: "zai-glm-4.7",  label: "Z.ai GLM 4.7", note: "355B"     },
 ];
 
+const ANTHROPIC_MODELS = [
+  { id: "claude-opus-4-8",                label: "Claude Opus 4.8",   note: "Best"     },
+  { id: "claude-sonnet-5",                label: "Claude Sonnet 5",   note: "Fast"     },
+  { id: "claude-haiku-4-5-20251001",      label: "Claude Haiku 4.5",  note: "Cheapest" },
+];
+
 const MODEL_MIGRATIONS: Record<string, string> = {
   "llama3-8b-8192":                     "llama-3.1-8b-instant",
   "mixtral-8x7b-32768":                 "llama-3.3-70b-versatile",
@@ -1697,6 +1880,7 @@ const MODELS = [
   ...GEMINI_MODELS,
   ...OPENROUTER_MODELS,
   ...CEREBRAS_MODELS,
+  ...ANTHROPIC_MODELS,
 ];
 
 function isGroqModel(id: string) {
@@ -1719,12 +1903,17 @@ function isCerebrasModel(id: string) {
   return CEREBRAS_MODELS.some((m) => m.id === id);
 }
 
+function isAnthropicModel(id: string) {
+  return ANTHROPIC_MODELS.some((m) => m.id === id);
+}
+
 const getActiveApiKey = (modelId: string) => {
   if (isGroqModel(modelId)) return localStorage.getItem("chatrag_api_key_groq") || localStorage.getItem("chatrag_api_key") || "";
   if (isOpenAIModel(modelId)) return localStorage.getItem("chatrag_api_key_openai") || "";
   if (isGeminiModel(modelId)) return localStorage.getItem("chatrag_api_key_gemini") || "";
   if (isOpenRouterModel(modelId)) return localStorage.getItem("chatrag_api_key_openrouter") || "";
   if (isCerebrasModel(modelId)) return localStorage.getItem("chatrag_api_key_cerebras") || "";
+  if (isAnthropicModel(modelId)) return localStorage.getItem("chatrag_api_key_anthropic") || "";
   return "";
 };
 
@@ -1734,6 +1923,7 @@ const getProviderOfModel = (modelId: string) => {
   if (isGeminiModel(modelId)) return "gemini";
   if (isOpenRouterModel(modelId)) return "openrouter";
   if (isCerebrasModel(modelId)) return "cerebras";
+  if (isAnthropicModel(modelId)) return "anthropic";
   return "ollama";
 };
 
@@ -1969,6 +2159,7 @@ function TranslatorPanel({
   apiKeyOpenRouter,
   apiKeyOpenAI,
   apiKeyCerebras,
+  apiKeyAnthropic,
   activeModel,
   serverProviders,
 }: {
@@ -1977,6 +2168,7 @@ function TranslatorPanel({
   apiKeyOpenRouter: string;
   apiKeyOpenAI: string;
   apiKeyCerebras: string;
+  apiKeyAnthropic: string;
   activeModel: string;
   serverProviders: Record<string, boolean>;
 }) {
@@ -1994,6 +2186,7 @@ function TranslatorPanel({
     if (isOpenRouterModel(activeModel) && apiKeyOpenRouter) return { key: apiKeyOpenRouter, provider, model: activeModel };
     if (isCerebrasModel(activeModel) && apiKeyCerebras) return { key: apiKeyCerebras, provider, model: activeModel };
     if (isOpenAIModel(activeModel) && apiKeyOpenAI) return { key: apiKeyOpenAI, provider, model: activeModel };
+    if (isAnthropicModel(activeModel) && apiKeyAnthropic) return { key: apiKeyAnthropic, provider, model: activeModel };
     return { key: "", provider, model: activeModel };
   };
 
@@ -2248,6 +2441,17 @@ function TranslatorPanel({
                     style={{ background: "#3B82F6", verticalAlign: "middle" }}
                   />
                 )}
+                {txStatus === "done" && countResidualCJK(vnOutput) > 0 && (
+                  <div
+                    className="mt-4 flex items-start gap-2 px-3 py-2 rounded-lg text-[12px]"
+                    style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", color: "#fcd34d" }}
+                  >
+                    <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                    <span>
+                      Bản dịch còn sót {countResidualCJK(vnOutput)} ký tự Hán/Nhật chưa dịch — dấu hiệu model chưa xử lý hết văn bản khó. Thử lại với model mạnh hơn (Claude, Gemini 2.5) để có kết quả sạch.
+                    </span>
+                  </div>
+                )}
               </div>
             ) : (
               <div
@@ -2324,6 +2528,16 @@ export default function App() {
           models: CEREBRAS_MODELS,
           link: "cloud.cerebras.ai",
         };
+      case "anthropic":
+        return {
+          key: apiKeyAnthropic,
+          setKey: setApiKeyAnthropic,
+          localKey: "chatrag_api_key_anthropic",
+          label: "Anthropic",
+          placeholder: "sk-ant-...",
+          models: ANTHROPIC_MODELS,
+          link: "console.anthropic.com",
+        };
       default:
         return null;
     }
@@ -2386,6 +2600,8 @@ export default function App() {
   });
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>(() => (localStorage.getItem("ui_lang") as Lang) || "vi");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
@@ -2408,17 +2624,19 @@ export default function App() {
   const [apiKeyGemini, setApiKeyGemini] = useState(() => localStorage.getItem("chatrag_api_key_gemini") || "");
   const [apiKeyOpenRouter, setApiKeyOpenRouter] = useState(() => localStorage.getItem("chatrag_api_key_openrouter") || "");
   const [apiKeyCerebras, setApiKeyCerebras] = useState(() => localStorage.getItem("chatrag_api_key_cerebras") || "");
+  const [apiKeyAnthropic, setApiKeyAnthropic] = useState(() => localStorage.getItem("chatrag_api_key_anthropic") || "");
   const [serverProviders, setServerProviders] = useState<Record<string, boolean>>({});
   const [orModels, setOrModels] = useState<{id:string,label:string,note:string}[]>(OPENROUTER_MODELS_FALLBACK);
   const [orLoading, setOrLoading] = useState(false);
 
-  const [modelMenuView, setModelMenuView] = useState<"providers" | "ollama" | "groq" | "openai" | "gemini" | "openrouter" | "cerebras">("providers");
+  const [modelMenuView, setModelMenuView] = useState<"providers" | "ollama" | "groq" | "openai" | "gemini" | "openrouter" | "cerebras" | "anthropic">("providers");
   const [editingProviderKey, setEditingProviderKey] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
   const [memoryTab, setMemoryTab] = useState<"global" | "chat">("global");
-  const [chatNoteInput, setChatNoteInput] = useState("");
+  const [chatNoteInputs, setChatNoteInputs] = useState<Record<string, string>>({});
+  const [expandedChatNotes, setExpandedChatNotes] = useState<Set<string>>(new Set());
   const [kbBrowserOpen, setKbBrowserOpen] = useState(false);
   const [kbBrowserFolder, setKbBrowserFolder] = useState<string | null>(null);
   const [kbBrowserSearch, setKbBrowserSearch] = useState("");
@@ -2446,25 +2664,25 @@ export default function App() {
     const r = await fetch(`/memory/${id}`, { method: "DELETE" });
     if (r.ok) refreshMemories();
   };
-  const addChatNote = () => {
-    if (!activeChatId || !chatNoteInput.trim()) return;
-    const text = chatNoteInput.trim();
+  const addChatNote = (chatId: string, text: string) => {
+    const t = text.trim();
+    if (!chatId || !t) return;
     setChats((prev) => {
       const updated = prev.map((c) => {
-        if (c.id !== activeChatId) return c;
+        if (c.id !== chatId) return c;
         const existing = Array.isArray(c.notes) ? c.notes : c.notes ? [c.notes as unknown as string] : [];
-        return { ...c, notes: [...existing, text] };
+        return { ...c, notes: [...existing, t] };
       });
       saveChatsToStorage(updated);
       return updated;
     });
-    setChatNoteInput("");
+    setChatNoteInputs((prev) => ({ ...prev, [chatId]: "" }));
   };
-  const deleteChatNote = (idx: number) => {
-    if (!activeChatId) return;
+  const deleteChatNote = (chatId: string, idx: number) => {
+    if (!chatId) return;
     setChats((prev) => {
       const updated = prev.map((c) => {
-        if (c.id !== activeChatId) return c;
+        if (c.id !== chatId) return c;
         const existing = Array.isArray(c.notes) ? c.notes : c.notes ? [c.notes as unknown as string] : [];
         return { ...c, notes: existing.filter((_, i) => i !== idx) };
       });
@@ -2472,7 +2690,28 @@ export default function App() {
       return updated;
     });
   };
+  const clearChatNotes = (chatId: string) => {
+    if (!chatId) return;
+    setChats((prev) => {
+      const updated = prev.map((c) => (c.id === chatId ? { ...c, notes: [] } : c));
+      saveChatsToStorage(updated);
+      return updated;
+    });
+  };
+  const toggleChatNoteExpand = (chatId: string) => {
+    setExpandedChatNotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(chatId)) next.delete(chatId);
+      else next.add(chatId);
+      return next;
+    });
+  };
   useEffect(() => { refreshMemories(); }, []);
+  useEffect(() => {
+    if (!memoryPanelOpen || memoryTab !== "chat") return;
+    const id = activeChatId ?? chats[0]?.id;
+    if (id) setExpandedChatNotes((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, [memoryPanelOpen, memoryTab, activeChatId]);
 
   useEffect(() => {
     fetch("/chat/providers").then(r => r.ok ? r.json() : {}).then(setServerProviders).catch(() => {});
@@ -2684,6 +2923,16 @@ export default function App() {
     return () => document.removeEventListener("mousedown", close);
   }, [modelMenuOpen]);
 
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (exportMenuRef.current?.contains(e.target as Node)) return;
+      setExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [exportMenuOpen]);
+
   useEffect(() => { if (!profileOpen) setLangMenuOpen(false); }, [profileOpen]);
   useEffect(() => {
     if (!profileOpen) return;
@@ -2771,21 +3020,6 @@ export default function App() {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
-  };
-
-  const exportChat = () => {
-    if (!activeChat) return;
-    const lines: string[] = [`# ${activeChat.title}`, ""];
-    for (const m of messages) {
-      const role = m.role === "user" ? "**Bạn**" : "**Ciel**";
-      lines.push(`${role}: ${m.content}`, "");
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown; charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${activeChat.title.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 60)}.md`;
-    a.click();
-    URL.revokeObjectURL(a.href);
   };
 
   const persistChat = useCallback((chatId: string, updatedMessages: Message[]) => {
@@ -3030,7 +3264,7 @@ export default function App() {
       let finalContent = "";
       updateStreamMsg((prev) => {
         const existing = prev.find((m) => m.id === aiId);
-        const content = existing?.content?.trim() ? existing.content : "No answer returned.";
+        const content = existing?.content?.trim() ? tryConvertListToTable(existing.content, S.tableColItem, S.tableColContent) : "No answer returned.";
         finalContent = content;
         const finalMsg: Message = { id: aiId, role: "assistant", content, sources: capturedWebSources ? [] : finalSources, webSources: capturedWebSources, confidence: finalConfidence, isStreaming: false };
         return existing
@@ -3129,33 +3363,63 @@ export default function App() {
     if (activeChatId === chatId) newChat();
   };
 
-  const exportActiveChat = () => {
+  const exportActiveChat = (format: "txt" | "md" | "docx" | "json") => {
     const chat = chats.find((c) => c.id === activeChatId);
     if (!chat) return;
     const title = chat.title || "chat";
     const date = new Date(chat.createdAt).toISOString().slice(0, 19).replace("T", " ");
-    const lines: string[] = [`# ${title}`, "", `_Exported: ${new Date().toISOString().slice(0, 19).replace("T", " ")}_`, `_Created: ${date}_`, ""];
-    for (const m of chat.messages) {
-      const speaker = m.role === "user" ? "**You**" : "**Ciel**";
-      lines.push(`${speaker}:`, "", m.content.trim(), "");
-      if (m.sources && m.sources.length) {
-        lines.push("_Sources:_");
-        for (const s of m.sources) lines.push(`- ${s.filename || s.title}`);
-        lines.push("");
+    const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+    const safeTitle = title.replace(/[^\w\d\-_. ]/g, "").slice(0, 60).trim() || "chat";
+
+    let blob: Blob;
+    if (format === "json") {
+      const data = {
+        title,
+        created: date,
+        exported: now,
+        messages: chat.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          sources: (m.sources || []).map((s) => s.filename || s.title),
+        })),
+      };
+      blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+    } else if (format === "docx") {
+      blob = buildDocx(title, chat.messages);
+    } else if (format === "txt") {
+      const lines: string[] = [title, `Exported: ${now}`, `Created: ${date}`, ""];
+      for (const m of chat.messages) {
+        lines.push(m.role === "user" ? "Bạn:" : "Ciel:", m.content.trim(), "");
+        if (m.sources && m.sources.length) {
+          lines.push("Nguồn: " + m.sources.map((s) => s.filename || s.title).join(", "), "");
+        }
       }
-      lines.push("---", "");
+      blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    } else {
+      const lines: string[] = [`# ${title}`, "", `_Exported: ${now}_`, `_Created: ${date}_`, ""];
+      for (const m of chat.messages) {
+        const speaker = m.role === "user" ? "**You**" : "**Ciel**";
+        lines.push(`${speaker}:`, "", m.content.trim(), "");
+        if (m.sources && m.sources.length) {
+          lines.push("_Sources:_");
+          for (const s of m.sources) lines.push(`- ${s.filename || s.title}`);
+          lines.push("");
+        }
+        lines.push("---", "");
+      }
+      blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    const safeTitle = title.replace(/[^\w\d\-_. ]/g, "").slice(0, 60).trim() || "chat";
-    a.download = `${safeTitle}.md`;
+    a.download = `${safeTitle}.${format}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    addToast(`Exported "${safeTitle}.md"`, "success");
+    addToast(S.exportedToast(`${safeTitle}.${format}`), "success");
+    setExportMenuOpen(false);
   };
 
   const togglePinChat = (chatId: string) => {
@@ -3622,16 +3886,6 @@ export default function App() {
                 <span className="text-[13px] truncate max-w-[220px]" style={{ color: "#86868B" }}>
                   {activeChat.title}
                 </span>
-                <button
-                  onClick={exportChat}
-                  title="Xuất hội thoại (.md)"
-                  className="flex items-center justify-center w-6 h-6 rounded-md transition-all"
-                  style={{ color: "#3C3C3E" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "#86868B"; e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "#3C3C3E"; e.currentTarget.style.background = "transparent"; }}
-                >
-                  <Download size={12} />
-                </button>
               </>
             )}
           </div>
@@ -3658,17 +3912,45 @@ export default function App() {
               {S.newChat}
             </button>
             {activeChatId && messages.length > 0 && (
-              <button
-                onClick={exportActiveChat}
-                title="Export chat to Markdown"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all"
-                style={{ border: "1px solid rgba(255,255,255,0.1)", color: "#86868B" }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(59,130,246,0.4)"; e.currentTarget.style.color = "#F5F5F7"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "#86868B"; }}
-              >
-                <Upload size={12} style={{ transform: "rotate(180deg)" }} />
-                Export
-              </button>
+              <div className="relative" ref={exportMenuRef}>
+                <button
+                  onClick={() => setExportMenuOpen((o) => !o)}
+                  title={S.exportTitle}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all"
+                  style={{ border: "1px solid rgba(255,255,255,0.1)", color: "#86868B" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(59,130,246,0.4)"; e.currentTarget.style.color = "#F5F5F7"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "#86868B"; }}
+                >
+                  <Upload size={12} style={{ transform: "rotate(180deg)" }} />
+                  {S.exportBtn}
+                  <ChevronDown size={10} />
+                </button>
+                {exportMenuOpen && (
+                  <div
+                    className="absolute right-0 top-full mt-1.5 rounded-xl overflow-hidden z-50 py-1"
+                    style={{ minWidth: 150, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+                  >
+                    {([
+                      { fmt: "txt", label: S.exportFormatTxt, ext: ".txt" },
+                      { fmt: "md", label: S.exportFormatMd, ext: ".md" },
+                      { fmt: "docx", label: S.exportFormatDocx, ext: ".docx" },
+                      { fmt: "json", label: S.exportFormatJson, ext: ".json" },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.fmt}
+                        onClick={() => exportActiveChat(opt.fmt)}
+                        className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
+                        style={{ color: "#c7c7cc" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <span>{opt.label}</span>
+                        <span className="text-[10px] font-mono" style={{ color: "#52525b" }}>{opt.ext}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             {/* Model switcher */}
             <div className="relative" ref={modelMenuRef}>
@@ -3707,11 +3989,12 @@ export default function App() {
                           { id: "openai",     label: "Cloud · OpenAI" },
                           { id: "gemini",     label: "Cloud · Gemini" },
                           { id: "openrouter", label: "Cloud · OpenRouter" },
+                          { id: "anthropic",  label: "Cloud · Anthropic" },
                         ].map((prov) => {
                           const isCurrent = getProviderOfModel(activeModel) === prov.id;
                           const localKeyMap: Record<string, string> = {
                             groq: apiKeyGroq, openai: apiKeyOpenAI, gemini: apiKeyGemini,
-                            openrouter: apiKeyOpenRouter, cerebras: apiKeyCerebras,
+                            openrouter: apiKeyOpenRouter, cerebras: apiKeyCerebras, anthropic: apiKeyAnthropic,
                           };
                           const hasLocalKey = !!localKeyMap[prov.id];
                           const hasServerKey = !!serverProviders[prov.id];
@@ -3997,6 +4280,7 @@ export default function App() {
             apiKeyOpenRouter={apiKeyOpenRouter}
             apiKeyOpenAI={apiKeyOpenAI}
             apiKeyCerebras={apiKeyCerebras}
+            apiKeyAnthropic={apiKeyAnthropic}
             activeModel={activeModel}
             serverProviders={serverProviders}
           />
@@ -4092,69 +4376,115 @@ export default function App() {
                 </>
               )}
 
-              {/* Tab: Chat này (per-chat) */}
+              {/* Tab: Chat này (per-chat, accordion) */}
               {memoryTab === "chat" && (() => {
-                const displayChatId = activeChatId ?? chats[0]?.id ?? null;
-                const displayChat = chats.find(c => c.id === displayChatId);
-                const raw = displayChat?.notes;
-                const chatNotes: string[] = Array.isArray(raw) ? raw : raw ? [raw as unknown as string] : [];
-                const activeTitle = displayChat?.title || "này";
-                const isFallback = !activeChatId && !!displayChatId;
+                const noteChats = chats
+                  .filter((c) => (c.messages && c.messages.length > 0) || (Array.isArray(c.notes) && c.notes.length > 0))
+                  .sort((a, b) => {
+                    if (a.id === activeChatId) return -1;
+                    if (b.id === activeChatId) return 1;
+                    return b.createdAt - a.createdAt;
+                  })
+                  .slice(0, 20);
                 return (
-                  <>
-                    <div className="px-5 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                      <p className="text-[10px] mb-2" style={{ color: "#86868B" }}>
-                        {isFallback
-                          ? <>Đang xem ghi chú của chat gần nhất: <strong style={{ color: "#c7c7cc" }}>"{activeTitle}"</strong>. Mở chat để thêm.</>
-                          : <>Ciel sẽ đọc những điều này trong chat <strong style={{ color: "#c7c7cc" }}>"{activeTitle}"</strong> trước khi trả lời.</>
-                        }
+                  <div className="flex-1 overflow-y-auto scrollbar-hide px-3 py-3">
+                    {noteChats.length === 0 ? (
+                      <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
+                        {S.noChatsForNotes}
                       </p>
-                      <div className="flex gap-2 items-start">
-                        <textarea
-                          value={chatNoteInput}
-                          onChange={(e) => setChatNoteInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addChatNote(); } }}
-                          placeholder="VD: Đây là dự án X của công ty Y..."
-                          rows={4}
-                          className="flex-1 rounded-lg px-3 py-2 text-[12px] resize-y outline-none"
-                          style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7", minHeight: 72 }}
-                        />
-                        <button
-                          onClick={addChatNote}
-                          disabled={!chatNoteInput.trim() || !activeChatId}
-                          className="px-3 py-2 rounded-lg text-[11px] font-medium shrink-0"
-                          style={{
-                            background: chatNoteInput.trim() && activeChatId ? "linear-gradient(135deg, #8b5cf6, #6366f1)" : "rgba(255,255,255,0.04)",
-                            color: chatNoteInput.trim() && activeChatId ? "#fff" : "#52525b",
-                            cursor: chatNoteInput.trim() && activeChatId ? "pointer" : "not-allowed",
-                          }}
-                        >
-                          Add
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto scrollbar-hide px-3 py-2">
-                      {!displayChatId ? (
-                        <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
-                          Chưa có chat nào. Bắt đầu trò chuyện để tạo ghi chú.
-                        </p>
-                      ) : chatNotes.length === 0 ? (
-                        <p className="text-center py-8 text-[11px]" style={{ color: "#52525b" }}>
-                          Chưa có ghi chú. Thêm thông tin trên để Ciel ghi nhớ trong chat này.
-                        </p>
-                      ) : (
-                        chatNotes.map((note, idx) => (
-                          <div key={idx} className="group flex items-start gap-2 px-3 py-2 rounded-lg hover:bg-white/5">
-                            <Sparkles size={10} className="mt-1 shrink-0" style={{ color: "#a78bfa" }} />
-                            <p className="flex-1 text-[12px] leading-relaxed" style={{ color: "#d1d1d6", whiteSpace: "pre-wrap" }}>{note}</p>
-                            <button onClick={() => deleteChatNote(idx)} className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity">
-                              <Trash2 size={11} style={{ color: "#f87171" }} />
-                            </button>
+                    ) : (
+                      noteChats.map((chat) => {
+                        const notes: string[] = Array.isArray(chat.notes) ? chat.notes : chat.notes ? [chat.notes as unknown as string] : [];
+                        const isOpen = expandedChatNotes.has(chat.id);
+                        const isActive = chat.id === activeChatId;
+                        const questions = chat.messages.filter((m) => m.role === "user").slice(-10);
+                        const noteInput = chatNoteInputs[chat.id] || "";
+                        return (
+                          <div key={chat.id} className="mb-2 rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                            <div
+                              className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-white/5"
+                              onClick={() => toggleChatNoteExpand(chat.id)}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                {isOpen ? <ChevronDown size={12} style={{ color: "#86868B" }} /> : <ChevronRight size={12} style={{ color: "#86868B" }} />}
+                                <span className="text-[12px] truncate" style={{ color: "#f5f5f7" }}>{chat.title || S.newChat}</span>
+                                {isActive && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0" style={{ background: "rgba(139,92,246,0.15)", color: "#a78bfa" }}>
+                                    {S.activeChatBadge}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-[10px]" style={{ color: "#52525b" }}>{S.noteCount(notes.length)}</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); clearChatNotes(chat.id); }}
+                                  className="p-1 rounded hover:bg-white/10"
+                                  title={S.clearNotesTitle}
+                                >
+                                  <XIcon size={12} style={{ color: "#f87171" }} />
+                                </button>
+                              </div>
+                            </div>
+                            {isOpen && (
+                              <div className="px-3 pb-3 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                                <div className="mb-3">
+                                  <p className="text-[10px] font-medium mb-1.5" style={{ color: "#86868B" }}>{S.chatConversation}</p>
+                                  {questions.length === 0 ? (
+                                    <p className="text-[11px]" style={{ color: "#52525b" }}>{S.noQuestionsYet}</p>
+                                  ) : (
+                                    <div className="flex flex-col gap-1">
+                                      {questions.map((m) => (
+                                        <p key={m.id} className="text-[11px] leading-relaxed truncate" style={{ color: "#a1a1a6" }}>• {m.content}</p>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="text-[10px] font-medium mb-1.5" style={{ color: "#86868B" }}>{S.chatNotes}</p>
+                                  {notes.length === 0 ? (
+                                    <p className="text-[11px] mb-2" style={{ color: "#52525b" }}>{S.noNotesYet}</p>
+                                  ) : (
+                                    notes.map((note, idx) => (
+                                      <div key={idx} className="group flex items-start gap-2 px-2 py-1.5 rounded hover:bg-white/5">
+                                        <Sparkles size={10} className="mt-0.5 shrink-0" style={{ color: "#a78bfa" }} />
+                                        <p className="flex-1 text-[11px] leading-relaxed" style={{ color: "#d1d1d6", whiteSpace: "pre-wrap" }}>{note}</p>
+                                        <button onClick={() => deleteChatNote(chat.id, idx)} className="opacity-0 group-hover:opacity-100 p-1 rounded transition-opacity">
+                                          <Trash2 size={10} style={{ color: "#f87171" }} />
+                                        </button>
+                                      </div>
+                                    ))
+                                  )}
+                                  <div className="flex gap-2 items-start mt-2">
+                                    <textarea
+                                      value={noteInput}
+                                      onChange={(e) => setChatNoteInputs((prev) => ({ ...prev, [chat.id]: e.target.value }))}
+                                      onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addChatNote(chat.id, noteInput); } }}
+                                      placeholder={S.addNotePlaceholder}
+                                      rows={2}
+                                      className="flex-1 rounded-lg px-2.5 py-1.5 text-[11px] resize-y outline-none"
+                                      style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7", minHeight: 44 }}
+                                    />
+                                    <button
+                                      onClick={() => addChatNote(chat.id, noteInput)}
+                                      disabled={!noteInput.trim()}
+                                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium shrink-0"
+                                      style={{
+                                        background: noteInput.trim() ? "linear-gradient(135deg, #8b5cf6, #6366f1)" : "rgba(255,255,255,0.04)",
+                                        color: noteInput.trim() ? "#fff" : "#52525b",
+                                        cursor: noteInput.trim() ? "pointer" : "not-allowed",
+                                      }}
+                                    >
+                                      {S.addBtn}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        ))
-                      )}
-                    </div>
-                  </>
+                        );
+                      })
+                    )}
+                  </div>
                 );
               })()}
             </div>
