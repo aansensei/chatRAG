@@ -113,6 +113,12 @@ const UI_STRINGS = {
     templatePromptPlaceholder: "Nội dung prompt...",
     saveBtn: "Lưu",
     addTemplateBtn: "Thêm mẫu mới",
+    regenerateTitle: "Trả lời lại với model đang chọn",
+    regenerateBtn: "Thử lại",
+    stopBtn: "Dừng",
+    memoryExamplePlaceholder: "VD: Tôi tên Phong, làm AI engineer...",
+    copyBtn: "Sao chép",
+    copiedBtn: "Đã chép",
   },
   en: {
     knowledgeBase: "Knowledge base",
@@ -181,6 +187,12 @@ const UI_STRINGS = {
     templatePromptPlaceholder: "Prompt content...",
     saveBtn: "Save",
     addTemplateBtn: "Add new template",
+    regenerateTitle: "Regenerate with the currently selected model",
+    regenerateBtn: "Retry",
+    stopBtn: "Stop",
+    memoryExamplePlaceholder: "E.g. My name is Phong, I work as an AI engineer...",
+    copyBtn: "Copy",
+    copiedBtn: "Copied",
   },
   zh: {
     knowledgeBase: "知识库",
@@ -249,6 +261,12 @@ const UI_STRINGS = {
     templatePromptPlaceholder: "提示词内容...",
     saveBtn: "保存",
     addTemplateBtn: "添加新模板",
+    regenerateTitle: "使用当前选择的模型重新回答",
+    regenerateBtn: "重试",
+    stopBtn: "停止",
+    memoryExamplePlaceholder: "例：我叫阿峰，是一名 AI 工程师...",
+    copyBtn: "复制",
+    copiedBtn: "已复制",
   },
   ja: {
     knowledgeBase: "ナレッジベース",
@@ -317,6 +335,12 @@ const UI_STRINGS = {
     templatePromptPlaceholder: "プロンプト内容...",
     saveBtn: "保存",
     addTemplateBtn: "新しいテンプレートを追加",
+    regenerateTitle: "現在選択中のモデルで再回答",
+    regenerateBtn: "再試行",
+    stopBtn: "停止",
+    memoryExamplePlaceholder: "例：私はPhongです、AIエンジニアをしています...",
+    copyBtn: "コピー",
+    copiedBtn: "コピー済み",
   },
 } as const;
 
@@ -991,13 +1015,16 @@ function ChatMessage({
   activeSource,
   onFollowUp,
   onRegenerate,
+  uiLang,
 }: {
   message: Message;
   onSourceClick: (source: Source) => void;
   activeSource: string | null;
   onFollowUp?: (text: string) => void;
   onRegenerate?: () => void;
+  uiLang: Lang;
 }) {
+  const S = UI_STRINGS[uiLang];
   const [copied, setCopied] = useState(false);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const copyText = (text: string) => {
@@ -1163,19 +1190,19 @@ function ChatMessage({
             onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
           >
             {copied ? <Check size={11} style={{ color: "#10b981" }} /> : <Copy size={11} />}
-            <span className="text-[10px]">{copied ? "Copied" : "Copy"}</span>
+            <span className="text-[10px]">{copied ? S.copiedBtn : S.copyBtn}</span>
           </button>
           {onRegenerate && !message.isStreaming && (
             <button
               onClick={onRegenerate}
-              title="Trả lời lại với model đang chọn"
+              title={S.regenerateTitle}
               className="flex items-center gap-1.5"
               style={{ color: "#86868B" }}
               onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
               onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
             >
               <RotateCcw size={11} />
-              <span className="text-[10px]">Thử lại</span>
+              <span className="text-[10px]">{S.regenerateBtn}</span>
             </button>
           )}
         </div>
@@ -4508,7 +4535,7 @@ export default function App() {
                       <textarea
                         value={newMemory}
                         onChange={(e) => setNewMemory(e.target.value)}
-                        placeholder="VD: Tôi tên Phong, làm AI engineer..."
+                        placeholder={S.memoryExamplePlaceholder}
                         rows={4}
                         className="flex-1 rounded-lg px-3 py-2 text-[12px] resize-y outline-none"
                         style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7", minHeight: 72 }}
@@ -5020,6 +5047,7 @@ export default function App() {
                   onSourceClick={handleSourceClick}
                   activeSource={activeSourceId}
                   onFollowUp={(t) => sendMessage(t)}
+                  uiLang={uiLang}
                   onRegenerate={
                     msg.role === "assistant" && messages[idx - 1]?.role === "user" && !isProcessing
                       ? () => sendMessage(messages[idx - 1].content)
@@ -5286,7 +5314,7 @@ export default function App() {
                   onClick={stopGeneration}
                   className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200"
                   style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.35)", cursor: "pointer" }}
-                  title="Dừng"
+                  title={S.stopBtn}
                 >
                   <Square size={11} color="#f87171" fill="#f87171" />
                 </button>
