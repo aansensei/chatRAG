@@ -124,6 +124,45 @@ _DATETIME_PAT = re.compile(
 _VN_TZ = zoneinfo.ZoneInfo("Asia/Ho_Chi_Minh")
 _VN_DAYS = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
 
+# Matches a bare "translate to <language>" instruction with no text of its own to
+# translate — e.g. the "Dịch sang tiếng Anh" follow-up suggestion chip. Vector search
+# on a phrase like this matches nothing meaningful (moderate-similarity noise at
+# best), so without this check it fell through to full RAG with irrelevant KB
+# chunks as context instead of recognizing "translate the previous answer."
+_BARE_TRANSLATE_VI_RE = re.compile(
+    r'^\s*(?:hãy\s+|làm ơn\s+|vui lòng\s+)?dịch'
+    r'(?:\s+(?:giúp|giùm|dùm)(?:\s+(?:tôi|mình))?)?'
+    r'(?:\s+(?:cái này|đoạn này|nó|ở trên|câu trả lời))?'
+    r'\s+(?:sang|qua)\s+tiếng\s+(\w+)\s*[.!?]*$',
+    re.IGNORECASE,
+)
+_BARE_TRANSLATE_EN_RE = re.compile(
+    r'^\s*(?:please\s+)?translate'
+    r'(?:\s+(?:this|it|that|the above|the previous (?:answer|response)))?'
+    r'\s+(?:to|into)\s+(\w+)\s*[.!?]*$',
+    re.IGNORECASE,
+)
+_TRANSLATE_LANG_NAMES = {
+    "anh": "English", "việt": "Vietnamese", "viet": "Vietnamese", "nhật": "Japanese", "nhat": "Japanese",
+    "trung": "Chinese", "hàn": "Korean", "han": "Korean", "pháp": "French", "phap": "French",
+    "đức": "German", "duc": "German", "nga": "Russian", "tây ban nha": "Spanish",
+}
+
+
+def _bare_translate_target(question: str) -> str | None:
+    """Returns the target language name if `question` is nothing but a "translate
+    to X" instruction, or None otherwise (including when it has real content of
+    its own, e.g. "dịch câu 'xin chào' sang tiếng anh" — that has something to
+    translate already and shouldn't be redirected to the previous answer)."""
+    m = _BARE_TRANSLATE_VI_RE.match(question.strip())
+    if m:
+        key = m.group(1).strip().lower()
+        return _TRANSLATE_LANG_NAMES.get(key, key.capitalize())
+    m = _BARE_TRANSLATE_EN_RE.match(question.strip())
+    if m:
+        return m.group(1).strip().capitalize()
+    return None
+
 
 def _get_vn_datetime_answer(lang: str) -> str:
     now = datetime.datetime.now(_VN_TZ)
@@ -1393,6 +1432,29 @@ def stream_ask(
         yield from _stream_text_gradually(answer)
         yield _sse({"type": "done", "sources": [], "confidence": 1.0})
         return
+
+    # Bare "translate to X" instruction with a prior assistant turn — translate
+    # that previous answer directly instead of running retrieval, which matches
+    # nothing meaningful for an instruction with no content of its own and can
+    # pull in irrelevant KB chunks that derail the response (reported: the
+    # "Dịch sang tiếng Anh" follow-up chip after a long answer replied "I don't
+    # see anything to translate" instead of translating that answer).
+    _translate_target = _bare_translate_target(question)
+    if _translate_target and history:
+        _last_assistant = next((h.get("content", "") for h in reversed(history) if h.get("role") == "assistant"), "")
+        if _last_assistant.strip():
+            translate_system = (
+                f"Dịch toàn bộ nội dung sau sang tiếng {_translate_target}. Giữ nguyên định dạng "
+                f"(bảng, gạch đầu dòng, in đậm...). CHỈ xuất bản dịch, không thêm lời dẫn hay giải thích."
+                if lang == "vi"
+                else f"Translate the following content into {_translate_target}. Preserve formatting "
+                f"(tables, bullet points, bold...). Output ONLY the translation, no preamble or explanation."
+            )
+            translate_prompt = f"{translate_system}\n\n{_last_assistant}"
+            yield _sse({"type": "step", "step": "generating"})
+            yield from _stream_llm(translate_prompt, ollama_model, api_key, model)
+            yield _sse({"type": "done", "sources": [], "confidence": 1.0})
+            return
 
     confidence_val = None
 
