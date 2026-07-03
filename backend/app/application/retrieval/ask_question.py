@@ -1074,6 +1074,29 @@ def _stream_llm(
     yield from _stream_text_gradually(fb, delay=0.018)
 
 
+def _sanitize_provider_error(provider_label: str, status_code: int) -> str:
+    """User-facing message for a failed provider API call — status code only, no
+    raw response body. Providers' error text can include account-identifying
+    details (e.g. Groq embeds the caller's organization id in every error
+    message: "...in organization org_xxxxx...") that shouldn't be echoed back to
+    whoever is looking at the chat. The full raw error is still logged
+    server-side (see the `logger.warning` call right before each of these)."""
+    if status_code in (401, 403):
+        detail = "API key không hợp lệ hoặc không có quyền truy cập."
+    elif status_code == 404:
+        detail = "Không tìm thấy model này ở provider hiện tại."
+    elif status_code == 413:
+        detail = "Nội dung quá dài cho giới hạn của model này."
+    elif status_code == 429:
+        detail = "Đã hết hạn mức (rate limit/quota). Thử lại sau hoặc đổi model/provider khác."
+    elif status_code >= 500:
+        detail = "Provider đang gặp sự cố phía họ. Thử lại sau."
+    else:
+        detail = "Vui lòng thử lại hoặc đổi model/provider khác."
+    label = f"{provider_label} " if provider_label else ""
+    return f"Lỗi {label}API ({status_code}): {detail}"
+
+
 def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[str, None, None]:
     model_clean = model.replace("models/", "")
     is_25 = "2.5" in model_clean
@@ -1104,7 +1127,7 @@ def _stream_gemini_native(prompt: str, model: str, api_key: str) -> Generator[st
                 except Exception:
                     msg = resp.text
                 logger.warning("Gemini %s error %s: %s", model_clean, resp.status_code, msg[:300])
-                yield _sse({"type": "token", "token": f"Lỗi Gemini API ({resp.status_code}): {msg}"})
+                yield _sse({"type": "token", "token": _sanitize_provider_error("Gemini", resp.status_code)})
                 return
             for line in resp.iter_lines():
                 if not line:
@@ -1160,7 +1183,7 @@ def _stream_anthropic_native(prompt: str, model: str, api_key: str) -> Generator
                 except Exception:
                     msg = resp.text
                 logger.warning("Anthropic %s error %s: %s", model, resp.status_code, msg[:300])
-                yield _sse({"type": "token", "token": f"Lỗi Anthropic API ({resp.status_code}): {msg}"})
+                yield _sse({"type": "token", "token": _sanitize_provider_error("Anthropic", resp.status_code)})
                 return
             event_type = None
             for line in resp.iter_lines():
@@ -1221,7 +1244,14 @@ def _stream_openai_compatible(prompt: str, model: str, api_key: str, base_url: s
                 except Exception:
                     msg = resp.text
                 logger.warning("API %s error %s: %s", base_url, resp.status_code, msg[:300])
-                yield _sse({"type": "token", "token": f"Lỗi API ({resp.status_code}): {msg}"})
+                _provider_label = next(
+                    (label for host, label in (
+                        ("groq.com", "Groq"), ("cerebras.ai", "Cerebras"),
+                        ("openrouter.ai", "OpenRouter"), ("openai.com", "OpenAI"),
+                    ) if host in base_url),
+                    "",
+                )
+                yield _sse({"type": "token", "token": _sanitize_provider_error(_provider_label, resp.status_code)})
                 return
             for line in resp.iter_lines():
                 if not line or line == "data: [DONE]":
