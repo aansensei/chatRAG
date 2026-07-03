@@ -648,7 +648,14 @@ def _search_per_collection(vector: list[float], match_count: int, threshold: flo
     collections = _list_collection_names()
     if not collections:
         return search_chunks(vector, match_count=match_count, threshold=threshold, collections=None)
-    per_collection_k = max(3, match_count // len(collections) + 1)
+    # pgvector's ANN index (ivfflat) approximates "nearest neighbors overall" before
+    # the collection filter is applied, not "nearest within this collection" — verified
+    # a genuinely-relevant chunk scoring 0.54 similarity was invisible to a
+    # collection-filtered search requesting match_count=3 (returned only a 0.37 chunk),
+    # while match_count=5+ reliably found it. A too-small per-collection k doesn't just
+    # return fewer results, it can silently return WORSE ones. 8 is a safety margin
+    # above the observed threshold.
+    per_collection_k = max(8, match_count // len(collections) + 1)
     results: list[dict] = []
     seen_ids: set = set()
     with ThreadPoolExecutor(max_workers=min(8, len(collections))) as ex:
@@ -1668,6 +1675,25 @@ def stream_ask(
                     if not filtered:
                         filtered = chunks
                     else:
+                        # The reranker (a small, fast cross-encoder) ranks its top_n
+                        # purely by its own relative judgment within this batch — for a
+                        # hard/cross-lingual query with no clearly strong candidate, it
+                        # can rank a genuinely dominant vector match below one it
+                        # happens to prefer (verified: a document scoring 0.54 vector
+                        # similarity — clearly the best match in the batch — lost to
+                        # unrelated Kanji-study content the reranker itself would score
+                        # near-zero in an easier, cleaner batch). Fuse the reranker's
+                        # ordering with the original vector-similarity ordering, same
+                        # pattern as the vector+BM25 fusion above, so neither signal
+                        # alone can flip a result the other strongly disagrees with.
+                        filtered_ids = {c.get("id") for c in filtered}
+                        vector_rank_ids = [
+                            c["id"] for c in sorted(chunks, key=lambda x: x.get("similarity", 0.0), reverse=True)
+                            if c.get("id") in filtered_ids
+                        ]
+                        rerank_rank_ids = [c["id"] for c in filtered if c.get("id")]
+                        fused = _reciprocal_rank_fusion([rerank_rank_ids, vector_rank_ids])
+                        filtered.sort(key=lambda c: fused.get(c.get("id"), 0.0), reverse=True)
                         top_score = filtered[0].get("similarity")
                         if isinstance(top_score, (int, float)):
                             import math
