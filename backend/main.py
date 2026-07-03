@@ -22,6 +22,7 @@ from app.presentation.api.ingest import router as ingest_router
 from app.presentation.api.memory import router as memory_router
 from app.presentation.api.metrics import router as metrics_router
 from app.presentation.api.chat import _OLLAMA_URL, _OLLAMA_MODEL
+from app.presentation.middleware.rate_limit import RateLimitMiddleware
 from app.shared.utils.embedders.text_embedder import embed_text
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -107,12 +108,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ChatRAG API", lifespan=lifespan)
 
+# The frontend is served from this same FastAPI app (mounted static files below), so
+# legitimate same-origin browser requests never need CORS headers at all — "*" only
+# opened the door for OTHER origins (e.g. a page in another tab) to read responses
+# from every unauthenticated endpoint. Configurable via CORS_ORIGINS (comma-separated)
+# for when this gets deployed somewhere other than localhost.
+_cors_origins = [o.strip() for o in os.environ.get(
+    "CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
 
 app.include_router(chat_router)
 app.include_router(ingest_router)

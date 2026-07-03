@@ -1,7 +1,9 @@
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import time
 import unicodedata
 from pathlib import Path
@@ -382,14 +384,44 @@ class BrowseRequest(BaseModel):
     url: str
 
 
+def _is_public_url(url: str) -> bool:
+    """Rejects URLs resolving to loopback/private/link-local/reserved addresses —
+    prevents /chat/browse being used as an SSRF proxy to reach internal services
+    (localhost, LAN hosts, cloud metadata endpoints) instead of a real public page."""
+    host = urlparse(url).hostname
+    if not host or host.lower() == "localhost":
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return False
+    return True
+
+
+async def _block_ssrf_redirects(request: httpx.Request) -> None:
+    # httpx fires the "request" event hook for every hop, including redirects — this
+    # re-checks the target on each one so a public URL that 302s to an internal
+    # address can't slip through after the initial URL passed _is_public_url().
+    if not _is_public_url(str(request.url)):
+        raise httpx.RequestError(f"Blocked request to non-public address: {request.url}")
+
+
 @router.post("/browse")
 async def browse_url(body: BrowseRequest):
     url = body.url.strip()
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="URL phải bắt đầu bằng http:// hoặc https://")
+    if not _is_public_url(url):
+        raise HTTPException(status_code=400, detail="URL không hợp lệ hoặc trỏ tới địa chỉ nội bộ.")
     domain = urlparse(url).netloc or url
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=12) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=12, event_hooks={"request": [_block_ssrf_redirects]}
+        ) as client:
             resp = await client.get(
                 url,
                 headers={
@@ -405,7 +437,8 @@ async def browse_url(body: BrowseRequest):
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Timeout khi tải trang. Thử lại sau.")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Không thể tải trang: {e}")
+        logger.warning("browse_url failed for %s: %s", url, e)
+        raise HTTPException(status_code=502, detail="Không thể tải trang. Kiểm tra lại URL hoặc thử lại sau.")
 
 
 @router.get("/sessions")

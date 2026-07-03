@@ -18,6 +18,7 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 STORAGE_PATH = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage"))
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".docx", ".xlsx", ".csv"}
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 
 
 @router.post("/upload")
@@ -34,8 +35,21 @@ async def upload(
 
     STORAGE_PATH.mkdir(parents=True, exist_ok=True)
     file_path = STORAGE_PATH / f"{job_id}{ext}"
-    content = await file.read()
-    file_path.write_bytes(content)
+
+    # Read in chunks and abort as soon as the cap is exceeded, instead of buffering
+    # an arbitrarily large upload fully into memory before checking its size.
+    content = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File quá lớn (giới hạn {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)",
+            )
+    file_path.write_bytes(bytes(content))
 
     set_job_status(job_id, status="queued", step="ocr", progress=0)
     publish("queue:ocr", {
