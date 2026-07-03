@@ -1706,6 +1706,24 @@ def stream_ask(
                 except Exception as e:
                     logger.warning("fetch_context_windows failed: %s", e)
 
+            # Per-source displayed confidence: raw scores aren't comparable across
+            # where a chunk came from (reranker score, raw vector similarity, or the
+            # hardcoded 0.5 keyword-match placeholder), and the reranker's own score
+            # magnitude is relative to whatever else was in its candidate batch, not
+            # a stable per-document probability — a genuinely-cited correct source
+            # could read as 5% while an unrelated one read as 92%, both misleading.
+            # Rescale by relative rank within THIS response's sources instead: the
+            # best-matching source always reads meaningfully high and weaker ones
+            # scale down from there, regardless of which pathway scored them.
+            _raw_scores = [c.get("similarity", 0.0) for c in filtered]
+            _lo, _hi = (min(_raw_scores), max(_raw_scores)) if _raw_scores else (0.0, 0.0)
+            _spread = _hi - _lo
+
+            def _display_confidence(raw: float) -> float:
+                if _spread <= 1e-9:
+                    return 0.75
+                return 0.5 + 0.47 * (raw - _lo) / _spread
+
             # Build sources and the prompt's [N] numbering from the SAME final list, with
             # the SAME index — otherwise a citation the LLM emits has no matching source
             # for the frontend to make clickable.
@@ -1723,7 +1741,7 @@ def stream_ask(
                     "id": i + 1,
                     "content": c["content"][:200],
                     "section": section or None,
-                    "similarity": round(c["similarity"], 3),
+                    "similarity": round(_display_confidence(c.get("similarity", 0.0)), 3),
                     "filename": filename,
                     "document_id": doc_id,
                 })
