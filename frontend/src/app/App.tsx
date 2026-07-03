@@ -39,6 +39,7 @@ import {
   ExternalLink,
   RotateCcw,
   LayoutTemplate,
+  Star,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -109,6 +110,10 @@ const UI_STRINGS = {
     promptTemplatesBtn: "Mẫu prompt có sẵn",
     promptTemplatesHeader: "Mẫu prompt",
     deleteTemplateTitle: "Xóa mẫu",
+    pinTemplateTitle: "Ghim mẫu",
+    unpinTemplateTitle: "Bỏ ghim",
+    templateSearchPlaceholder: "Tìm mẫu prompt...",
+    templateNoResults: "Không tìm thấy mẫu nào",
     templateNamePlaceholder: "Tên mẫu...",
     templatePromptPlaceholder: "Nội dung prompt...",
     templatePlaceholderHint: "Mẹo: dùng [chỗ cần điền] trong prompt — khi chèn mẫu, phần này sẽ tự bôi đen để bạn gõ đè lên.",
@@ -116,6 +121,8 @@ const UI_STRINGS = {
     addTemplateBtn: "Thêm mẫu mới",
     regenerateTitle: "Trả lời lại với model đang chọn",
     regenerateBtn: "Thử lại",
+    regenerateWithModelTitle: "Thử lại với model khác",
+    regenerateModelMenuHeader: "Chọn model để thử lại",
     stopBtn: "Dừng",
     memoryExamplePlaceholder: "VD: Tôi tên Phong, làm AI engineer...",
     copyBtn: "Sao chép",
@@ -186,6 +193,10 @@ const UI_STRINGS = {
     promptTemplatesBtn: "Prompt templates",
     promptTemplatesHeader: "Templates",
     deleteTemplateTitle: "Delete template",
+    pinTemplateTitle: "Pin template",
+    unpinTemplateTitle: "Unpin",
+    templateSearchPlaceholder: "Search templates...",
+    templateNoResults: "No templates found",
     templateNamePlaceholder: "Template name...",
     templatePromptPlaceholder: "Prompt content...",
     templatePlaceholderHint: "Tip: use [fill-in text] in the prompt — it gets auto-selected when the template is inserted, so you can type right over it.",
@@ -193,6 +204,8 @@ const UI_STRINGS = {
     addTemplateBtn: "Add new template",
     regenerateTitle: "Regenerate with the currently selected model",
     regenerateBtn: "Retry",
+    regenerateWithModelTitle: "Retry with a different model",
+    regenerateModelMenuHeader: "Choose a model to retry with",
     stopBtn: "Stop",
     memoryExamplePlaceholder: "E.g. My name is Phong, I work as an AI engineer...",
     copyBtn: "Copy",
@@ -263,6 +276,10 @@ const UI_STRINGS = {
     promptTemplatesBtn: "提示词模板",
     promptTemplatesHeader: "模板",
     deleteTemplateTitle: "删除模板",
+    pinTemplateTitle: "置顶模板",
+    unpinTemplateTitle: "取消置顶",
+    templateSearchPlaceholder: "搜索模板...",
+    templateNoResults: "未找到相关模板",
     templateNamePlaceholder: "模板名称...",
     templatePromptPlaceholder: "提示词内容...",
     templatePlaceholderHint: "提示：在提示词中使用 [待填写内容] — 插入模板时会自动选中该部分，方便直接输入替换。",
@@ -270,6 +287,8 @@ const UI_STRINGS = {
     addTemplateBtn: "添加新模板",
     regenerateTitle: "使用当前选择的模型重新回答",
     regenerateBtn: "重试",
+    regenerateWithModelTitle: "使用其他模型重试",
+    regenerateModelMenuHeader: "选择重试所用的模型",
     stopBtn: "停止",
     memoryExamplePlaceholder: "例：我叫阿峰，是一名 AI 工程师...",
     copyBtn: "复制",
@@ -340,6 +359,10 @@ const UI_STRINGS = {
     promptTemplatesBtn: "プロンプトテンプレート",
     promptTemplatesHeader: "テンプレート",
     deleteTemplateTitle: "テンプレートを削除",
+    pinTemplateTitle: "テンプレートをピン留め",
+    unpinTemplateTitle: "ピン留め解除",
+    templateSearchPlaceholder: "テンプレートを検索...",
+    templateNoResults: "該当するテンプレートがありません",
     templateNamePlaceholder: "テンプレート名...",
     templatePromptPlaceholder: "プロンプト内容...",
     templatePlaceholderHint: "ヒント: プロンプト内で [記入する箇所] のように書くと、テンプレート挿入時にその部分が自動選択され、そのまま上書き入力できます。",
@@ -347,6 +370,8 @@ const UI_STRINGS = {
     addTemplateBtn: "新しいテンプレートを追加",
     regenerateTitle: "現在選択中のモデルで再回答",
     regenerateBtn: "再試行",
+    regenerateWithModelTitle: "別のモデルで再試行",
+    regenerateModelMenuHeader: "再試行に使うモデルを選択",
     stopBtn: "停止",
     memoryExamplePlaceholder: "例：私はPhongです、AIエンジニアをしています...",
     copyBtn: "コピー",
@@ -427,7 +452,7 @@ function saveChatsToStorage(chats: Chat[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
 }
 
-type PromptTemplate = { id: string; name: string; prompt: string };
+type PromptTemplate = { id: string; name: string; prompt: string; pinned?: boolean };
 
 const DEFAULT_PROMPT_TEMPLATES: Record<Lang, PromptTemplate[]> = {
   vi: [
@@ -1028,17 +1053,31 @@ function ChatMessage({
   onFollowUp,
   onRegenerate,
   uiLang,
+  availableModels,
 }: {
   message: Message;
   onSourceClick: (source: Source) => void;
   activeSource: string | null;
   onFollowUp?: (text: string) => void;
-  onRegenerate?: () => void;
+  onRegenerate?: (modelId?: string) => void;
   uiLang: Lang;
+  availableModels?: { id: string; label: string; providerLabel: string }[];
 }) {
   const S = UI_STRINGS[uiLang];
   const [copied, setCopied] = useState(false);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    const close = (e: MouseEvent) => {
+      if (modelPickerRef.current?.contains(e.target as Node)) return;
+      setModelPickerOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [modelPickerOpen]);
   const copyText = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -1205,17 +1244,54 @@ function ChatMessage({
             <span className="text-[10px]">{copied ? S.copiedBtn : S.copyBtn}</span>
           </button>
           {onRegenerate && !message.isStreaming && (
-            <button
-              onClick={onRegenerate}
-              title={S.regenerateTitle}
-              className="flex items-center gap-1.5"
-              style={{ color: "#86868B" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
-            >
-              <RotateCcw size={11} />
-              <span className="text-[10px]">{S.regenerateBtn}</span>
-            </button>
+            <div className="relative flex items-center" ref={modelPickerRef}>
+              <button
+                onClick={() => onRegenerate()}
+                title={S.regenerateTitle}
+                className="flex items-center gap-1.5"
+                style={{ color: "#86868B" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#86868B")}
+              >
+                <RotateCcw size={11} />
+                <span className="text-[10px]">{S.regenerateBtn}</span>
+              </button>
+              {availableModels && availableModels.length > 0 && (
+                <button
+                  onClick={() => setModelPickerOpen((v) => !v)}
+                  title={S.regenerateWithModelTitle}
+                  className="ml-0.5 flex items-center"
+                  style={{ color: modelPickerOpen ? "#d1d1d6" : "#86868B" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = modelPickerOpen ? "#d1d1d6" : "#86868B")}
+                >
+                  <ChevronDown size={11} />
+                </button>
+              )}
+              {modelPickerOpen && (
+                <div
+                  className="absolute left-0 bottom-full mb-2 rounded-xl overflow-hidden z-50 py-1 scrollbar-thin"
+                  style={{ minWidth: 200, maxHeight: 260, overflowY: "auto", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+                >
+                  <div className="px-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                    <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>{S.regenerateModelMenuHeader}</p>
+                  </div>
+                  {availableModels.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setModelPickerOpen(false); onRegenerate(m.id); }}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] transition-colors text-left"
+                      style={{ color: "#c7c7cc" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span className="truncate">{m.label}</span>
+                      <span className="text-[9px] shrink-0" style={{ color: "rgba(134,134,139,0.6)" }}>{m.providerLabel}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -2758,6 +2834,7 @@ export default function App() {
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTemplatePrompt, setNewTemplatePrompt] = useState("");
+  const [templateSearch, setTemplateSearch] = useState("");
   const templateMenuRef = useRef<HTMLDivElement>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>(() => (localStorage.getItem("ui_lang") as Lang) || "vi");
@@ -2771,7 +2848,14 @@ export default function App() {
     // (added/removed any), so real user edits are never overwritten.
     const defaultIds = new Set(["d1", "d2", "d3", "d4", "d5"]);
     const currentIds = promptTemplates.map((t) => t.id);
-    const isUntouchedDefaults = currentIds.length === defaultIds.size && currentIds.every((id) => defaultIds.has(id));
+    // A pinned template is real user customization even though its id is still
+    // one of the defaults — without this check, pinning one and later touching
+    // this effect again (e.g. a page reload) would silently wipe the pin, since
+    // the id-set check alone can't tell "untouched" apart from "same 5 ids, but
+    // the user changed something about them."
+    const isUntouchedDefaults = currentIds.length === defaultIds.size
+      && currentIds.every((id) => defaultIds.has(id))
+      && !promptTemplates.some((t) => t.pinned);
     if (isUntouchedDefaults) {
       const fresh = DEFAULT_PROMPT_TEMPLATES[uiLang] || DEFAULT_PROMPT_TEMPLATES.vi;
       setPromptTemplates(fresh);
@@ -2800,6 +2884,29 @@ export default function App() {
   const [serverProviders, setServerProviders] = useState<Record<string, boolean>>({});
   const [orModels, setOrModels] = useState<{id:string,label:string,note:string}[]>(OPENROUTER_MODELS_FALLBACK);
   const [orLoading, setOrLoading] = useState(false);
+
+  // Models available for "regenerate with a different model" — only providers with
+  // a configured key (local or server .env), since offering a model that will just
+  // fail on click isn't useful. Ollama is always available (no key needed).
+  const availableModelsForRegenerate = useMemo(() => {
+    const list: { id: string; label: string; providerLabel: string }[] = LOCAL_MODELS.map((m) => ({
+      id: m.id, label: m.label, providerLabel: "Ollama",
+    }));
+    const providerDefs: { id: string; label: string; key: string; models: { id: string; label: string }[] }[] = [
+      { id: "groq", label: "Groq", key: apiKeyGroq, models: GROQ_MODELS },
+      { id: "cerebras", label: "Cerebras", key: apiKeyCerebras, models: CEREBRAS_MODELS },
+      { id: "openai", label: "OpenAI", key: apiKeyOpenAI, models: OPENAI_MODELS },
+      { id: "gemini", label: "Gemini", key: apiKeyGemini, models: GEMINI_MODELS },
+      { id: "openrouter", label: "OpenRouter", key: apiKeyOpenRouter, models: orModels },
+      { id: "anthropic", label: "Anthropic", key: apiKeyAnthropic, models: ANTHROPIC_MODELS },
+    ];
+    for (const p of providerDefs) {
+      if (p.key.trim() || serverProviders[p.id]) {
+        list.push(...p.models.map((m) => ({ id: m.id, label: m.label, providerLabel: p.label })));
+      }
+    }
+    return list;
+  }, [apiKeyGroq, apiKeyCerebras, apiKeyOpenAI, apiKeyGemini, apiKeyOpenRouter, apiKeyAnthropic, orModels, serverProviders]);
 
   const [modelMenuView, setModelMenuView] = useState<"providers" | "ollama" | "groq" | "openai" | "gemini" | "openrouter" | "cerebras" | "anthropic">("providers");
   const [editingProviderKey, setEditingProviderKey] = useState<string | null>(null);
@@ -3116,6 +3223,8 @@ export default function App() {
     return () => document.removeEventListener("mousedown", close);
   }, [templateMenuOpen]);
 
+  useEffect(() => { if (!templateMenuOpen) setTemplateSearch(""); }, [templateMenuOpen]);
+
   const applyTemplate = (t: PromptTemplate, send = false) => {
     const placeholder = t.prompt.match(/\[[^\]]+\]/);
     let combined: string;
@@ -3178,6 +3287,26 @@ export default function App() {
     setPromptTemplates(updated);
     savePromptTemplates(updated);
   };
+
+  const togglePinTemplate = (id: string) => {
+    const updated = promptTemplates.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t));
+    setPromptTemplates(updated);
+    savePromptTemplates(updated);
+  };
+
+  // Pinned templates float to the top (stable order within each group); a search
+  // box only shows up once the list is long enough that scanning it gets tedious.
+  const visibleTemplates = useMemo(() => {
+    // Only apply the filter when the search box is actually shown (list > 6) —
+    // otherwise deleting templates down to a short list while a search term was
+    // still active hides the (now invisible) search box but leaves its stale
+    // filter in effect, stranding the user at an unclearable "no results" state.
+    const q = promptTemplates.length > 6 ? templateSearch.trim().toLowerCase() : "";
+    const filtered = q
+      ? promptTemplates.filter((t) => t.name.toLowerCase().includes(q) || t.prompt.toLowerCase().includes(q))
+      : promptTemplates;
+    return [...filtered].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  }, [promptTemplates, templateSearch]);
 
   useEffect(() => { if (!profileOpen) setLangMenuOpen(false); }, [profileOpen]);
   useEffect(() => {
@@ -3276,9 +3405,10 @@ export default function App() {
     });
   }, []);
 
-  const sendMessage = async (text?: string) => {
+  const sendMessage = async (text?: string, modelOverride?: string) => {
     const content = (text ?? input).trim();
     if (!content || isProcessing) return;
+    const modelForRequest = modelOverride ?? activeModel;
 
     flushSync(() => {
       setInput("");
@@ -3428,10 +3558,10 @@ export default function App() {
           question: questionToSend,
           collections: chatScope.type === "selected" ? chatScope.collections : null,
           hybrid: hybridMode,
-          model: migrateModel(activeModel),
+          model: migrateModel(modelForRequest),
           history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
           chat_notes: (() => { const n = chats.find((c) => c.id === activeChatId)?.notes; return Array.isArray(n) ? n.join("\n") : (n as unknown as string) || ""; })(),
-          api_key: getActiveApiKey(migrateModel(activeModel)),
+          api_key: getActiveApiKey(migrateModel(modelForRequest)),
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -3528,8 +3658,8 @@ export default function App() {
               question: content,
               answer: finalContent.slice(0, 800),
               source_filenames: finalSources.slice(0, 3).map((s) => s.filename || s.title),
-              model: migrateModel(activeModel),
-              api_key: getActiveApiKey(migrateModel(activeModel)),
+              model: migrateModel(modelForRequest),
+              api_key: getActiveApiKey(migrateModel(modelForRequest)),
             }),
           });
           if (!r.ok) return;
@@ -5100,9 +5230,10 @@ export default function App() {
                   activeSource={activeSourceId}
                   onFollowUp={(t) => sendMessage(t)}
                   uiLang={uiLang}
+                  availableModels={availableModelsForRegenerate}
                   onRegenerate={
                     msg.role === "assistant" && messages[idx - 1]?.role === "user" && !isProcessing
-                      ? () => sendMessage(messages[idx - 1].content)
+                      ? (modelId?: string) => sendMessage(messages[idx - 1].content, modelId)
                       : undefined
                   }
                 />
@@ -5234,11 +5365,28 @@ export default function App() {
                     <div className="px-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                       <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>{S.promptTemplatesHeader}</p>
                     </div>
-                    {promptTemplates.map((t) => (
+                    {promptTemplates.length > 6 && (
+                      <div className="px-2 pt-1.5 pb-1">
+                        <div className="relative">
+                          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "rgba(134,134,139,0.5)" }} />
+                          <input
+                            value={templateSearch}
+                            onChange={(e) => setTemplateSearch(e.target.value)}
+                            placeholder={S.templateSearchPlaceholder}
+                            className="w-full pl-6 pr-2 py-1.5 rounded-lg text-[11px] outline-none"
+                            style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7" }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {visibleTemplates.length === 0 && (
+                      <p className="px-3 py-3 text-[10px] text-center" style={{ color: "rgba(134,134,139,0.4)" }}>{S.templateNoResults}</p>
+                    )}
+                    {visibleTemplates.map((t) => (
                       <div key={t.id} className="group/tpl flex items-center px-1">
                         <button
                           onClick={() => applyTemplate(t)}
-                          className="flex-1 text-left px-2 py-2 text-[11px] rounded-lg transition-colors"
+                          className="flex-1 text-left px-2 py-2 text-[11px] rounded-lg transition-colors truncate"
                           style={{ color: "#c7c7cc" }}
                           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
                           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -5251,6 +5399,13 @@ export default function App() {
                           className="p-1.5 rounded opacity-0 group-hover/tpl:opacity-100 transition-opacity"
                         >
                           <ArrowUp size={10} style={{ color: "#60a5fa" }} />
+                        </button>
+                        <button
+                          onClick={() => togglePinTemplate(t.id)}
+                          title={t.pinned ? S.unpinTemplateTitle : S.pinTemplateTitle}
+                          className={`p-1.5 rounded transition-opacity ${t.pinned ? "opacity-100" : "opacity-0 group-hover/tpl:opacity-100"}`}
+                        >
+                          <Star size={10} style={{ color: t.pinned ? "#f5a623" : "#86868B" }} fill={t.pinned ? "#f5a623" : "none"} />
                         </button>
                         <button
                           onClick={() => startEditTemplate(t)}
