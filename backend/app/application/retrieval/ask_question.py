@@ -1576,16 +1576,33 @@ def stream_ask(
             kw_tokens = _KEYWORD_RE.findall(question)
             kw_tokens += [w for w in re.findall(r'\w+', question) if len(w) >= 4]
             q_lower = question.lower()
-            for vi_term, abbr in _VI_ABBR.items():
-                if vi_term in q_lower:
-                    kw_tokens.append(abbr)
+            matched_abbrs = [abbr for vi_term, abbr in _VI_ABBR.items() if vi_term in q_lower]
+            kw_tokens += matched_abbrs
             stripped_q = _strip_accents(question)
             if stripped_q != question:
                 kw_tokens += [w for w in re.findall(r'\w+', stripped_q) if len(w) >= 4]
             kw_tokens = list(dict.fromkeys(kw_tokens))
-            if kw_tokens and not filename_doc_ids:
+
+            # keyword_search_chunks does an unranked ILIKE scan (no ORDER BY,
+            # capped at a handful of rows per keyword) — it exists to catch exact
+            # codes/identifiers vector search misses, not generic prose. Feeding it
+            # ordinary dictionary words (which nearly every question contains, e.g.
+            # "chính", "sách", "nhân" here) meant whichever chunks happened to sort
+            # first in the DB for that word dominated the candidate pool regardless
+            # of topic — verified this flooded an unrelated "HR policy" query with
+            # 24+ chunks from a completely unrelated Japanese-study collection,
+            # crowding out and outranking the actual relevant document. Only
+            # identifier-shaped or digit-bearing tokens are specific enough for
+            # this unranked lookup; plain words still get proper IDF-weighted
+            # relevance through BM25 below.
+            ilike_tokens = list(dict.fromkeys(
+                _KEYWORD_RE.findall(question)
+                + matched_abbrs
+                + [t for t in kw_tokens if any(ch.isdigit() for ch in t)]
+            ))
+            if ilike_tokens and not filename_doc_ids:
                 seen_ids = {c.get("id") for c in chunks if c.get("id")}
-                for kw_chunk in keyword_search_chunks(kw_tokens[:6], collections=collections or None):
+                for kw_chunk in keyword_search_chunks(ilike_tokens[:6], collections=collections or None):
                     if kw_chunk.get("id") not in seen_ids:
                         chunks.append(kw_chunk)
                         seen_ids.add(kw_chunk.get("id"))
