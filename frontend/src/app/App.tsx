@@ -111,6 +111,7 @@ const UI_STRINGS = {
     deleteTemplateTitle: "Xóa mẫu",
     templateNamePlaceholder: "Tên mẫu...",
     templatePromptPlaceholder: "Nội dung prompt...",
+    templatePlaceholderHint: "Mẹo: dùng [chỗ cần điền] trong prompt — khi chèn mẫu, phần này sẽ tự bôi đen để bạn gõ đè lên.",
     saveBtn: "Lưu",
     addTemplateBtn: "Thêm mẫu mới",
     regenerateTitle: "Trả lời lại với model đang chọn",
@@ -187,6 +188,7 @@ const UI_STRINGS = {
     deleteTemplateTitle: "Delete template",
     templateNamePlaceholder: "Template name...",
     templatePromptPlaceholder: "Prompt content...",
+    templatePlaceholderHint: "Tip: use [fill-in text] in the prompt — it gets auto-selected when the template is inserted, so you can type right over it.",
     saveBtn: "Save",
     addTemplateBtn: "Add new template",
     regenerateTitle: "Regenerate with the currently selected model",
@@ -263,6 +265,7 @@ const UI_STRINGS = {
     deleteTemplateTitle: "删除模板",
     templateNamePlaceholder: "模板名称...",
     templatePromptPlaceholder: "提示词内容...",
+    templatePlaceholderHint: "提示：在提示词中使用 [待填写内容] — 插入模板时会自动选中该部分，方便直接输入替换。",
     saveBtn: "保存",
     addTemplateBtn: "添加新模板",
     regenerateTitle: "使用当前选择的模型重新回答",
@@ -339,6 +342,7 @@ const UI_STRINGS = {
     deleteTemplateTitle: "テンプレートを削除",
     templateNamePlaceholder: "テンプレート名...",
     templatePromptPlaceholder: "プロンプト内容...",
+    templatePlaceholderHint: "ヒント: プロンプト内で [記入する箇所] のように書くと、テンプレート挿入時にその部分が自動選択され、そのまま上書き入力できます。",
     saveBtn: "保存",
     addTemplateBtn: "新しいテンプレートを追加",
     regenerateTitle: "現在選択中のモデルで再回答",
@@ -427,32 +431,32 @@ type PromptTemplate = { id: string; name: string; prompt: string };
 
 const DEFAULT_PROMPT_TEMPLATES: Record<Lang, PromptTemplate[]> = {
   vi: [
-    { id: "d1", name: "Tóm tắt báo cáo", prompt: "Tóm tắt tài liệu sau thành các gạch đầu dòng ngắn gọn, nêu rõ số liệu quan trọng: " },
-    { id: "d2", name: "Dịch sang tiếng Anh", prompt: "Dịch đoạn văn sau sang tiếng Anh, giữ nguyên văn phong: " },
-    { id: "d3", name: "Hỏi đáp chính sách", prompt: "Câu hỏi thường gặp về " },
-    { id: "d4", name: "So sánh chi tiết", prompt: "So sánh chi tiết các phương án/tài liệu sau, trình bày dạng bảng: " },
-    { id: "d5", name: "Giải thích đơn giản", prompt: "Giải thích nội dung sau như đang nói với người mới bắt đầu, tránh thuật ngữ chuyên môn: " },
+    { id: "d1", name: "Tóm tắt báo cáo", prompt: "Tóm tắt [tài liệu] thành các gạch đầu dòng ngắn gọn, nêu rõ số liệu quan trọng." },
+    { id: "d2", name: "Dịch sang tiếng Anh", prompt: "Dịch [đoạn văn sau] sang tiếng Anh, giữ nguyên văn phong." },
+    { id: "d3", name: "Hỏi đáp chính sách", prompt: "Câu hỏi thường gặp về [chủ đề]." },
+    { id: "d4", name: "So sánh chi tiết", prompt: "So sánh chi tiết [các phương án/tài liệu], trình bày dạng bảng." },
+    { id: "d5", name: "Giải thích đơn giản", prompt: "Giải thích [nội dung] như đang nói với người mới bắt đầu, tránh thuật ngữ chuyên môn." },
   ],
   en: [
-    { id: "d1", name: "Summarize report", prompt: "Summarize the following document into concise bullet points, highlighting key figures: " },
-    { id: "d2", name: "Translate to English", prompt: "Translate the following passage into English, keeping the original tone: " },
-    { id: "d3", name: "Policy FAQ", prompt: "Frequently asked questions about " },
-    { id: "d4", name: "Detailed comparison", prompt: "Compare the following options/documents in detail, presented as a table: " },
-    { id: "d5", name: "Explain simply", prompt: "Explain the following as if talking to a beginner, avoiding jargon: " },
+    { id: "d1", name: "Summarize report", prompt: "Summarize [the document] into concise bullet points, highlighting key figures." },
+    { id: "d2", name: "Translate to English", prompt: "Translate [the passage] into English, keeping the original tone." },
+    { id: "d3", name: "Policy FAQ", prompt: "Frequently asked questions about [the topic]." },
+    { id: "d4", name: "Detailed comparison", prompt: "Compare [the options/documents] in detail, presented as a table." },
+    { id: "d5", name: "Explain simply", prompt: "Explain [the content] as if talking to a beginner, avoiding jargon." },
   ],
   zh: [
-    { id: "d1", name: "总结报告", prompt: "将以下文档总结为简明的要点，突出重要数据：" },
-    { id: "d2", name: "翻译成英文", prompt: "将以下段落翻译成英文，保持原有风格：" },
-    { id: "d3", name: "政策问答", prompt: "关于以下内容的常见问题：" },
-    { id: "d4", name: "详细对比", prompt: "详细比较以下方案/文档，以表格形式呈现：" },
-    { id: "d5", name: "简单解释", prompt: "像对初学者解释一样说明以下内容，避免专业术语：" },
+    { id: "d1", name: "总结报告", prompt: "将[文档]总结为简明的要点，突出重要数据。" },
+    { id: "d2", name: "翻译成英文", prompt: "将[段落]翻译成英文，保持原有风格。" },
+    { id: "d3", name: "政策问答", prompt: "关于[主题]的常见问题。" },
+    { id: "d4", name: "详细对比", prompt: "详细比较[方案/文档]，以表格形式呈现。" },
+    { id: "d5", name: "简单解释", prompt: "像对初学者解释一样说明[内容]，避免专业术语。" },
   ],
   ja: [
-    { id: "d1", name: "レポート要約", prompt: "以下の文書を簡潔な箇条書きにまとめ、重要な数値を明記してください：" },
-    { id: "d2", name: "英語に翻訳", prompt: "以下の文章を元の文体を保ったまま英語に翻訳してください：" },
-    { id: "d3", name: "よくある質問", prompt: "次についてのよくある質問：" },
-    { id: "d4", name: "詳細比較", prompt: "以下の選択肢・資料を表形式で詳しく比較してください：" },
-    { id: "d5", name: "簡単に説明", prompt: "専門用語を避け、初心者に説明するように以下の内容を説明してください：" },
+    { id: "d1", name: "レポート要約", prompt: "[文書]を簡潔な箇条書きにまとめ、重要な数値を明記してください。" },
+    { id: "d2", name: "英語に翻訳", prompt: "[文章]を元の文体を保ったまま英語に翻訳してください。" },
+    { id: "d3", name: "よくある質問", prompt: "[トピック]についてのよくある質問。" },
+    { id: "d4", name: "詳細比較", prompt: "[選択肢・資料]を表形式で詳しく比較してください。" },
+    { id: "d5", name: "簡単に説明", prompt: "専門用語を避け、初心者に説明するように[内容]を説明してください。" },
   ],
 };
 
@@ -3113,20 +3117,38 @@ export default function App() {
   }, [templateMenuOpen]);
 
   const applyTemplate = (t: PromptTemplate, send = false) => {
-    const combined = input.trim() ? `${t.prompt}${input}` : t.prompt;
+    const placeholder = t.prompt.match(/\[[^\]]+\]/);
+    let combined: string;
+    let selectRange: [number, number] | null = null;
+    if (placeholder && input.trim()) {
+      // A blank already exists in the template — drop what the user typed
+      // into it so the result reads as one sentence instead of two glued
+      // together ("Tóm tắt tài liệu: " + "báo cáo Q4" looked clumsier than
+      // "Tóm tắt báo cáo Q4 thành...").
+      combined = t.prompt.replace(placeholder[0], input.trim());
+    } else if (placeholder) {
+      combined = t.prompt;
+      selectRange = [placeholder.index!, placeholder.index! + placeholder[0].length];
+    } else {
+      // Legacy/custom templates without a "[...]" blank: old prefix+append behavior.
+      combined = input.trim() ? `${t.prompt}${input}` : t.prompt;
+    }
     setTemplateMenuOpen(false);
-    // Templates are prefixes expecting something after them ("Tóm tắt tài
-    // liệu sau: ") — sending one with nothing filled in produces a vague
-    // request with no specific document/topic, which sends the RAG search
-    // off in random directions instead of failing loudly. Only allow
-    // one-click send when there's actual content to go with the template.
+    // Sending a template with its blank still unfilled (empty input, no
+    // placeholder to substitute) produces a vague request with no specific
+    // document/topic, sending the RAG search off in random directions instead
+    // of failing loudly. Only allow one-click send when there's actual content.
     if (send && input.trim()) {
       setInput("");
       sendMessage(combined);
       return;
     }
     setInput(combined);
-    setTimeout(() => { textareaRef.current?.focus(); autoResize(); }, 0);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      autoResize();
+      if (selectRange) textareaRef.current?.setSelectionRange(selectRange[0], selectRange[1]);
+    }, 0);
   };
 
   const addTemplate = () => {
@@ -5265,6 +5287,7 @@ export default function App() {
                             className="px-2 py-1.5 rounded-lg text-[11px] outline-none resize-none"
                             style={{ background: "#0f0f10", border: "1px solid rgba(255,255,255,0.08)", color: "#f5f5f7" }}
                           />
+                          <p className="px-0.5 text-[9px] leading-snug select-none" style={{ color: "rgba(134,134,139,0.6)" }}>{S.templatePlaceholderHint}</p>
                           <div className="flex gap-1.5">
                             <button
                               onClick={addTemplate}
