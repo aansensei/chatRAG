@@ -21,6 +21,7 @@ from app.presentation.api.chat import router as chat_router
 from app.presentation.api.ingest import router as ingest_router
 from app.presentation.api.memory import router as memory_router
 from app.presentation.api.metrics import router as metrics_router
+from app.presentation.api.chat import _OLLAMA_URL, _OLLAMA_MODEL
 from app.shared.utils.embedders.text_embedder import embed_text
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -45,6 +46,22 @@ def _spawn(module: str) -> subprocess.Popen:
         cwd=os.path.dirname(os.path.abspath(__file__)),
         **kwargs,
     )
+
+
+def _warm_ollama():
+    # Preloads the suggestions model into Ollama's memory in the background so
+    # the first "/chat/suggestions" call after a restart doesn't hit the model's
+    # cold-start latency and silently fall back to static templates.
+    import httpx
+    try:
+        httpx.post(
+            f"{_OLLAMA_URL}/api/generate",
+            json={"model": _OLLAMA_MODEL, "prompt": "hi", "stream": False, "keep_alive": "30m"},
+            timeout=httpx.Timeout(connect=3.0, read=30.0, write=2.0, pool=2.0),
+        )
+        logger.info(f"[lifespan] Ollama model {_OLLAMA_MODEL} warmed up")
+    except Exception as exc:
+        logger.warning(f"[lifespan] Ollama warmup failed (will load on first request): {exc}")
 
 
 def _watchdog():
@@ -77,6 +94,8 @@ async def lifespan(app: FastAPI):
         logger.info(f"[lifespan] embedding model warmed up in {time.time() - t0:.1f}s")
     except Exception as exc:
         logger.warning(f"[lifespan] embedding model warmup failed (will load on first request): {exc}")
+
+    threading.Thread(target=_warm_ollama, daemon=True).start()
 
     yield
 

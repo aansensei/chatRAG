@@ -201,6 +201,18 @@ def _doc_name(source: str) -> str:
     return base.rsplit(".", 1)[0].strip()
 
 
+_SUGGESTIONS_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"title": {"type": "string"}, "subtitle": {"type": "string"}},
+        "required": ["title", "subtitle"],
+    },
+    "minItems": 4,
+    "maxItems": 4,
+}
+
+
 def _llm_generate_suggestions(names: list[str], lang: str) -> list[dict]:
     """Call local Ollama to generate contextual suggestions from document names."""
     lang_name = {"vi": "Vietnamese", "en": "English", "zh": "Chinese", "ja": "Japanese"}.get(lang, "Vietnamese")
@@ -209,24 +221,36 @@ def _llm_generate_suggestions(names: list[str], lang: str) -> list[dict]:
         f"Document names in the knowledge base:\n{names_str}\n\n"
         f"Generate exactly 4 short, useful suggestions a user might want to do with these documents.\n"
         f"Language: {lang_name}\n"
-        f"Rules: title is 4-8 words, subtitle is 5-12 words. Return ONLY a JSON array.\n"
-        f'Example: [{{"title": "...", "subtitle": "..."}}, ...]\n'
-        f"JSON array:"
+        f"Rules: title is 4-8 words, subtitle is 5-12 words."
     )
     try:
         resp = httpx.post(
             f"{_OLLAMA_URL}/api/generate",
-            json={"model": _OLLAMA_MODEL, "prompt": prompt, "stream": False, "options": {"num_predict": 350, "temperature": 0.8}},
-            timeout=httpx.Timeout(connect=3.0, read=12.0, write=2.0, pool=2.0),
+            json={
+                "model": _OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": "30m",
+                # Schema-constrained output (Ollama structured outputs) — a plain
+                # text prompt asking for "a JSON array" let the model occasionally
+                # emit an unescaped quote inside a string, or a single object
+                # instead of an array of 4, producing unparseable/wrong-shape
+                # output. The schema forces both valid JSON and the exact shape.
+                "format": _SUGGESTIONS_SCHEMA,
+                # 4 Vietnamese/Japanese objects can run past 350 tokens (diacritics
+                # cost more tokens per word than English) and get cut off mid-JSON.
+                "options": {"num_predict": 500, "temperature": 0.8},
+            },
+            # gemma3 cold-start (model not yet loaded into memory) can take 15s+
+            # on this hardware; a too-tight timeout was silently falling back to
+            # the static templates on nearly every call.
+            timeout=httpx.Timeout(connect=3.0, read=25.0, write=2.0, pool=2.0),
         )
         if resp.status_code != 200:
             return []
         raw = resp.json().get("response", "").strip()
-        m = re.search(r'\[.*?\]', raw, re.DOTALL)
-        if not m:
-            return []
         import json as _json
-        data = _json.loads(m.group())
+        data = _json.loads(raw)
         if isinstance(data, list) and len(data) >= 2:
             return [{"title": str(item.get("title", "")), "subtitle": str(item.get("subtitle", ""))} for item in data[:4] if item.get("title")]
     except Exception:
