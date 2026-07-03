@@ -1449,7 +1449,7 @@ function SourcePanel({ source, onClose, onOpenDoc }: { source: Source; onClose: 
         </div>
 
         {/* Excerpt */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-5">
           <p className="text-[11px] font-medium uppercase tracking-widest mb-3" style={{ color: "#86868B" }}>
             Retrieved Excerpt
           </p>
@@ -1780,7 +1780,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
               <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.7)" }}>{T.selectTargetFolder}</p>
               <button onMouseDown={() => setSyncMenu("choose")} className="text-[10px]" style={{ color: "rgba(134,134,139,0.5)" }}>{T.back}</button>
             </div>
-            <div className="flex flex-col gap-0.5 max-h-36 overflow-y-auto mb-2">
+            <div className="flex flex-col gap-0.5 max-h-36 overflow-y-auto scrollbar-thin mb-2">
               {otherCollections.length === 0
                 ? <p className="text-[10px] px-2 py-1" style={{ color: "rgba(134,134,139,0.4)" }}>{T.noFoldersYet}</p>
                 : otherCollections.map((c) => (
@@ -5228,7 +5228,7 @@ export default function App() {
                 </button>
                 {templateMenuOpen && (
                   <div
-                    className="absolute left-0 bottom-full mb-2 rounded-xl overflow-hidden z-50 py-1"
+                    className="absolute left-0 bottom-full mb-2 rounded-xl overflow-hidden z-50 py-1 scrollbar-thin"
                     style={{ minWidth: 240, maxHeight: 320, overflowY: "auto", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
                   >
                     <div className="px-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
@@ -5366,7 +5366,7 @@ export default function App() {
                   }
                 }}
                 placeholder={webSearchMode ? S.webPlaceholder : S.chatPlaceholder}
-                className="flex-1 bg-transparent resize-none outline-none text-sm leading-relaxed"
+                className="flex-1 bg-transparent resize-none outline-none text-sm leading-relaxed scrollbar-thin"
                 style={{
                   color: "#F5F5F7",
                   caretColor: "#3B82F6",
@@ -5483,6 +5483,11 @@ export default function App() {
       <style>{`
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .scrollbar-thin { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent; }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 999px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
         @keyframes slide-in {
           from { transform: translateX(100%); opacity: 0; }
           to   { transform: translateX(0);    opacity: 1; }
