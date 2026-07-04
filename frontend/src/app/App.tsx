@@ -6317,8 +6317,8 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   <select
                     value={u.department || ""}
                     onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
-                    className="text-[10px] rounded-lg px-1.5 py-1 outline-none shrink-0"
-                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc", maxWidth: 110 }}
+                    className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
+                    style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
                   >
                     <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
                     {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d}</option>)}
@@ -6339,39 +6339,37 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
             </div>
 
             <form onSubmit={handleCreateUser} className="flex flex-col gap-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  placeholder={S.loginEmailPlaceholder}
-                  className="flex-1 min-w-0 text-[12px] rounded-lg px-3 py-2 outline-none"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
-                />
+              <input
+                type="email"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                placeholder={S.loginEmailPlaceholder}
+                className="w-full text-[12px] rounded-lg px-3 py-2 outline-none"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+              />
+              <input
+                type="password"
+                value={newUserPassword}
+                onChange={(e) => setNewUserPassword(e.target.value)}
+                placeholder={S.loginPasswordPlaceholder}
+                className="w-full text-[12px] rounded-lg px-3 py-2 outline-none"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+              />
+              <div className="grid grid-cols-2 gap-2">
                 <select
                   value={newUserRole}
                   onChange={(e) => setNewUserRole(e.target.value as "user" | "admin")}
-                  className="text-[12px] rounded-lg px-2 py-2 outline-none"
+                  className="w-full min-w-0 text-[12px] rounded-lg px-3 py-2 outline-none"
                   style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
                 >
                   <option value="user" style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{S.userMgmtRoleUser}</option>
                   <option value="admin" style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{S.userMgmtRoleAdmin}</option>
                 </select>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={newUserPassword}
-                  onChange={(e) => setNewUserPassword(e.target.value)}
-                  placeholder={S.loginPasswordPlaceholder}
-                  className="flex-1 min-w-0 text-[12px] rounded-lg px-3 py-2 outline-none"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
-                />
                 <select
                   value={newUserDepartment}
                   onChange={(e) => setNewUserDepartment(e.target.value)}
-                  className="text-[12px] rounded-lg px-2 py-2 outline-none"
-                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7", maxWidth: 130 }}
+                  className="w-full min-w-0 text-[12px] rounded-lg px-3 py-2 outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
                 >
                   <option value="" style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{S.userMgmtNoDepartment}</option>
                   {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{d}</option>)}
