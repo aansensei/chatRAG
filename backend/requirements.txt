@@ -14,6 +14,7 @@ redis>=5.0
 
 # Domain
 pydantic>=2.7
+email-validator>=2.0
 
 # API
 fastapi>=0.111

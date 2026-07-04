@@ -112,6 +112,10 @@ const UI_STRINGS = {
     selectFolderFirst: "Chọn thư mục trước",
     nameThisFolder: "Đặt tên thư mục",
     filesWillUpload: (n: number) => `${n} tệp sẽ được tải lên`,
+    multiSyncTitle: "Phát hiện nhiều thư mục con",
+    multiSyncDesc: (n: number) => `Sẽ tạo ${n} thư mục riêng trong kho tài liệu, mỗi thư mục con tương ứng 1 thư mục:`,
+    multiSyncFileCount: (n: number) => `${n} tệp`,
+    multiSyncConfirmBtn: "Tạo tất cả",
     folderNamePlaceholder: "Tên thư mục...",
     cancel: "Hủy",
     upload: "Tải lên",
@@ -243,6 +247,10 @@ const UI_STRINGS = {
     selectFolderFirst: "Select a folder first",
     nameThisFolder: "Name this folder",
     filesWillUpload: (n: number) => `${n} file${n !== 1 ? "s" : ""} will be uploaded`,
+    multiSyncTitle: "Multiple subfolders detected",
+    multiSyncDesc: (n: number) => `${n} separate folders will be created in the knowledge base, one per subfolder:`,
+    multiSyncFileCount: (n: number) => `${n} file${n !== 1 ? "s" : ""}`,
+    multiSyncConfirmBtn: "Create all",
     folderNamePlaceholder: "Folder name...",
     cancel: "Cancel",
     upload: "Upload",
@@ -374,6 +382,10 @@ const UI_STRINGS = {
     selectFolderFirst: "请先选择文件夹",
     nameThisFolder: "命名文件夹",
     filesWillUpload: (n: number) => `将上传 ${n} 个文件`,
+    multiSyncTitle: "检测到多个子文件夹",
+    multiSyncDesc: (n: number) => `将在知识库中创建 ${n} 个独立文件夹，每个子文件夹对应一个：`,
+    multiSyncFileCount: (n: number) => `${n} 个文件`,
+    multiSyncConfirmBtn: "全部创建",
     folderNamePlaceholder: "文件夹名称...",
     cancel: "取消",
     upload: "上传",
@@ -505,6 +517,10 @@ const UI_STRINGS = {
     selectFolderFirst: "先にフォルダを選択",
     nameThisFolder: "フォルダ名を入力",
     filesWillUpload: (n: number) => `${n} ファイルがアップロードされます`,
+    multiSyncTitle: "複数のサブフォルダを検出しました",
+    multiSyncDesc: (n: number) => `ナレッジベースに${n}個の独立したフォルダを作成します。サブフォルダごとに1つ：`,
+    multiSyncFileCount: (n: number) => `${n} ファイル`,
+    multiSyncConfirmBtn: "すべて作成",
     folderNamePlaceholder: "フォルダ名...",
     cancel: "キャンセル",
     upload: "アップロード",
@@ -789,6 +805,26 @@ const CJK_RESIDUAL_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿]/g;
 
 export function countResidualCJK(text: string): number {
   return (text.match(CJK_RESIDUAL_RE) || []).length;
+}
+
+// A picked folder can contain files directly at its root AND/OR nested in subfolders
+// (e.g. AanJSC_Documents/Executive/foo.pdf). Group by the immediate subfolder so each
+// subfolder becomes its own collection instead of everything being flattened into one
+// collection named after the top-level folder.
+export function groupFilesByFolderPath<T extends { webkitRelativePath?: string }>(
+  files: T[]
+): { collection: string; files: T[] }[] {
+  const groups = new Map<string, T[]>();
+  let rootName = "New Folder";
+  for (const f of files) {
+    const rawPath = f.webkitRelativePath || "";
+    const segments = rawPath.split("/").filter(Boolean);
+    rootName = segments[0] || rootName;
+    const key = segments.length >= 3 ? segments[1] : rootName;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(f);
+  }
+  return Array.from(groups, ([collection, groupFiles]) => ({ collection, files: groupFiles }));
 }
 
 function crc32(bytes: Uint8Array): number {
@@ -1936,6 +1972,8 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
   const [existingTarget, setExistingTarget] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [nameDialog, setNameDialog] = useState<{ open: boolean; value: string }>({ open: false, value: "" });
+  const [multiSyncGroups, setMultiSyncGroups] = useState<{ collection: string; files: File[] }[] | null>(null);
+  const [multiSyncing, setMultiSyncing] = useState(false);
 
   useEffect(() => {
     if (!syncMenu) return;
@@ -1972,10 +2010,15 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
     if (!files || files.length === 0) return;
     const valid = Array.from(files).filter((f) => /\.(pdf|png|jpg|jpeg|docx|xlsx|csv)$/i.test(f.name));
     if (!valid.length) { onToast("No supported files found in folder", "error"); return; }
-    const rawPath = (valid[0] as { webkitRelativePath?: string }).webkitRelativePath || "";
-    const folderName = rawPath.split("/")[0] || "New Folder";
+
+    const groups = groupFilesByFolderPath(valid);
+    if (groups.length > 1) {
+      setMultiSyncGroups(groups);
+      return;
+    }
+
     setPendingFiles(valid);
-    setNameDialog({ open: true, value: folderName });
+    setNameDialog({ open: true, value: groups[0]?.collection || "New Folder" });
   };
 
   const confirmNewFolder = async () => {
@@ -1987,6 +2030,21 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
     await doUpload(pendingFiles, name);
     setSyncing(false);
     setPendingFiles([]);
+  };
+
+  const confirmMultiSync = async () => {
+    if (!multiSyncGroups) return;
+    const groups = multiSyncGroups;
+    setMultiSyncGroups(null);
+    setMultiSyncing(true);
+    const total = groups.reduce((sum, g) => sum + g.files.length, 0);
+    setSyncing(true);
+    setSyncProgress({ done: 0, total });
+    for (const g of groups) {
+      await doUpload(g.files, g.collection);
+    }
+    setSyncing(false);
+    setMultiSyncing(false);
   };
 
   const handleExistingUpload = async (files: FileList | null) => {
@@ -2148,6 +2206,47 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
                 style={{ background: "#3B82F6", color: "white", opacity: nameDialog.value.trim() ? 1 : 0.4 }}
               >
                 {T.upload}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {multiSyncGroups && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", zIndex: 200 }}>
+          <div className="rounded-2xl p-5 w-80" style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 60px rgba(0,0,0,0.7)" }}>
+            <p className="text-[13px] font-semibold mb-1" style={{ color: "#f5f5f7" }}>{T.multiSyncTitle}</p>
+            <p className="text-[11px] mb-3" style={{ color: "rgba(134,134,139,0.7)" }}>
+              {T.multiSyncDesc(multiSyncGroups.length)}
+            </p>
+            <div className="flex flex-col gap-1 mb-4 max-h-52 overflow-y-auto scrollbar-thin">
+              {multiSyncGroups.map((g) => (
+                <div
+                  key={g.collection}
+                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px]"
+                  style={{ background: "rgba(255,255,255,0.04)", color: "#c7c7cc" }}
+                >
+                  <span className="flex items-center gap-1.5 truncate"><FolderOpen size={11} style={{ color: "#93c5fd" }} />{g.collection}</span>
+                  <span style={{ color: "rgba(134,134,139,0.6)", fontSize: 10 }} className="shrink-0 ml-2">{T.multiSyncFileCount(g.files.length)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMultiSyncGroups(null)}
+                disabled={multiSyncing}
+                className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#86868B" }}
+              >
+                {T.cancel}
+              </button>
+              <button
+                onClick={confirmMultiSync}
+                disabled={multiSyncing}
+                className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium transition-opacity"
+                style={{ background: "#3B82F6", color: "white", opacity: multiSyncing ? 0.4 : 1 }}
+              >
+                {T.multiSyncConfirmBtn}
               </button>
             </div>
           </div>

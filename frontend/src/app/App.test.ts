@@ -3,6 +3,7 @@ import {
   CEREBRAS_MODELS,
   GROQ_MODELS,
   countResidualCJK,
+  groupFilesByFolderPath,
   isAnthropicModel,
   isCerebrasModel,
   isGeminiModel,
@@ -72,5 +73,49 @@ describe("countResidualCJK", () => {
 
   it("counts leftover Han/Japanese characters in an otherwise-translated string", () => {
     expect(countResidualCJK("Bản dịch còn sót 日本語 chưa dịch")).toBe(3);
+  });
+});
+
+describe("groupFilesByFolderPath", () => {
+  // Regression test: syncing a folder with department subfolders (e.g. the
+  // AanJSC_Documents/{Executive,Finance,HR,...} structure) used to dump every file
+  // from every subfolder into one collection named after the top-level folder,
+  // ignoring the subfolder structure entirely.
+  it("splits files into one group per immediate subfolder", () => {
+    const files = [
+      { webkitRelativePath: "AanJSC_Documents/Executive/02_BaoCao.pdf" },
+      { webkitRelativePath: "AanJSC_Documents/Executive/23_SoDo.docx" },
+      { webkitRelativePath: "AanJSC_Documents/Finance/08_KiemToan.pdf" },
+      { webkitRelativePath: "AanJSC_Documents/HR/06_HRPolicy.pdf" },
+    ];
+    const groups = groupFilesByFolderPath(files);
+    const byCollection = Object.fromEntries(groups.map((g) => [g.collection, g.files.length]));
+    expect(groups.length).toBe(3);
+    expect(byCollection["Executive"]).toBe(2);
+    expect(byCollection["Finance"]).toBe(1);
+    expect(byCollection["HR"]).toBe(1);
+  });
+
+  it("uses the top-level folder name as a single collection when there are no subfolders", () => {
+    const files = [
+      { webkitRelativePath: "FlatFolder/a.pdf" },
+      { webkitRelativePath: "FlatFolder/b.pdf" },
+    ];
+    const groups = groupFilesByFolderPath(files);
+    expect(groups.length).toBe(1);
+    expect(groups[0].collection).toBe("FlatFolder");
+    expect(groups[0].files.length).toBe(2);
+  });
+
+  it("handles a mix of root-level files and subfolder files", () => {
+    const files = [
+      { webkitRelativePath: "Root/readme.pdf" },
+      { webkitRelativePath: "Root/Engineering/spec.docx" },
+    ];
+    const groups = groupFilesByFolderPath(files);
+    const byCollection = Object.fromEntries(groups.map((g) => [g.collection, g.files.length]));
+    expect(groups.length).toBe(2);
+    expect(byCollection["Root"]).toBe(1);
+    expect(byCollection["Engineering"]).toBe(1);
   });
 });
