@@ -30,9 +30,9 @@ except Exception:
 try:
     from app.presentation.api.memory import get_memories, add_memory_internal
 except Exception:
-    def get_memories():
+    def get_memories(user_id: str | None = None):
         return []
-    def add_memory_internal(content: str):
+    def add_memory_internal(content: str, user_id: str | None = None):
         return None
 
 
@@ -205,8 +205,8 @@ def _auto_extract_memory(question: str) -> list[str]:
     return extracted
 
 
-def _format_memory_block() -> str:
-    items = get_memories()
+def _format_memory_block(user_id: str | None = None) -> str:
+    items = get_memories(user_id)
     if not items:
         return ""
     lines = [f"- {m.get('content', '').strip()}" for m in items if m.get("content")]
@@ -988,6 +988,18 @@ def _stream_llm(
         api_key_str = resolved_key
         model_lower = model_str.lower()
 
+        # Cerebras-only model IDs (e.g. "gemma-4-31b") must route to Cerebras even if a
+        # Groq key is what's attached to the request — a key-prefix-only check would send
+        # them to Groq's API instead, where the model doesn't exist (404).
+        if model_str in _CEREBRAS_MODEL_IDS:
+            yield from _stream_openai_compatible(
+                prompt,
+                model_str,
+                api_key_str,
+                "https://api.cerebras.ai/v1"
+            )
+            return
+
         # Route by API key prefix first — most reliable signal
         # 1. Groq (gsk_ prefix — must come before "/" check since Groq has models with "/" in ID)
         if api_key_str.startswith("gsk_"):
@@ -1421,6 +1433,7 @@ def stream_ask(
     api_key: str | None = None,
     history: list[dict] | None = None,
     chat_notes: str = "",
+    user_id: str | None = None,
 ) -> Generator[str, None, None]:
     ollama_model = model or _OLLAMA_MODEL
 
@@ -1444,10 +1457,10 @@ def stream_ask(
     ))
     _new_memories: list[str] = []
     for _fact in _facts:
-        saved = add_memory_internal(_fact)
+        saved = add_memory_internal(_fact, user_id)
         if saved:
             _new_memories.append(_fact)
-    memory_block = _format_memory_block()
+    memory_block = _format_memory_block(user_id)
     chat_note_block = (
         f"[Ghi chú cho cuộc trò chuyện này — ưu tiên cao]\n{chat_notes.strip()}\n\n"
         if chat_notes and chat_notes.strip() else ""
@@ -1512,7 +1525,7 @@ def stream_ask(
 
     # Memory listing — directly return stored memories instead of doing RAG.
     if _is_memory_list_query(question):
-        mem_items = get_memories()
+        mem_items = get_memories(user_id)
         if not mem_items:
             msg = (
                 "Hiện tôi chưa lưu ghi nhớ nào về bạn. Bạn có thể thêm trong avatar → Memory."

@@ -46,8 +46,9 @@ alembic/versions/*.pyc
 qdrant_storage/
 qdrant_snapshots/
 
-# Storage (uploaded documents & MinIO local data)
-storage/
+# Storage (uploaded documents & MinIO local data) — anchored to backend/ root so it
+# doesn't also match backend/app/infrastructure/storage/ (source code, not runtime data)
+/storage/
 uploads/
 minio_data/
 

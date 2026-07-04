@@ -33,6 +33,7 @@ qdrant-client>=1.9
 supabase>=2.0
 
 # Config / Utils
+psutil>=5.9
 python-dotenv>=1.0
 httpx>=0.27
 ddgs>=1.0

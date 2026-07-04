@@ -40,11 +40,45 @@ import {
   RotateCcw,
   LayoutTemplate,
   Star,
+  LogOut,
+  Users,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
 
 type Lang = "vi" | "en" | "zh" | "ja";
+
+const AUTH_TOKEN_KEY = "chatrag_auth_token";
+const AUTH_USER_KEY = "chatrag_auth_user";
+const AUTH_EXPIRED_EVENT = "chatrag:auth-expired";
+
+// All backend API calls in this app hit relative paths under these prefixes — patching
+// fetch once here means every existing and future call site automatically gets the
+// Authorization header, instead of threading it through ~20 scattered call sites.
+// Guarded so importing this module outside a browser (e.g. the vitest unit tests) doesn't crash.
+if (typeof window !== "undefined") {
+  const _rawFetch = window.fetch.bind(window);
+  window.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const isProtectedApi = /^\/(chat|ingest|memory|metrics|auth)(\/|$|\?)/.test(url);
+    if (!isProtectedApi) return _rawFetch(input, init);
+    // /auth/* 401s (wrong password on login, or on the "confirm with password" flow) are
+    // expected, form-level errors — only a 401 on the OTHER apis means the session itself
+    // expired and should force a logout.
+    const isSessionGated = /^\/(chat|ingest|memory|metrics)(\/|$|\?)/.test(url);
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    const headers = new Headers(init.headers);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return _rawFetch(input, { ...init, headers }).then((res) => {
+      if (isSessionGated && res.status === 401) {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(AUTH_USER_KEY);
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+      }
+      return res;
+    });
+  };
+}
 
 const UI_STRINGS = {
   vi: {
@@ -129,6 +163,54 @@ const UI_STRINGS = {
     copiedBtn: "Đã chép",
     useAndSendTitle: "Dùng và gửi ngay",
     editTemplateTitle: "Sửa mẫu",
+    txCharCount: (n: number) => `${n} ký tự`,
+    txCtrlEnterHint: "Ctrl+Enter để dịch nhanh",
+    txTranslateBtn: "Dịch ngay →",
+    txTranslating: "Đang dịch…",
+    txProgressLabel: (p: number) => `Đang dịch… ${p}%`,
+    txDoneLabel: "✓ Hoàn tất",
+    txErrorLabel: "Lỗi",
+    txResetBtn: "Làm mới",
+    txResidualWarning: (n: number) => `Bản dịch còn sót ${n} ký tự Hán/Nhật chưa dịch — dấu hiệu model chưa xử lý hết văn bản khó. Thử lại với model mạnh hơn (Claude, Gemini 2.5) để có kết quả sạch.`,
+    txEmptyPlaceholder: "Bản dịch sẽ hiển thị ở đây",
+    txNoApiKey: (provider: string) => `Chưa có API Key cho ${provider}. Vào ⚙ Model → nhập key, hoặc set ${provider.toUpperCase()}_API_KEY trong .env`,
+    txJapaneseLabel: "Nhật",
+    txVietnameseLabel: "Việt",
+    txViaProvider: (provider: string, isEnv: boolean) => `qua ${provider}${isEnv ? " (env)" : ""}`,
+    selectApiProvider: "Chọn API Provider",
+    enterApiKeyFor: (label: string) => `Nhập API Key cho ${label}:`,
+    pleaseEnterApiKey: "Vui lòng nhập API key",
+    saveAndContinue: "Lưu & Tiếp tục",
+    getKeyAt: "Lấy key tại",
+    loadingDots: "Đang tải...",
+    connectedLabel: "đã kết nối",
+    changeApiKey: "Thay đổi API Key",
+    notInstalledLabel: "⚠ Chưa cài",
+    chatModeLabel: "Chat",
+    translateModeLabel: "Dịch JP",
+    loginTitle: "Đăng nhập chatRAG",
+    loginSubtitle: "Dùng tài khoản được cấp để tiếp tục",
+    loginEmailPlaceholder: "Email",
+    loginPasswordPlaceholder: "Mật khẩu",
+    loginBtn: "Đăng nhập",
+    loginLoading: "Đang đăng nhập...",
+    loginGenericError: "Đăng nhập thất bại. Kiểm tra lại kết nối.",
+    logoutBtn: "Đăng xuất",
+    clearDataConfirmTitle: "Xóa toàn bộ dữ liệu?",
+    clearDataConfirmDesc: "Toàn bộ chat, cài đặt và API key đã lưu trên trình duyệt này sẽ bị xóa vĩnh viễn. Nhập mật khẩu để xác nhận.",
+    clearDataPasswordPlaceholder: "Nhập mật khẩu để xác nhận",
+    clearDataWrongPassword: "Mật khẩu không đúng",
+    clearDataConfirmBtn: "Xóa vĩnh viễn",
+    userMgmtBtn: "Quản lý người dùng",
+    userMgmtTitle: "Quản lý người dùng",
+    userMgmtGenericError: "Có lỗi xảy ra. Thử lại sau.",
+    userMgmtRoleUser: "Người dùng",
+    userMgmtRoleAdmin: "Admin",
+    userMgmtAddBtn: "Thêm người dùng",
+    userMgmtYouLabel: "Bạn",
+    userMgmtDeleteConfirmTitle: "Xóa tài khoản này?",
+    userMgmtDeleteConfirmDesc: "Người dùng sẽ không thể đăng nhập lại được nữa.",
+    userMgmtNoDepartment: "Chưa gán phòng ban",
   },
   en: {
     knowledgeBase: "Knowledge base",
@@ -212,6 +294,54 @@ const UI_STRINGS = {
     copiedBtn: "Copied",
     useAndSendTitle: "Use and send now",
     editTemplateTitle: "Edit template",
+    txCharCount: (n: number) => `${n} chars`,
+    txCtrlEnterHint: "Ctrl+Enter to translate",
+    txTranslateBtn: "Translate →",
+    txTranslating: "Translating…",
+    txProgressLabel: (p: number) => `Translating… ${p}%`,
+    txDoneLabel: "✓ Done",
+    txErrorLabel: "Error",
+    txResetBtn: "Reset",
+    txResidualWarning: (n: number) => `The translation still has ${n} untranslated Han/Japanese character${n === 1 ? "" : "s"} — a sign the model struggled with the difficult text. Try a stronger model (Claude, Gemini 2.5) for a cleaner result.`,
+    txEmptyPlaceholder: "Translation will appear here",
+    txNoApiKey: (provider: string) => `No API key set for ${provider} yet. Go to ⚙ Model → enter a key, or set ${provider.toUpperCase()}_API_KEY in .env`,
+    txJapaneseLabel: "Japanese",
+    txVietnameseLabel: "Vietnamese",
+    txViaProvider: (provider: string, isEnv: boolean) => `via ${provider}${isEnv ? " (env)" : ""}`,
+    selectApiProvider: "Select API Provider",
+    enterApiKeyFor: (label: string) => `Enter API Key for ${label}:`,
+    pleaseEnterApiKey: "Please enter an API key",
+    saveAndContinue: "Save & Continue",
+    getKeyAt: "Get a key at",
+    loadingDots: "loading...",
+    connectedLabel: "connected",
+    changeApiKey: "Change API Key",
+    notInstalledLabel: "⚠ Not installed",
+    chatModeLabel: "Chat",
+    translateModeLabel: "JP Translate",
+    loginTitle: "Log in to chatRAG",
+    loginSubtitle: "Use your assigned account to continue",
+    loginEmailPlaceholder: "Email",
+    loginPasswordPlaceholder: "Password",
+    loginBtn: "Log in",
+    loginLoading: "Logging in...",
+    loginGenericError: "Login failed. Check your connection.",
+    logoutBtn: "Log out",
+    clearDataConfirmTitle: "Clear all data?",
+    clearDataConfirmDesc: "All chats, settings, and saved API keys on this browser will be permanently deleted. Enter your password to confirm.",
+    clearDataPasswordPlaceholder: "Enter password to confirm",
+    clearDataWrongPassword: "Incorrect password",
+    clearDataConfirmBtn: "Delete permanently",
+    userMgmtBtn: "Manage users",
+    userMgmtTitle: "Manage users",
+    userMgmtGenericError: "Something went wrong. Try again.",
+    userMgmtRoleUser: "User",
+    userMgmtRoleAdmin: "Admin",
+    userMgmtAddBtn: "Add user",
+    userMgmtYouLabel: "You",
+    userMgmtDeleteConfirmTitle: "Delete this account?",
+    userMgmtDeleteConfirmDesc: "This user will no longer be able to log in.",
+    userMgmtNoDepartment: "No department",
   },
   zh: {
     knowledgeBase: "知识库",
@@ -295,6 +425,54 @@ const UI_STRINGS = {
     copiedBtn: "已复制",
     useAndSendTitle: "使用并立即发送",
     editTemplateTitle: "编辑模板",
+    txCharCount: (n: number) => `${n} 字符`,
+    txCtrlEnterHint: "Ctrl+Enter 快速翻译",
+    txTranslateBtn: "立即翻译 →",
+    txTranslating: "翻译中…",
+    txProgressLabel: (p: number) => `翻译中… ${p}%`,
+    txDoneLabel: "✓ 完成",
+    txErrorLabel: "错误",
+    txResetBtn: "重置",
+    txResidualWarning: (n: number) => `译文中仍有 ${n} 个未翻译的汉字/日文字符 — 说明模型未能处理较难的文本。请尝试更强的模型（Claude、Gemini 2.5）以获得更干净的结果。`,
+    txEmptyPlaceholder: "译文将显示在这里",
+    txNoApiKey: (provider: string) => `尚未设置 ${provider} 的 API Key。请前往 ⚙ 模型 → 输入密钥，或在 .env 中设置 ${provider.toUpperCase()}_API_KEY`,
+    txJapaneseLabel: "日语",
+    txVietnameseLabel: "越南语",
+    txViaProvider: (provider: string, isEnv: boolean) => `通过 ${provider}${isEnv ? " (env)" : ""}`,
+    selectApiProvider: "选择 API 提供商",
+    enterApiKeyFor: (label: string) => `输入 ${label} 的 API Key：`,
+    pleaseEnterApiKey: "请输入 API Key",
+    saveAndContinue: "保存并继续",
+    getKeyAt: "获取密钥：",
+    loadingDots: "加载中...",
+    connectedLabel: "已连接",
+    changeApiKey: "更改 API Key",
+    notInstalledLabel: "⚠ 未安装",
+    chatModeLabel: "聊天",
+    translateModeLabel: "日语翻译",
+    loginTitle: "登录 chatRAG",
+    loginSubtitle: "使用分配的账号继续",
+    loginEmailPlaceholder: "邮箱",
+    loginPasswordPlaceholder: "密码",
+    loginBtn: "登录",
+    loginLoading: "登录中...",
+    loginGenericError: "登录失败，请检查网络连接。",
+    logoutBtn: "退出登录",
+    clearDataConfirmTitle: "清除全部数据？",
+    clearDataConfirmDesc: "此浏览器上保存的所有聊天记录、设置和 API 密钥将被永久删除。请输入密码以确认。",
+    clearDataPasswordPlaceholder: "输入密码以确认",
+    clearDataWrongPassword: "密码不正确",
+    clearDataConfirmBtn: "永久删除",
+    userMgmtBtn: "用户管理",
+    userMgmtTitle: "用户管理",
+    userMgmtGenericError: "出错了，请重试。",
+    userMgmtRoleUser: "普通用户",
+    userMgmtRoleAdmin: "管理员",
+    userMgmtAddBtn: "添加用户",
+    userMgmtYouLabel: "你",
+    userMgmtDeleteConfirmTitle: "删除此账户？",
+    userMgmtDeleteConfirmDesc: "该用户将无法再登录。",
+    userMgmtNoDepartment: "未分配部门",
   },
   ja: {
     knowledgeBase: "ナレッジベース",
@@ -378,6 +556,54 @@ const UI_STRINGS = {
     copiedBtn: "コピー済み",
     useAndSendTitle: "使用してすぐに送信",
     editTemplateTitle: "テンプレートを編集",
+    txCharCount: (n: number) => `${n} 文字`,
+    txCtrlEnterHint: "Ctrl+Enterで翻訳",
+    txTranslateBtn: "今すぐ翻訳 →",
+    txTranslating: "翻訳中…",
+    txProgressLabel: (p: number) => `翻訳中… ${p}%`,
+    txDoneLabel: "✓ 完了",
+    txErrorLabel: "エラー",
+    txResetBtn: "リセット",
+    txResidualWarning: (n: number) => `翻訳に未翻訳の漢字・日本語文字が${n}文字残っています — モデルが難しいテキストを処理しきれなかった可能性があります。より高性能なモデル（Claude、Gemini 2.5）で再試行してください。`,
+    txEmptyPlaceholder: "翻訳結果はここに表示されます",
+    txNoApiKey: (provider: string) => `${provider} の API キーが未設定です。⚙ モデル → キーを入力するか、.env に ${provider.toUpperCase()}_API_KEY を設定してください`,
+    txJapaneseLabel: "日本語",
+    txVietnameseLabel: "ベトナム語",
+    txViaProvider: (provider: string, isEnv: boolean) => `${provider} 経由${isEnv ? "（env）" : ""}`,
+    selectApiProvider: "APIプロバイダーを選択",
+    enterApiKeyFor: (label: string) => `${label} の API キーを入力：`,
+    pleaseEnterApiKey: "APIキーを入力してください",
+    saveAndContinue: "保存して続ける",
+    getKeyAt: "キーの取得：",
+    loadingDots: "読み込み中...",
+    connectedLabel: "接続済み",
+    changeApiKey: "APIキーを変更",
+    notInstalledLabel: "⚠ 未インストール",
+    chatModeLabel: "チャット",
+    translateModeLabel: "JP翻訳",
+    loginTitle: "chatRAG にログイン",
+    loginSubtitle: "付与されたアカウントでログインしてください",
+    loginEmailPlaceholder: "メールアドレス",
+    loginPasswordPlaceholder: "パスワード",
+    loginBtn: "ログイン",
+    loginLoading: "ログイン中...",
+    loginGenericError: "ログインに失敗しました。接続を確認してください。",
+    logoutBtn: "ログアウト",
+    clearDataConfirmTitle: "すべてのデータを削除しますか？",
+    clearDataConfirmDesc: "このブラウザに保存されているチャット、設定、APIキーがすべて完全に削除されます。確認のためパスワードを入力してください。",
+    clearDataPasswordPlaceholder: "確認のためパスワードを入力",
+    clearDataWrongPassword: "パスワードが正しくありません",
+    clearDataConfirmBtn: "完全に削除",
+    userMgmtBtn: "ユーザー管理",
+    userMgmtTitle: "ユーザー管理",
+    userMgmtGenericError: "エラーが発生しました。もう一度お試しください。",
+    userMgmtRoleUser: "ユーザー",
+    userMgmtRoleAdmin: "管理者",
+    userMgmtAddBtn: "ユーザーを追加",
+    userMgmtYouLabel: "あなた",
+    userMgmtDeleteConfirmTitle: "このアカウントを削除しますか？",
+    userMgmtDeleteConfirmDesc: "このユーザーはログインできなくなります。",
+    userMgmtNoDepartment: "部署未設定",
   },
 } as const;
 
@@ -561,7 +787,7 @@ async function translateStreamDirect(
 
 const CJK_RESIDUAL_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿]/g;
 
-function countResidualCJK(text: string): number {
+export function countResidualCJK(text: string): number {
   return (text.match(CJK_RESIDUAL_RE) || []).length;
 }
 
@@ -1110,7 +1336,7 @@ function ChatMessage({
     return (
       <div className="flex justify-end mb-6 msg-animate">
         <div
-          className="max-w-[70%] px-4 py-3 text-sm leading-relaxed"
+          className="selectable-text max-w-[70%] px-4 py-3 text-sm leading-relaxed"
           style={{ background: "#2C2C2E", borderRadius: "18px 18px 4px 18px", color: "#F5F5F7" }}
         >
           {message.content}
@@ -1123,7 +1349,7 @@ function ChatMessage({
     <div className="flex gap-3 mb-8 msg-animate group/msg">
       <LogoIcon size={24} />
       <div className="flex-1 min-w-0">
-        <div className="text-sm leading-[1.7] mb-3" style={{ color: "#F5F5F7" }}>
+        <div className="selectable-text text-sm leading-[1.7] mb-3" style={{ color: "#F5F5F7" }}>
           <MarkdownRenderer content={message.content} sources={message.sources} onSourceClick={handleCitationClick} />
         </div>
 
@@ -1530,7 +1756,7 @@ function SourcePanel({ source, onClose, onOpenDoc }: { source: Source; onClose: 
             Retrieved Excerpt
           </p>
           <div
-            className="rounded-xl p-4 text-sm leading-relaxed"
+            className="selectable-text rounded-xl p-4 text-sm leading-relaxed"
             style={{
               background: "rgba(255,255,255,0.03)",
               border: "1px solid rgba(255,255,255,0.06)",
@@ -2028,7 +2254,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   );
 }
 
-const GROQ_MODELS = [
+export const GROQ_MODELS = [
   { id: "llama-3.3-70b-versatile",                   label: "Llama 3.3 · 70B",    note: "280 t/s" },
   { id: "openai/gpt-oss-20b",                        label: "GPT-OSS · 20B",       note: "1000 t/s" },
   { id: "meta-llama/llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout · 17B", note: "New" },
@@ -2057,7 +2283,7 @@ const OPENROUTER_MODELS_FALLBACK = [
 
 const OPENROUTER_MODELS = OPENROUTER_MODELS_FALLBACK;
 
-const CEREBRAS_MODELS = [
+export const CEREBRAS_MODELS = [
   { id: "gpt-oss-120b", label: "GPT-OSS 120B", note: "3000 t/s" },
   { id: "gemma-4-31b",  label: "Gemma 4 31B",  note: "1850 t/s" },
   { id: "zai-glm-4.7",  label: "Z.ai GLM 4.7", note: "355B"     },
@@ -2086,7 +2312,7 @@ const MODEL_MIGRATIONS: Record<string, string> = {
   "llama-3.3-70b":                      "gpt-oss-120b",
 };
 
-function migrateModel(id: string): string {
+export function migrateModel(id: string): string {
   return MODEL_MIGRATIONS[id] ?? id;
 }
 
@@ -2109,27 +2335,27 @@ const MODELS = [
   ...ANTHROPIC_MODELS,
 ];
 
-function isGroqModel(id: string) {
+export function isGroqModel(id: string) {
   return GROQ_MODELS.some((m) => m.id === id);
 }
 
-function isOpenAIModel(id: string) {
+export function isOpenAIModel(id: string) {
   return OPENAI_MODELS.some((m) => m.id === id);
 }
 
-function isGeminiModel(id: string) {
+export function isGeminiModel(id: string) {
   return GEMINI_MODELS.some((m) => m.id === id);
 }
 
-function isOpenRouterModel(id: string) {
+export function isOpenRouterModel(id: string) {
   return id.includes("/") && !GROQ_MODELS.some((m) => m.id === id) && !CEREBRAS_MODELS.some((m) => m.id === id);
 }
 
-function isCerebrasModel(id: string) {
+export function isCerebrasModel(id: string) {
   return CEREBRAS_MODELS.some((m) => m.id === id);
 }
 
-function isAnthropicModel(id: string) {
+export function isAnthropicModel(id: string) {
   return ANTHROPIC_MODELS.some((m) => m.id === id);
 }
 
@@ -2388,6 +2614,7 @@ function TranslatorPanel({
   apiKeyAnthropic,
   activeModel,
   serverProviders,
+  uiLang,
 }: {
   apiKeyGemini: string;
   apiKeyGroq: string;
@@ -2397,7 +2624,9 @@ function TranslatorPanel({
   apiKeyAnthropic: string;
   activeModel: string;
   serverProviders: Record<string, boolean>;
+  uiLang: Lang;
 }) {
+  const S = UI_STRINGS[uiLang];
   const [jpInput, setJpInput] = useState("");
   const [vnOutput, setVnOutput] = useState("");
   const [txStatus, setTxStatus] = useState<"idle" | "loading" | "streaming" | "done" | "error">("idle");
@@ -2420,7 +2649,7 @@ function TranslatorPanel({
     if (!jpInput.trim() || txStatus === "loading" || txStatus === "streaming") return;
     const prov = getTranslateProvider();
     if (!prov.key && !serverProviders[prov.provider]) {
-      setTxError(`Chưa có API Key cho ${prov.provider}. Vào ⚙ Model → nhập key, hoặc set ${prov.provider.toUpperCase()}_API_KEY trong .env`);
+      setTxError(S.txNoApiKey(prov.provider));
       setTxStatus("error");
       return;
     }
@@ -2483,7 +2712,7 @@ function TranslatorPanel({
               className="px-2 py-0.5 rounded-full text-[10px]"
               style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#86868B" }}
             >
-              via {prov.provider}{!prov.key && serverProviders[prov.provider] ? " (env)" : ""}
+              {S.txViaProvider(prov.provider, !prov.key && !!serverProviders[prov.provider])}
             </span>
           )}
         </div>
@@ -2495,7 +2724,7 @@ function TranslatorPanel({
               style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}
             >
               <Square size={10} fill="#f87171" />
-              Dừng
+              {S.stopBtn}
             </button>
           )}
           {(jpInput || vnOutput) && !isStreaming && (
@@ -2507,7 +2736,7 @@ function TranslatorPanel({
               onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}
             >
               <RefreshCw size={11} />
-              Làm mới
+              {S.txResetBtn}
             </button>
           )}
         </div>
@@ -2525,12 +2754,12 @@ function TranslatorPanel({
             style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
           >
             <span className="text-[11px] font-semibold tracking-wider uppercase" style={{ color: "#86868B" }}>
-              🇯🇵 Nhật
+              🇯🇵 {S.txJapaneseLabel}
             </span>
             {jpInput && (
               <div className="flex items-center gap-2">
                 <span className="text-[10px]" style={{ color: "rgba(134,134,139,0.5)" }}>
-                  {jpInput.length.toLocaleString()} ký tự
+                  {S.txCharCount(jpInput.length)}
                 </span>
                 <button
                   onClick={() => setJpInput("")}
@@ -2548,7 +2777,7 @@ function TranslatorPanel({
             value={jpInput}
             onChange={(e) => setJpInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleTranslate(); } }}
-            placeholder={"日本語のテキストをここに貼り付けてください…\n\nCtrl+Enter để dịch nhanh"}
+            placeholder={`日本語のテキストをここに貼り付けてください…\n\n${S.txCtrlEnterHint}`}
             className="flex-1 bg-transparent resize-none outline-none p-4 text-sm leading-relaxed scrollbar-hide"
             style={{
               color: "#F5F5F7",
@@ -2577,9 +2806,9 @@ function TranslatorPanel({
               }}
             >
               {isLoading || isStreaming ? (
-                <><Loader size={11} className="animate-spin" />Đang dịch…</>
+                <><Loader size={11} className="animate-spin" />{S.txTranslating}</>
               ) : (
-                "Dịch ngay →"
+                S.txTranslateBtn
               )}
             </button>
           </div>
@@ -2593,16 +2822,16 @@ function TranslatorPanel({
           >
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-semibold tracking-wider uppercase" style={{ color: "#86868B" }}>
-                🇻🇳 Việt
+                🇻🇳 {S.txVietnameseLabel}
               </span>
               {txStatus === "streaming" && (
-                <span className="text-[10px]" style={{ color: "#3B82F6" }}>Đang dịch… {txProgress}%</span>
+                <span className="text-[10px]" style={{ color: "#3B82F6" }}>{S.txProgressLabel(txProgress)}</span>
               )}
               {txStatus === "done" && (
-                <span className="text-[10px]" style={{ color: "#10b981" }}>✓ Hoàn tất</span>
+                <span className="text-[10px]" style={{ color: "#10b981" }}>{S.txDoneLabel}</span>
               )}
               {txStatus === "error" && (
-                <span className="text-[10px]" style={{ color: "#f87171" }}>Lỗi</span>
+                <span className="text-[10px]" style={{ color: "#f87171" }}>{S.txErrorLabel}</span>
               )}
             </div>
             {vnOutput && !isStreaming && (
@@ -2618,7 +2847,7 @@ function TranslatorPanel({
                 onMouseLeave={(e) => { if (!txCopied) e.currentTarget.style.color = "#86868B"; }}
               >
                 {txCopied ? <Check size={11} /> : <Copy size={11} />}
-                {txCopied ? "Copied" : "Copy"}
+                {txCopied ? S.copiedBtn : S.copyBtn}
               </button>
             )}
           </div>
@@ -2657,7 +2886,7 @@ function TranslatorPanel({
               </div>
             ) : vnOutput ? (
               <div
-                className="text-[14px] leading-[1.9] whitespace-pre-wrap break-words"
+                className="selectable-text text-[14px] leading-[1.9] whitespace-pre-wrap break-words"
                 style={{ color: "#d1d1d6", fontFamily: "inherit" }}
               >
                 {vnOutput}
@@ -2674,7 +2903,7 @@ function TranslatorPanel({
                   >
                     <AlertCircle size={13} className="mt-0.5 shrink-0" />
                     <span>
-                      Bản dịch còn sót {countResidualCJK(vnOutput)} ký tự Hán/Nhật chưa dịch — dấu hiệu model chưa xử lý hết văn bản khó. Thử lại với model mạnh hơn (Claude, Gemini 2.5) để có kết quả sạch.
+                      {S.txResidualWarning(countResidualCJK(vnOutput))}
                     </span>
                   </div>
                 )}
@@ -2685,7 +2914,7 @@ function TranslatorPanel({
                 style={{ color: "rgba(134,134,139,0.25)" }}
               >
                 <span style={{ fontSize: 36, fontFamily: "serif" }}>翻</span>
-                <span className="text-[12px]">Bản dịch sẽ hiển thị ở đây</span>
+                <span className="text-[12px]">{S.txEmptyPlaceholder}</span>
               </div>
             )}
           </div>
@@ -2695,9 +2924,247 @@ function TranslatorPanel({
   );
 }
 
+type AuthUser = { id: string; email: string; role: string; created_at: number; department?: string | null };
+
+const DEPARTMENT_OPTIONS = ["Ban Giám đốc", "Phòng Kế toán", "Phòng Kỹ thuật", "Phòng Nhân sự", "Phòng Kinh doanh", "Phòng Marketing"];
+
+function LoginScreen({ uiLang, onSetUiLang, onLogin }: { uiLang: Lang; onSetUiLang: (lang: Lang) => void; onLogin: (token: string, user: AuthUser) => void }) {
+  const S = UI_STRINGS[uiLang];
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!langMenuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (langMenuRef.current?.contains(e.target as Node)) return;
+      setLangMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [langMenuOpen]);
+
+  const LANG_OPTIONS: [Lang, string][] = [["vi", "Tiếng Việt"], ["en", "English"], ["zh", "中文"], ["ja", "日本語"]];
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.detail || S.loginGenericError);
+        setLoading(false);
+        return;
+      }
+      onLogin(data.access_token, data.user);
+    } catch {
+      setError(S.loginGenericError);
+      setLoading(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    background: "#19191c",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "#F5F5F7",
+    transition: "border-color 0.2s ease, background 0.2s ease",
+  };
+  const focusInput = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.currentTarget.style.borderColor = "rgba(148,163,255,0.5)";
+    e.currentTarget.style.background = "#1e1e22";
+  };
+  const blurInput = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+    e.currentTarget.style.background = "#19191c";
+  };
+  const canSubmit = !!email.trim() && !!password && !loading;
+
+  return (
+    <div className="w-screen h-screen flex items-center justify-center relative overflow-hidden" style={{ background: "#08080a" }}>
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          width: 640,
+          height: 640,
+          background: "radial-gradient(circle, rgba(59,130,246,0.13) 0%, rgba(59,130,246,0) 68%)",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+        }}
+      />
+
+      <form
+        onSubmit={handleSubmit}
+        className="w-full flex flex-col gap-5 p-10 rounded-[28px] relative"
+        style={{
+          maxWidth: 380,
+          background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))",
+          border: "1px solid rgba(255,255,255,0.09)",
+          boxShadow: "0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)",
+          backdropFilter: "blur(20px)",
+        }}
+      >
+        <div className="absolute top-4 right-4" ref={langMenuRef}>
+          <button
+            type="button"
+            onClick={() => setLangMenuOpen((o) => !o)}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] transition-colors"
+            style={{ color: "rgba(134,134,139,0.8)", background: "rgba(255,255,255,0.04)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(134,134,139,0.8)")}
+          >
+            <Globe size={12} />
+            {uiLang.toUpperCase()}
+          </button>
+          {langMenuOpen && (
+            <div
+              className="absolute right-0 top-full mt-1.5 rounded-xl overflow-hidden z-10"
+              style={{ width: 140, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+            >
+              {LANG_OPTIONS.map(([code, label]) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => { onSetUiLang(code); setLangMenuOpen(false); }}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[11px] transition-colors text-left"
+                  style={{ color: uiLang === code ? "#f5f5f7" : "#86868B" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <span>{label}</span>
+                  {uiLang === code && <Check size={11} style={{ color: "#c7c7cc" }} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col items-center gap-2 mb-1">
+          <h1 className="text-[21px] font-semibold tracking-tight" style={{ color: "#F5F5F7" }}>{S.loginTitle}</h1>
+          <p className="text-[12.5px] text-center" style={{ color: "rgba(134,134,139,0.85)" }}>{S.loginSubtitle}</p>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <input
+            type="email"
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onFocus={focusInput}
+            onBlur={blurInput}
+            placeholder={S.loginEmailPlaceholder}
+            className="login-input w-full text-[13.5px] rounded-2xl px-4 py-3 outline-none"
+            style={inputStyle}
+          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onFocus={focusInput}
+              onBlur={blurInput}
+              placeholder={S.loginPasswordPlaceholder}
+              className="login-input w-full text-[13.5px] rounded-2xl px-4 py-3 pr-10 outline-none"
+              style={inputStyle}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+              style={{ color: "rgba(134,134,139,0.7)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#d1d1d6")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(134,134,139,0.7)")}
+            >
+              {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-[12px] px-1 -mt-1" style={{ color: "#f87171" }}>{error}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="w-full py-3 rounded-2xl text-[13.5px] font-semibold transition-all duration-200"
+          style={{
+            background: canSubmit ? "linear-gradient(135deg, #4338CA 0%, #4F46E5 45%, #6D5BF5 100%)" : "rgba(255,255,255,0.05)",
+            color: canSubmit ? "#fff" : "rgba(134,134,139,0.4)",
+            cursor: canSubmit ? "pointer" : "not-allowed",
+            boxShadow: canSubmit ? "0 10px 28px rgba(79,70,229,0.35), inset 0 1px 0 rgba(255,255,255,0.15)" : "none",
+          }}
+        >
+          {loading ? S.loginLoading : S.loginBtn}
+        </button>
+      </form>
+
+      <style>{`
+        .login-input:-webkit-autofill,
+        .login-input:-webkit-autofill:hover,
+        .login-input:-webkit-autofill:focus {
+          -webkit-box-shadow: 0 0 0px 1000px #19191c inset;
+          -webkit-text-fill-color: #F5F5F7;
+          caret-color: #F5F5F7;
+          transition: background-color 9999s ease-in-out 0s;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ── Main App ───────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem(AUTH_TOKEN_KEY));
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try { return JSON.parse(localStorage.getItem(AUTH_USER_KEY) || "null"); } catch { return null; }
+  });
+  const [authUiLang, setAuthUiLang] = useState<Lang>(() => (localStorage.getItem("ui_lang") as Lang) || "vi");
+  const handleSetAuthUiLang = (lang: Lang) => {
+    localStorage.setItem("ui_lang", lang);
+    setAuthUiLang(lang);
+  };
+
+  useEffect(() => {
+    const onExpired = () => { setAuthToken(null); setCurrentUser(null); };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
+
+  const handleLogin = (token: string, user: AuthUser) => {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    setAuthToken(token);
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    setAuthToken(null);
+    setCurrentUser(null);
+  };
+
+  if (!authToken) {
+    return <LoginScreen uiLang={authUiLang} onSetUiLang={handleSetAuthUiLang} onLogin={handleLogin} />;
+  }
+
+  return <AuthedApp currentUser={currentUser} onLogout={handleLogout} />;
+}
+
+function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; onLogout: () => void }) {
   const [chats, setChats] = useState<Chat[]>(loadChatsFromStorage);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [mode, setMode] = useState<"chat" | "translate">("chat");
@@ -2837,6 +3304,73 @@ export default function App() {
   const [templateSearch, setTemplateSearch] = useState("");
   const templateMenuRef = useRef<HTMLDivElement>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [clearDataConfirmOpen, setClearDataConfirmOpen] = useState(false);
+  const [clearDataPassword, setClearDataPassword] = useState("");
+  const [clearDataError, setClearDataError] = useState("");
+  const [clearDataVerifying, setClearDataVerifying] = useState(false);
+  const [userMgmtOpen, setUserMgmtOpen] = useState(false);
+  const [userList, setUserList] = useState<AuthUser[]>([]);
+  const [userListLoading, setUserListLoading] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
+  const [newUserDepartment, setNewUserDepartment] = useState("");
+  const [userMgmtError, setUserMgmtError] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+
+  const refreshUserList = useCallback(async () => {
+    setUserListLoading(true);
+    try {
+      const res = await fetch("/auth/users");
+      if (res.ok) setUserList(await res.json());
+    } finally {
+      setUserListLoading(false);
+    }
+  }, []);
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserEmail.trim() || !newUserPassword || creatingUser) return;
+    setCreatingUser(true);
+    setUserMgmtError("");
+    try {
+      const res = await fetch("/auth/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newUserEmail.trim(), password: newUserPassword, role: newUserRole, department: newUserDepartment || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setUserMgmtError(data?.detail || S.userMgmtGenericError);
+        return;
+      }
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setNewUserRole("user");
+      setNewUserDepartment("");
+      refreshUserList();
+    } catch {
+      setUserMgmtError(S.userMgmtGenericError);
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    await fetch(`/auth/users/${id}`, { method: "DELETE" });
+    setDeletingUserId(null);
+    refreshUserList();
+  };
+
+  const handleUpdateUserDepartment = async (id: string, department: string) => {
+    await fetch(`/auth/users/${id}/department`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ department: department || null }),
+    });
+    refreshUserList();
+  };
   const [uiLang, setUiLang] = useState<Lang>(() => (localStorage.getItem("ui_lang") as Lang) || "vi");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const S = UI_STRINGS[uiLang];
@@ -3740,6 +4274,29 @@ export default function App() {
     if (activeChatId === chatId) newChat();
   };
 
+  const handleConfirmClearData = async () => {
+    if (!clearDataPassword.trim() || clearDataVerifying) return;
+    setClearDataVerifying(true);
+    setClearDataError("");
+    try {
+      const res = await fetch("/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: clearDataPassword }),
+      });
+      if (!res.ok) {
+        setClearDataError(S.clearDataWrongPassword);
+        setClearDataVerifying(false);
+        return;
+      }
+      localStorage.clear();
+      window.location.reload();
+    } catch {
+      setClearDataError(S.clearDataWrongPassword);
+      setClearDataVerifying(false);
+    }
+  };
+
   const exportActiveChat = (format: "txt" | "md" | "docx" | "json") => {
     const chat = chats.find((c) => c.id === activeChatId);
     if (!chat) return;
@@ -4245,7 +4802,7 @@ export default function App() {
                   boxShadow: mode === "chat" ? "0 1px 4px rgba(0,0,0,0.35)" : "none",
                 }}
               >
-                💬 Chat
+                💬 {S.chatModeLabel}
               </button>
               <button
                 onClick={() => setMode("translate")}
@@ -4256,7 +4813,7 @@ export default function App() {
                   boxShadow: mode === "translate" ? "0 1px 4px rgba(0,0,0,0.35)" : "none",
                 }}
               >
-                🇯🇵 Dịch JP
+                🇯🇵 {S.translateModeLabel}
               </button>
             </div>
             {mode === "chat" && activeChat && (
@@ -4359,7 +4916,7 @@ export default function App() {
                     {modelMenuView === "providers" && (
                       <div className="px-1 py-1.5">
                         <div className="px-3 py-2">
-                          <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>Chọn API Provider</p>
+                          <p className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>{S.selectApiProvider}</p>
                         </div>
                         {[
                           { id: "ollama",     label: "Local · Ollama" },
@@ -4408,7 +4965,7 @@ export default function App() {
                     {modelMenuView === "ollama" && (
                       <div className="px-1 py-1.5">
                         <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", marginBottom: 4 }}>
-                          <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>← Providers</button>
+                          <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>{S.back}</button>
                           <span className="text-[9px] font-semibold uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>Ollama</span>
                         </div>
                         {LOCAL_MODELS.map((m) => {
@@ -4427,7 +4984,7 @@ export default function App() {
                             >
                               <span className="font-medium">{m.label}</span>
                               {notInstalled
-                                ? <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.25)" }}>⚠ Not installed</span>
+                                ? <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.25)" }}>{S.notInstalledLabel}</span>
                                 : <span className="text-[10px]" style={{ color: m.id === "gemma3:12b" ? "#f87171" : "rgba(134,134,139,0.6)" }}>{m.note}</span>
                               }
                             </button>
@@ -4447,10 +5004,10 @@ export default function App() {
                         return (
                           <div className="px-3 py-3" onMouseDown={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-between mb-2">
-                              <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>← Providers</button>
+                              <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>{S.back}</button>
                               <span className="text-[9px] font-semibold uppercase" style={{ color: "rgba(134,134,139,0.5)" }}>{info.label} Key</span>
                             </div>
-                            <p className="text-[10px] mb-1.5" style={{ color: "rgba(134,134,139,0.7)" }}>Nhập API Key cho {info.label}:</p>
+                            <p className="text-[10px] mb-1.5" style={{ color: "rgba(134,134,139,0.7)" }}>{S.enterApiKeyFor(info.label)}</p>
                             <div className="relative mb-2">
                               <input
                                 type={showApiKey ? "text" : "password"}
@@ -4481,7 +5038,7 @@ export default function App() {
                                 if (info.key.trim()) {
                                   setEditingProviderKey(null);
                                 } else {
-                                  addToast("Vui lòng nhập API key", "error");
+                                  addToast(S.pleaseEnterApiKey, "error");
                                 }
                               }}
                               className="w-full py-1.5 rounded-lg text-[10px] font-semibold transition-all"
@@ -4491,10 +5048,10 @@ export default function App() {
                                 cursor: info.key.trim() ? "pointer" : "not-allowed",
                               }}
                             >
-                              Save &amp; Continue
+                              {S.saveAndContinue}
                             </button>
                             <p className="text-[9px] mt-2 text-center" style={{ color: "rgba(134,134,139,0.4)" }}>
-                              Lấy key tại <a href={`https://${info.link}`} target="_blank" rel="noreferrer" className="underline hover:text-white transition-colors">{info.link}</a>
+                              {S.getKeyAt} <a href={`https://${info.link}`} target="_blank" rel="noreferrer" className="underline hover:text-white transition-colors">{info.link}</a>
                             </p>
                           </div>
                         );
@@ -4505,10 +5062,10 @@ export default function App() {
                         <div className="px-1 py-1.5 flex flex-col h-full justify-between">
                           <div>
                             <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", marginBottom: 4 }}>
-                              <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>← Providers</button>
+                              <button onClick={() => setModelMenuView("providers")} className="text-[9px] transition-colors" style={{ color: "rgba(134,134,139,0.6)" }} onMouseEnter={(e) => e.currentTarget.style.color = "#fff"} onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.6)"}>{S.back}</button>
                               {modelMenuView === "openrouter" && orLoading
-                                ? <span className="text-[9px]" style={{ color: "rgba(134,134,139,0.5)" }}>loading...</span>
-                                : <span className="text-[9px] font-semibold uppercase text-green-400">connected</span>}
+                                ? <span className="text-[9px]" style={{ color: "rgba(134,134,139,0.5)" }}>{S.loadingDots}</span>
+                                : <span className="text-[9px] font-semibold uppercase text-green-400">{S.connectedLabel}</span>}
                             </div>
                             {displayModels.map((m) => (
                               <button
@@ -4536,7 +5093,7 @@ export default function App() {
                               onMouseLeave={(e) => e.currentTarget.style.color = "rgba(134,134,139,0.55)"}
                             >
                               <Settings size={9} />
-                              Thay đổi API Key
+                              {S.changeApiKey}
                             </button>
                           </div>
                         </div>
@@ -4572,10 +5129,12 @@ export default function App() {
                   <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
-                        style={{ background: "linear-gradient(135deg, #0A66C2, #3B82F6)", color: "#fff" }}>A</div>
-                      <div>
-                        <p className="text-[12px] font-medium" style={{ color: "#f5f5f7" }}>AanSensei</p>
-                        <p className="text-[10px]" style={{ color: "#86868B" }}>Admin</p>
+                        style={{ background: "linear-gradient(135deg, #0A66C2, #3B82F6)", color: "#fff" }}>
+                        {(currentUser?.email || "?")[0].toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-medium truncate" style={{ color: "#f5f5f7" }}>{currentUser?.email}</p>
+                        <p className="text-[10px] capitalize" style={{ color: "#86868B" }}>{currentUser?.role}</p>
                       </div>
                     </div>
                   </div>
@@ -4630,11 +5189,20 @@ export default function App() {
                         )))}
                       </div>
                     )}
+                    {currentUser?.role === "admin" && (
+                      <button
+                        onClick={() => { setProfileOpen(false); setUserMgmtOpen(true); setUserMgmtError(""); refreshUserList(); }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
+                        style={{ color: "#c7c7cc" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <Users size={12} style={{ color: "#86868B" }} />
+                        {S.userMgmtBtn}
+                      </button>
+                    )}
                     <button
-                      onClick={() => {
-                        localStorage.clear();
-                        window.location.reload();
-                      }}
+                      onClick={() => { setProfileOpen(false); setClearDataConfirmOpen(true); setClearDataPassword(""); setClearDataError(""); }}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
                       style={{ color: "#f87171" }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(248,113,113,0.08)")}
@@ -4642,6 +5210,16 @@ export default function App() {
                     >
                       <RefreshCw size={12} />
                       {S.clearData}
+                    </button>
+                    <button
+                      onClick={() => { setProfileOpen(false); onLogout(); }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
+                      style={{ color: "#c7c7cc" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <LogOut size={12} style={{ color: "#86868B" }} />
+                      {S.logoutBtn}
                     </button>
                   </div>
                   <div className="px-4 py-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
@@ -4663,6 +5241,7 @@ export default function App() {
             apiKeyAnthropic={apiKeyAnthropic}
             activeModel={activeModel}
             serverProviders={serverProviders}
+            uiLang={uiLang}
           />
         )}
 
@@ -5633,6 +6212,235 @@ export default function App() {
         </div>
       )}
 
+      {clearDataConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setClearDataConfirmOpen(false)}
+        >
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleConfirmClearData(); }}
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 340, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
+                <Trash2 size={16} style={{ color: "#f87171" }} />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>{S.clearDataConfirmTitle}</p>
+                <p className="text-[11px] mt-1 leading-relaxed" style={{ color: "#86868B" }}>{S.clearDataConfirmDesc}</p>
+              </div>
+            </div>
+            <input
+              type="password"
+              autoFocus
+              value={clearDataPassword}
+              onChange={(e) => { setClearDataPassword(e.target.value); setClearDataError(""); }}
+              placeholder={S.clearDataPasswordPlaceholder}
+              className="w-full text-[12.5px] rounded-xl px-3.5 py-2.5 outline-none"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+            />
+            {clearDataError && (
+              <p className="text-[11px] -mt-2" style={{ color: "#f87171" }}>{clearDataError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setClearDataConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                type="submit"
+                disabled={!clearDataPassword.trim() || clearDataVerifying}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{
+                  background: clearDataPassword.trim() && !clearDataVerifying ? "#ef4444" : "rgba(239,68,68,0.3)",
+                  color: "#fff",
+                  cursor: clearDataPassword.trim() && !clearDataVerifying ? "pointer" : "not-allowed",
+                }}
+                onMouseEnter={(e) => { if (clearDataPassword.trim() && !clearDataVerifying) e.currentTarget.style.background = "#dc2626"; }}
+                onMouseLeave={(e) => { if (clearDataPassword.trim() && !clearDataVerifying) e.currentTarget.style.background = "#ef4444"; }}
+              >
+                {S.clearDataConfirmBtn}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {userMgmtOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setUserMgmtOpen(false)}
+        >
+          <div
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 420, maxHeight: "80vh", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Users size={16} style={{ color: "#93c5fd" }} />
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>{S.userMgmtTitle}</p>
+              </div>
+              <button onClick={() => setUserMgmtOpen(false)} style={{ color: "#86868B" }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1.5 overflow-y-auto scrollbar-hide" style={{ maxHeight: 260 }}>
+              {userListLoading ? (
+                <p className="text-[11px] text-center py-4" style={{ color: "#86868B" }}>...</p>
+              ) : userList.map((u) => (
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl"
+                  style={{ background: "rgba(255,255,255,0.03)" }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] font-medium truncate" style={{ color: "#f5f5f7" }}>
+                      {u.email}
+                      {u.id === currentUser?.id && <span style={{ color: "#86868B" }}> · {S.userMgmtYouLabel}</span>}
+                    </p>
+                    <p className="text-[10px] capitalize" style={{ color: "#86868B" }}>
+                      {u.role === "admin" ? S.userMgmtRoleAdmin : S.userMgmtRoleUser}
+                    </p>
+                  </div>
+                  <select
+                    value={u.department || ""}
+                    onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
+                    className="text-[10px] rounded-lg px-1.5 py-1 outline-none shrink-0"
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc", maxWidth: 110 }}
+                  >
+                    <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
+                    {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d}</option>)}
+                  </select>
+                  {u.id !== currentUser?.id && (
+                    <button
+                      onClick={() => setDeletingUserId(u.id)}
+                      className="p-1.5 rounded-lg transition-colors shrink-0"
+                      style={{ color: "#86868B" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(248,113,113,0.1)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleCreateUser} className="flex flex-col gap-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  placeholder={S.loginEmailPlaceholder}
+                  className="flex-1 min-w-0 text-[12px] rounded-lg px-3 py-2 outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+                />
+                <select
+                  value={newUserRole}
+                  onChange={(e) => setNewUserRole(e.target.value as "user" | "admin")}
+                  className="text-[12px] rounded-lg px-2 py-2 outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+                >
+                  <option value="user" style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{S.userMgmtRoleUser}</option>
+                  <option value="admin" style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{S.userMgmtRoleAdmin}</option>
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  placeholder={S.loginPasswordPlaceholder}
+                  className="flex-1 min-w-0 text-[12px] rounded-lg px-3 py-2 outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+                />
+                <select
+                  value={newUserDepartment}
+                  onChange={(e) => setNewUserDepartment(e.target.value)}
+                  className="text-[12px] rounded-lg px-2 py-2 outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7", maxWidth: 130 }}
+                >
+                  <option value="" style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{S.userMgmtNoDepartment}</option>
+                  {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{d}</option>)}
+                </select>
+              </div>
+              {userMgmtError && (
+                <p className="text-[11px]" style={{ color: "#f87171" }}>{userMgmtError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={!newUserEmail.trim() || !newUserPassword || creatingUser}
+                className="w-full py-2 rounded-lg text-[12px] font-semibold transition-all"
+                style={{
+                  background: newUserEmail.trim() && newUserPassword && !creatingUser ? "linear-gradient(135deg, #0A66C2, #3B82F6)" : "rgba(255,255,255,0.06)",
+                  color: newUserEmail.trim() && newUserPassword && !creatingUser ? "#fff" : "rgba(134,134,139,0.4)",
+                  cursor: newUserEmail.trim() && newUserPassword && !creatingUser ? "pointer" : "not-allowed",
+                }}
+              >
+                {S.userMgmtAddBtn}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deletingUserId && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setDeletingUserId(null)}
+        >
+          <div
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 320, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
+                <Trash2 size={16} style={{ color: "#f87171" }} />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>{S.userMgmtDeleteConfirmTitle}</p>
+                <p className="text-[11px] mt-1 leading-relaxed" style={{ color: "#86868B" }}>{S.userMgmtDeleteConfirmDesc}</p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setDeletingUserId(null)}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                onClick={() => handleDeleteUser(deletingUserId)}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "#ef4444", color: "#fff" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#dc2626")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#ef4444")}
+              >
+                {S.deleteBtn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <style>{`
@@ -5659,6 +6467,9 @@ export default function App() {
         }
         .msg-animate { animation: msg-in 0.15s ease forwards; }
         textarea::placeholder { color: rgba(134,134,139,0.45); }
+        body { -webkit-user-select: none; user-select: none; }
+        .selectable-text, .selectable-text * { -webkit-user-select: text; user-select: text; }
+        input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
       `}</style>
     </div>
   );

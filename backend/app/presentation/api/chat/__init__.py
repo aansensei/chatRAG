@@ -6,7 +6,6 @@ import re
 import socket
 import time
 import unicodedata
-from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -15,17 +14,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.application.retrieval.ask_question import stream_ask, _call_llm_once, _stream_llm
+from app.infrastructure.storage.local.local_storage import load_chat_sessions, save_chat_sessions
 from app.infrastructure.vector.supabase.repository import list_documents
-from app.presentation.api.auth import get_collections
+from app.presentation.api.auth import get_collections, get_current_user
 from app.shared.utils.metrics import log_query_metric
 
 logger = logging.getLogger(__name__)
 
 _OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 _OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
-_SESSIONS_FILE = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage")) / "chat_sessions.json"
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(get_current_user)])
 
 _FALLBACK_SUGGESTIONS = [
     {"title": "Tóm tắt tài liệu", "subtitle": "Các điểm chính trong kho tài liệu"},
@@ -51,12 +50,12 @@ class QuestionRequest(BaseModel):
     chat_notes: str | None = None
 
 
-def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, chat_notes):
+def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id):
     t0 = time.time()
     success = True
     error: str | None = None
     try:
-        yield from stream_ask(question, active, hybrid, model, api_key, history, chat_notes)
+        yield from stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id)
     except Exception as exc:
         success = False
         error = str(exc)
@@ -66,7 +65,7 @@ def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, 
 
 
 @router.post("")
-def chat(body: QuestionRequest, dep_collections: list[str] = Depends(get_collections)):
+def chat(body: QuestionRequest, dep_collections: list[str] = Depends(get_collections), user: dict = Depends(get_current_user)):
     if dep_collections:
         active = dep_collections
     elif body.collections is not None:
@@ -77,7 +76,7 @@ def chat(body: QuestionRequest, dep_collections: list[str] = Depends(get_collect
         active = None
     history = [h.model_dump() for h in body.history] if body.history else None
     return StreamingResponse(
-        _instrumented_stream_ask(body.question, active, body.hybrid, body.model, body.api_key, history, body.chat_notes or ""),
+        _instrumented_stream_ask(body.question, active, body.hybrid, body.model, body.api_key, history, body.chat_notes or "", user["id"]),
         media_type="text/event-stream",
     )
 
@@ -443,10 +442,8 @@ async def browse_url(body: BrowseRequest):
 
 @router.get("/sessions")
 def get_sessions():
-    if not _SESSIONS_FILE.exists():
-        return []
     try:
-        return json.loads(_SESSIONS_FILE.read_text(encoding="utf-8"))
+        return load_chat_sessions()
     except Exception:
         return []
 
@@ -454,8 +451,9 @@ def get_sessions():
 @router.put("/sessions")
 async def save_sessions(request: Request):
     data = await request.json()
-    _SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _SESSIONS_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    if not isinstance(data, list):
+        raise HTTPException(status_code=400, detail="Expected a list of sessions")
+    save_chat_sessions(data)
     return {"ok": True}
 
 

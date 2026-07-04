@@ -3,11 +3,13 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from app.presentation.api.auth import require_admin
 
 _METRICS_FILE = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage")) / "metrics.jsonl"
 
-router = APIRouter(prefix="/metrics", tags=["metrics"])
+router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Depends(require_admin)])
 
 
 def _read_entries() -> list[dict]:

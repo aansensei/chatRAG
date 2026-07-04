@@ -17,9 +17,10 @@ from fastapi.staticfiles import StaticFiles
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "static")
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
+from app.presentation.api.auth import router as auth_router, bootstrap_admin, get_current_user
 from app.presentation.api.chat import router as chat_router
 from app.presentation.api.ingest import router as ingest_router
-from app.presentation.api.memory import router as memory_router
+from app.presentation.api.memory import router as memory_router, migrate_legacy_memories
 from app.presentation.api.metrics import router as metrics_router
 from app.presentation.api.chat import _OLLAMA_URL, _OLLAMA_MODEL
 from app.presentation.middleware.rate_limit import RateLimitMiddleware
@@ -65,6 +66,25 @@ def _warm_ollama():
         logger.warning(f"[lifespan] Ollama warmup failed (will load on first request): {exc}")
 
 
+def _cleanup_orphaned_workers():
+    # A force-killed uvicorn parent (taskkill/Stop-Process) skips this lifespan's shutdown
+    # handler, leaving its ocr/chunk/embedding worker subprocesses running and competing
+    # for resources on the next start. Since _procs is still empty at this point, any
+    # matching process found here must be debris from a previous run.
+    import psutil
+    killed = 0
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmdline = " ".join(proc.info["cmdline"] or [])
+            if any(module in cmdline for module in _WORKER_MODULES):
+                proc.kill()
+                killed += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    if killed:
+        logger.warning(f"[lifespan] cleaned up {killed} orphaned worker process(es) from a previous run")
+
+
 def _watchdog():
     while not _stop.is_set():
         for i, proc in enumerate(_procs):
@@ -77,6 +97,9 @@ def _watchdog():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _cleanup_orphaned_workers()
+    bootstrap_admin()
+    migrate_legacy_memories()
     _stop.clear()
     for module in _WORKER_MODULES:
         for _ in range(_CONCURRENCY):
@@ -124,6 +147,7 @@ app.add_middleware(
 )
 app.add_middleware(RateLimitMiddleware)
 
+app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(ingest_router)
 app.include_router(memory_router)

@@ -12,9 +12,9 @@ from app.infrastructure.vector.supabase.repository import (
     rename_collection, delete_collection_docs, move_document_collection,
     get_document_file_path, relink_document_file,
 )
-from app.presentation.api.auth import get_collections
+from app.presentation.api.auth import get_collections, get_current_user
 
-router = APIRouter(prefix="/ingest", tags=["ingest"])
+router = APIRouter(prefix="/ingest", tags=["ingest"], dependencies=[Depends(get_current_user)])
 
 STORAGE_PATH = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage"))
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".docx", ".xlsx", ".csv"}
