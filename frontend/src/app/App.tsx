@@ -3808,6 +3808,199 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     return map;
   }, [kbDocs, collections, pendingFolders]);
 
+  // Collections named "Parent/Child" (e.g. "AanJSC_Documents/Engineering") are
+  // grouped under a virtual parent node in the sidebar instead of sitting as flat,
+  // unrelated-looking top-level folders next to e.g. "ESL" or "EBooks(PDF)2026".
+  const folderGroups = useMemo(() => {
+    const flat: [string, KBDocument[]][] = [];
+    const groups: Record<string, { fullName: string; label: string; files: KBDocument[] }[]> = {};
+    for (const [name, files] of Object.entries(folderMap)) {
+      const slashIdx = name.indexOf("/");
+      if (slashIdx === -1) {
+        flat.push([name, files]);
+      } else {
+        const parent = name.slice(0, slashIdx);
+        const label = name.slice(slashIdx + 1);
+        (groups[parent] ??= []).push({ fullName: name, label, files });
+      }
+    }
+    type Entry =
+      | { kind: "flat"; name: string; files: KBDocument[] }
+      | { kind: "group"; name: string; totalCount: number; children: { fullName: string; label: string; files: KBDocument[] }[] };
+    const entries: Entry[] = flat.map(([name, files]) => ({ kind: "flat", name, files }));
+    for (const [parent, children] of Object.entries(groups)) {
+      children.sort((a, b) => a.label.localeCompare(b.label));
+      entries.push({ kind: "group", name: parent, totalCount: children.reduce((sum, c) => sum + c.files.length, 0), children });
+    }
+    entries.sort((a, b) => (a.name === "default" ? -1 : b.name === "default" ? 1 : a.name.localeCompare(b.name)));
+    return entries;
+  }, [folderMap]);
+
+  // Renders one folder row + its expanded file list. `folderName` is the real
+  // collection name used for all backend calls; `displayName` is what's shown (for
+  // grouped children this is just the short label, e.g. "Engineering" instead of
+  // "AanJSC_Documents/Engineering").
+  const renderFolderRow = (folderName: string, displayName: string, files: KBDocument[], indent = false) => {
+    const isExpanded = expandedFolders.has(folderName);
+    const isPending = pendingFolders.includes(folderName) && !collections.some(c => c.name === folderName);
+    const isKbSelected = kbFilter === folderName;
+    return (
+      <div key={folderName} className="mb-0.5" style={indent ? { marginLeft: 14 } : undefined}>
+        <div
+          className="group/folder flex items-center gap-1.5 px-2 py-1.5 rounded-lg"
+          style={{ background: isKbSelected ? "rgba(59,130,246,0.1)" : "transparent" }}
+          onMouseEnter={(e) => { if (!isKbSelected) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = isKbSelected ? "rgba(59,130,246,0.1)" : "transparent"; }}
+        >
+          <button
+            onClick={() => setExpandedFolders((prev) => {
+              const next = new Set(prev);
+              next.has(folderName) ? next.delete(folderName) : next.add(folderName);
+              return next;
+            })}
+            className="flex-shrink-0"
+            style={{ color: "#4a9eff" }}
+          >
+            {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          </button>
+          <FolderOpen size={11} style={{ color: isKbSelected ? "#93c5fd" : "#6b9fd4", flexShrink: 0 }} />
+          {renamingFolder === folderName ? (
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") {
+                  const val = renameValue.trim();
+                  setRenamingFolder(null);
+                  if (val && val !== folderName) renameFolder(folderName, val);
+                }
+                if (e.key === "Escape") setRenamingFolder(null);
+              }}
+              onBlur={() => setRenamingFolder(null)}
+              className="flex-1 text-[11px] bg-transparent outline-none"
+              style={{ border: "0.5px solid rgba(59,130,246,0.4)", borderRadius: 4, padding: "1px 4px", color: "#c7c7cc" }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <button
+              className="flex-1 text-left text-[11px] truncate"
+              style={{ color: isKbSelected ? "#93c5fd" : "#c7c7cc" }}
+              onClick={() => setKbFilter(kbFilter === folderName ? null : folderName)}
+            >
+              {displayName}
+              {isPending && <span style={{ color: "rgba(134,134,139,0.4)", fontSize: 9 }}> ·new</span>}
+            </button>
+          )}
+          <span className="text-[9px] flex-shrink-0" style={{ color: "rgba(134,134,139,0.4)" }}>{files.length}</span>
+          {confirmingDelete === folderName ? (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <span className="text-[9px]" style={{ color: "#f87171" }}>Xóa?</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteFolder(folderName); }}
+                className="px-1.5 py-0.5 rounded text-[9px] font-medium"
+                style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}
+              >
+                Có
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); }}
+                className="px-1.5 py-0.5 rounded text-[9px]"
+                style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Không
+              </button>
+            </div>
+          ) : (
+            <div className="opacity-0 group-hover/folder:opacity-100 flex gap-0.5 flex-shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); setRenamingFolder(folderName); setRenameValue(folderName); }}
+                className="p-0.5 rounded"
+                style={{ color: "#86868B" }}
+                title="Rename"
+                onMouseEnter={(e) => { e.currentTarget.style.color = "#c7c7cc"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+              >
+                <Pencil size={9} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmingDelete(folderName); }}
+                className="p-0.5 rounded"
+                style={{ color: "#86868B" }}
+                title="Delete folder"
+                onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+              >
+                <Trash2 size={9} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {isExpanded && (
+          <div>
+            {files.map((doc) => {
+              const name = doc.source.split(/[\\/]/).pop() || doc.document_id.slice(0, 12);
+              return (
+                <div
+                  key={doc.document_id}
+                  className="group/file flex items-center gap-1.5 pl-6 pr-2 py-1 rounded-lg"
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  {fileIcon(name)}
+                  <span className="flex-1 truncate text-[10px]" style={{ color: "#888" }} title={name}>{name}</span>
+                  {movingDoc === doc.document_id ? (
+                    <select
+                      autoFocus
+                      onChange={(e) => { if (e.target.value) moveDocument(doc.document_id, e.target.value); }}
+                      onBlur={() => setMovingDoc(null)}
+                      className="text-[10px] rounded"
+                      style={{ background: "#1c1c1e", border: "1px solid rgba(59,130,246,0.4)", color: "#c7c7cc", padding: "1px 3px", maxWidth: 80, outline: "none" }}
+                    >
+                      <option value="">Move to…</option>
+                      {Object.keys(folderMap).filter((f) => f !== folderName).map((f) => (
+                        <option key={f} value={f}>{f}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="opacity-0 group-hover/file:opacity-100 flex gap-0.5 flex-shrink-0">
+                      <button
+                        onClick={() => setMovingDoc(doc.document_id)}
+                        className="p-0.5 rounded"
+                        style={{ color: "#86868B" }}
+                        title="Move to folder"
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "#93c5fd"; (e.currentTarget as HTMLElement).style.background = "rgba(59,130,246,0.08)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                      >
+                        <ArrowRight size={9} />
+                      </button>
+                      <button
+                        onClick={() => deleteKbDoc(doc.document_id, name)}
+                        className="p-0.5 rounded"
+                        style={{ color: "#86868B" }}
+                        title="Delete file"
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                      >
+                        <Trash2 size={9} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {files.length === 0 && (
+              <p className="pl-6 py-1 text-[10px]" style={{ color: "rgba(134,134,139,0.3)" }}>Empty folder</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
 
@@ -4674,168 +4867,39 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                 <Database size={18} style={{ color: "rgba(134,134,139,0.2)" }} />
                 <p className="text-[10px]" style={{ color: "rgba(134,134,139,0.35)" }}>{S.noFiles}</p>
               </div>
-            ) : Object.entries(folderMap)
-                .sort(([a], [b]) => a === "default" ? -1 : b === "default" ? 1 : a.localeCompare(b))
-                .map(([folderName, files]) => {
-                  const isExpanded = expandedFolders.has(folderName);
-                  const isPending = pendingFolders.includes(folderName) && !collections.some(c => c.name === folderName);
-                  const isKbSelected = kbFilter === folderName;
-                  return (
-                    <div key={folderName} className="mb-0.5">
-                      <div
-                        className="group/folder flex items-center gap-1.5 px-2 py-1.5 rounded-lg"
-                        style={{ background: isKbSelected ? "rgba(59,130,246,0.1)" : "transparent" }}
-                        onMouseEnter={(e) => { if (!isKbSelected) e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = isKbSelected ? "rgba(59,130,246,0.1)" : "transparent"; }}
+            ) : folderGroups.map((entry) => {
+                if (entry.kind === "flat") {
+                  return renderFolderRow(entry.name, entry.name, entry.files);
+                }
+                const isGroupExpanded = expandedFolders.has(entry.name);
+                return (
+                  <div key={entry.name} className="mb-0.5">
+                    <div
+                      className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg"
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <button
+                        onClick={() => setExpandedFolders((prev) => {
+                          const next = new Set(prev);
+                          next.has(entry.name) ? next.delete(entry.name) : next.add(entry.name);
+                          return next;
+                        })}
+                        className="flex-shrink-0"
+                        style={{ color: "#4a9eff" }}
                       >
-                        <button
-                          onClick={() => setExpandedFolders((prev) => {
-                            const next = new Set(prev);
-                            next.has(folderName) ? next.delete(folderName) : next.add(folderName);
-                            return next;
-                          })}
-                          className="flex-shrink-0"
-                          style={{ color: "#4a9eff" }}
-                        >
-                          {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                        </button>
-                        <FolderOpen size={11} style={{ color: isKbSelected ? "#93c5fd" : "#6b9fd4", flexShrink: 0 }} />
-                        {renamingFolder === folderName ? (
-                          <input
-                            autoFocus
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onFocus={(e) => e.target.select()}
-                            onKeyDown={(e) => {
-                              e.stopPropagation();
-                              if (e.key === "Enter") {
-                                const val = renameValue.trim();
-                                setRenamingFolder(null);
-                                if (val && val !== folderName) renameFolder(folderName, val);
-                              }
-                              if (e.key === "Escape") setRenamingFolder(null);
-                            }}
-                            onBlur={() => setRenamingFolder(null)}
-                            className="flex-1 text-[11px] bg-transparent outline-none"
-                            style={{ border: "0.5px solid rgba(59,130,246,0.4)", borderRadius: 4, padding: "1px 4px", color: "#c7c7cc" }}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <button
-                            className="flex-1 text-left text-[11px] truncate"
-                            style={{ color: isKbSelected ? "#93c5fd" : "#c7c7cc" }}
-                            onClick={() => setKbFilter(kbFilter === folderName ? null : folderName)}
-                          >
-                            {folderName}
-                            {isPending && <span style={{ color: "rgba(134,134,139,0.4)", fontSize: 9 }}> ·new</span>}
-                          </button>
-                        )}
-                        <span className="text-[9px] flex-shrink-0" style={{ color: "rgba(134,134,139,0.4)" }}>{files.length}</span>
-                        {confirmingDelete === folderName ? (
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <span className="text-[9px]" style={{ color: "#f87171" }}>Xóa?</span>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); deleteFolder(folderName); }}
-                              className="px-1.5 py-0.5 rounded text-[9px] font-medium"
-                              style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}
-                            >
-                              Có
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); }}
-                              className="px-1.5 py-0.5 rounded text-[9px]"
-                              style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}
-                            >
-                              Không
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="opacity-0 group-hover/folder:opacity-100 flex gap-0.5 flex-shrink-0">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setRenamingFolder(folderName); setRenameValue(folderName); }}
-                              className="p-0.5 rounded"
-                              style={{ color: "#86868B" }}
-                              title="Rename"
-                              onMouseEnter={(e) => { e.currentTarget.style.color = "#c7c7cc"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                            >
-                              <Pencil size={9} />
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setConfirmingDelete(folderName); }}
-                              className="p-0.5 rounded"
-                              style={{ color: "#86868B" }}
-                              title="Delete folder"
-                              onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                            >
-                              <Trash2 size={9} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {isExpanded && (
-                        <div>
-                          {files.map((doc) => {
-                            const name = doc.source.split(/[\\/]/).pop() || doc.document_id.slice(0, 12);
-                            return (
-                              <div
-                                key={doc.document_id}
-                                className="group/file flex items-center gap-1.5 pl-6 pr-2 py-1 rounded-lg"
-                                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                              >
-                                {fileIcon(name)}
-                                <span className="flex-1 truncate text-[10px]" style={{ color: "#888" }} title={name}>{name}</span>
-                                {movingDoc === doc.document_id ? (
-                                  <select
-                                    autoFocus
-                                    onChange={(e) => { if (e.target.value) moveDocument(doc.document_id, e.target.value); }}
-                                    onBlur={() => setMovingDoc(null)}
-                                    className="text-[10px] rounded"
-                                    style={{ background: "#1c1c1e", border: "1px solid rgba(59,130,246,0.4)", color: "#c7c7cc", padding: "1px 3px", maxWidth: 80, outline: "none" }}
-                                  >
-                                    <option value="">Move to…</option>
-                                    {Object.keys(folderMap).filter((f) => f !== folderName).map((f) => (
-                                      <option key={f} value={f}>{f}</option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <div className="opacity-0 group-hover/file:opacity-100 flex gap-0.5 flex-shrink-0">
-                                    <button
-                                      onClick={() => setMovingDoc(doc.document_id)}
-                                      className="p-0.5 rounded"
-                                      style={{ color: "#86868B" }}
-                                      title="Move to folder"
-                                      onMouseEnter={(e) => { e.currentTarget.style.color = "#93c5fd"; (e.currentTarget as HTMLElement).style.background = "rgba(59,130,246,0.08)"; }}
-                                      onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                                    >
-                                      <ArrowRight size={9} />
-                                    </button>
-                                    <button
-                                      onClick={() => deleteKbDoc(doc.document_id, name)}
-                                      className="p-0.5 rounded"
-                                      style={{ color: "#86868B" }}
-                                      title="Delete file"
-                                      onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
-                                      onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                                    >
-                                      <Trash2 size={9} />
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                          {files.length === 0 && (
-                            <p className="pl-6 py-1 text-[10px]" style={{ color: "rgba(134,134,139,0.3)" }}>Empty folder</p>
-                          )}
-                        </div>
-                      )}
+                        {isGroupExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                      </button>
+                      <FolderOpen size={11} style={{ color: "#8b8b93", flexShrink: 0 }} />
+                      <span className="flex-1 text-left text-[11px] font-semibold truncate" style={{ color: "#d1d1d6" }}>
+                        {entry.name}
+                      </span>
+                      <span className="text-[9px] flex-shrink-0" style={{ color: "rgba(134,134,139,0.4)" }}>{entry.totalCount}</span>
                     </div>
-                  );
-                })
+                    {isGroupExpanded && entry.children.map((child) => renderFolderRow(child.fullName, child.label, child.files, true))}
+                  </div>
+                );
+              })
             }
           </div>
         </div>

@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from collections import defaultdict, deque
 
@@ -17,13 +18,23 @@ _history: dict[str, deque[float]] = defaultdict(deque)
 
 _LIMITED_PREFIXES = ("/chat", "/ingest", "/memory")
 
+# Job-status polling is a cheap, read-only cache lookup (no LLM/embedding cost) and is
+# legitimately called at high frequency when uploading many files at once — e.g.
+# syncing a folder with dozens of files, each polled every couple seconds until done.
+# Counting it against the same budget as expensive endpoints turns ordinary bulk
+# uploads into a wave of false "upload failed" errors once the budget is exhausted.
+_JOB_STATUS_RE = re.compile(r"^/ingest/jobs/[^/]+$")
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        path = request.url.path
         # Only the API routes that trigger real cost (LLM calls, OCR/embedding jobs) —
         # static assets (/assets/*, /) are excluded so loading the page itself can't
         # exhaust the budget and lock a legitimate user out.
-        if not request.url.path.startswith(_LIMITED_PREFIXES):
+        if not path.startswith(_LIMITED_PREFIXES):
+            return await call_next(request)
+        if request.method == "GET" and _JOB_STATUS_RE.match(path):
             return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
