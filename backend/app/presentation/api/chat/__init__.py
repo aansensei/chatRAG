@@ -441,19 +441,19 @@ async def browse_url(body: BrowseRequest):
 
 
 @router.get("/sessions")
-def get_sessions():
+def get_sessions(user: dict = Depends(get_current_user)):
     try:
-        return load_chat_sessions()
+        return load_chat_sessions(user["id"])
     except Exception:
         return []
 
 
 @router.put("/sessions")
-async def save_sessions(request: Request):
+async def save_sessions(request: Request, user: dict = Depends(get_current_user)):
     data = await request.json()
     if not isinstance(data, list):
         raise HTTPException(status_code=400, detail="Expected a list of sessions")
-    save_chat_sessions(data)
+    save_chat_sessions(data, user["id"])
     return {"ok": True}
 
 

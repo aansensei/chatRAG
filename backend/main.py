@@ -18,6 +18,7 @@ _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "s
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
 from app.presentation.api.auth import router as auth_router, bootstrap_admin, get_current_user
+from app.infrastructure.storage.local.local_storage import migrate_legacy_chat_sessions
 from app.presentation.api.chat import router as chat_router
 from app.presentation.api.ingest import router as ingest_router
 from app.presentation.api.memory import router as memory_router, migrate_legacy_memories
@@ -100,6 +101,7 @@ async def lifespan(app: FastAPI):
     _cleanup_orphaned_workers()
     bootstrap_admin()
     migrate_legacy_memories()
+    migrate_legacy_chat_sessions()
     _stop.clear()
     for module in _WORKER_MODULES:
         for _ in range(_CONCURRENCY):
