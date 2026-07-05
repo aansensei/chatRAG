@@ -12,7 +12,7 @@ from app.infrastructure.vector.supabase.repository import (
     rename_collection, delete_collection_docs, move_document_collection,
     get_document_file_path, relink_document_file,
 )
-from app.presentation.api.auth import get_collections, get_current_user
+from app.presentation.api.auth import get_collections, get_current_user, require_admin, require_admin_or_executive
 
 router = APIRouter(prefix="/ingest", tags=["ingest"], dependencies=[Depends(get_current_user)])
 
@@ -88,7 +88,7 @@ def documents(collections: list[str] = Depends(get_collections)):
 
 
 @router.delete("/documents/{document_id}")
-def delete_doc(document_id: str):
+def delete_doc(document_id: str, _admin: dict = Depends(require_admin)):
     delete_document(document_id)
     return {"ok": True}
 
@@ -106,16 +106,16 @@ class MoveDocumentBody(BaseModel):
     collection: str
 
 
-@router.patch("/collections/{name}")
-def rename_collection_route(name: str, body: RenameCollectionBody):
+@router.patch("/collections/{name:path}")
+def rename_collection_route(name: str, body: RenameCollectionBody, _user: dict = Depends(require_admin_or_executive)):
     if not body.new_name.strip():
         raise HTTPException(status_code=400, detail="new_name cannot be empty")
     rename_collection(name, body.new_name.strip())
     return {"ok": True}
 
 
-@router.delete("/collections/{name}")
-def delete_collection_route(name: str):
+@router.delete("/collections/{name:path}")
+def delete_collection_route(name: str, _admin: dict = Depends(require_admin)):
     delete_collection_docs(name)
     return {"ok": True}
 

@@ -71,6 +71,14 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+async def require_admin_or_executive(user: dict = Depends(get_current_user)) -> dict:
+    """Renaming a shared KB folder is restricted to admins and Ban Giám đốc —
+    everyone else should go through the approval workflow instead."""
+    if user["role"] != "admin" and user.get("department") != "Ban Giám đốc":
+        raise HTTPException(status_code=403, detail="Admin or Ban Giám đốc access required")
+    return user
+
+
 async def get_collections(_user: dict = Depends(get_current_user)) -> list[str]:
     return []  # any authenticated user can see all collections — no per-user scoping yet
 
