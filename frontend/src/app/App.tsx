@@ -42,6 +42,7 @@ import {
   Star,
   LogOut,
   Users,
+  ListChecks,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -205,6 +206,9 @@ const UI_STRINGS = {
     clearDataPasswordPlaceholder: "Nhập mật khẩu để xác nhận",
     clearDataWrongPassword: "Mật khẩu không đúng",
     clearDataConfirmBtn: "Xóa vĩnh viễn",
+    kbDeleteConfirmTitle: "Xác nhận xóa khỏi Knowledge Base?",
+    kbDeleteConfirmDesc: "Hành động này không thể hoàn tác và ảnh hưởng đến toàn bộ công ty. Nhập mật khẩu admin để xác nhận.",
+    kbDeleteConfirmBtn: "Xóa vĩnh viễn",
     userMgmtBtn: "Quản lý người dùng",
     userMgmtTitle: "Quản lý người dùng",
     userMgmtGenericError: "Có lỗi xảy ra. Thử lại sau.",
@@ -340,6 +344,9 @@ const UI_STRINGS = {
     clearDataPasswordPlaceholder: "Enter password to confirm",
     clearDataWrongPassword: "Incorrect password",
     clearDataConfirmBtn: "Delete permanently",
+    kbDeleteConfirmTitle: "Delete from Knowledge Base?",
+    kbDeleteConfirmDesc: "This cannot be undone and affects the whole company. Enter your admin password to confirm.",
+    kbDeleteConfirmBtn: "Delete permanently",
     userMgmtBtn: "Manage users",
     userMgmtTitle: "Manage users",
     userMgmtGenericError: "Something went wrong. Try again.",
@@ -475,6 +482,9 @@ const UI_STRINGS = {
     clearDataPasswordPlaceholder: "输入密码以确认",
     clearDataWrongPassword: "密码不正确",
     clearDataConfirmBtn: "永久删除",
+    kbDeleteConfirmTitle: "确认从知识库中删除？",
+    kbDeleteConfirmDesc: "此操作无法撤销，将影响整个公司。请输入管理员密码以确认。",
+    kbDeleteConfirmBtn: "永久删除",
     userMgmtBtn: "用户管理",
     userMgmtTitle: "用户管理",
     userMgmtGenericError: "出错了，请重试。",
@@ -610,6 +620,9 @@ const UI_STRINGS = {
     clearDataPasswordPlaceholder: "確認のためパスワードを入力",
     clearDataWrongPassword: "パスワードが正しくありません",
     clearDataConfirmBtn: "完全に削除",
+    kbDeleteConfirmTitle: "ナレッジベースから削除しますか？",
+    kbDeleteConfirmDesc: "この操作は元に戻せず、会社全体に影響します。確認のため管理者パスワードを入力してください。",
+    kbDeleteConfirmBtn: "完全に削除",
     userMgmtBtn: "ユーザー管理",
     userMgmtTitle: "ユーザー管理",
     userMgmtGenericError: "エラーが発生しました。もう一度お試しください。",
@@ -681,17 +694,23 @@ type Chat = {
 
 const STORAGE_KEY = "chatrag_sessions";
 
-function loadChatsFromStorage(): Chat[] {
+// Scoped per user so switching accounts on the same browser never shows the
+// previous account's cached chats before the server round-trip completes.
+function chatsStorageKey(userId: string | null | undefined): string {
+  return userId ? `${STORAGE_KEY}_${userId}` : STORAGE_KEY;
+}
+
+function loadChatsFromStorage(userId: string | null | undefined): Chat[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(chatsStorageKey(userId));
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function saveChatsToStorage(chats: Chat[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
+function saveChatsToStorage(chats: Chat[], userId: string | null | undefined) {
+  localStorage.setItem(chatsStorageKey(userId), JSON.stringify(chats));
 }
 
 type PromptTemplate = { id: string; name: string; prompt: string; pinned?: boolean };
@@ -1025,11 +1044,13 @@ function SourceChip({
   onClick,
   active,
   id,
+  number,
 }: {
   source: Source;
   onClick: () => void;
   active: boolean;
   id?: string;
+  number?: number;
 }) {
   return (
     <button
@@ -1047,6 +1068,14 @@ function SourceChip({
         boxShadow: active ? "0 0 10px rgba(59,130,246,0.12)" : "none",
       }}
     >
+      {number !== undefined && (
+        <span
+          className="inline-flex items-center justify-center shrink-0 rounded text-[10px] font-semibold"
+          style={{ minWidth: 14, height: 14, background: "rgba(59,130,246,0.18)", border: "1px solid rgba(59,130,246,0.35)", color: "#93c5fd" }}
+        >
+          {number}
+        </span>
+      )}
       <ConfidenceDot value={source.confidence} />
       <SourceIcon type={source.type} />
       <span className="max-w-[140px] truncate">{source.title}</span>
@@ -1411,6 +1440,7 @@ function ChatMessage({
                       source={src}
                       onClick={() => onSourceClick(src)}
                       active={activeSource === src.id}
+                      number={n}
                     />
                   );
                 })}
@@ -2603,6 +2633,7 @@ function ContextBar({
   onHybridChange: (h: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2613,6 +2644,34 @@ function ContextBar({
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
+
+  // Collections named "Parent/Child" are grouped under a virtual parent here too,
+  // matching the sidebar/KB browser — otherwise this dropdown lists them flat and
+  // ungrouped next to unrelated top-level folders.
+  const groupedCollections = useMemo(() => {
+    type Entry =
+      | { kind: "flat"; name: string; doc_count: number }
+      | { kind: "group"; name: string; totalCount: number; children: { fullName: string; label: string; doc_count: number }[] };
+    const flat: Collection[] = [];
+    const groups: Record<string, { fullName: string; label: string; doc_count: number }[]> = {};
+    for (const col of collections) {
+      const slashIdx = col.name.indexOf("/");
+      if (slashIdx === -1) {
+        flat.push(col);
+      } else {
+        const parent = col.name.slice(0, slashIdx);
+        const label = col.name.slice(slashIdx + 1);
+        (groups[parent] ??= []).push({ fullName: col.name, label, doc_count: col.doc_count });
+      }
+    }
+    const entries: Entry[] = flat.map((c) => ({ kind: "flat", name: c.name, doc_count: c.doc_count }));
+    for (const [parent, children] of Object.entries(groups)) {
+      children.sort((a, b) => a.label.localeCompare(b.label));
+      entries.push({ kind: "group", name: parent, totalCount: children.reduce((sum, c) => sum + c.doc_count, 0), children });
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    return entries;
+  }, [collections]);
 
   const selectedNames = scope.type === "selected" ? scope.collections : [];
   const label = scope.type === "all"
@@ -2664,22 +2723,63 @@ function ContextBar({
               {collections.length > 0 && (
                 <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "2px 8px" }} />
               )}
-              {collections.map((col) => {
-                const sel = selectedNames.includes(col.name);
+              {groupedCollections.map((entry) => {
+                if (entry.kind === "flat") {
+                  const sel = selectedNames.includes(entry.name);
+                  return (
+                    <button
+                      key={entry.name}
+                      onClick={() => toggle(entry.name)}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] text-left transition-colors"
+                      style={{ background: sel ? "rgba(59,130,246,0.1)" : "transparent", color: sel ? "#93c5fd" : "#c7c7cc" }}
+                      onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                      onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <FolderOpen size={11} style={{ flexShrink: 0 }} />
+                      <span className="flex-1 truncate">{entry.name}</span>
+                      <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 10 }}>{entry.doc_count}</span>
+                      {sel && <Check size={10} style={{ color: "#93c5fd", flexShrink: 0 }} />}
+                    </button>
+                  );
+                }
+                const isExpanded = expandedGroups.has(entry.name);
                 return (
-                  <button
-                    key={col.name}
-                    onClick={() => toggle(col.name)}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] text-left transition-colors"
-                    style={{ background: sel ? "rgba(59,130,246,0.1)" : "transparent", color: sel ? "#93c5fd" : "#c7c7cc" }}
-                    onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-                    onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <FolderOpen size={11} style={{ flexShrink: 0 }} />
-                    <span className="flex-1 truncate">{col.name}</span>
-                    <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 10 }}>{col.doc_count}</span>
-                    {sel && <Check size={10} style={{ color: "#93c5fd", flexShrink: 0 }} />}
-                  </button>
+                  <div key={entry.name}>
+                    <button
+                      onClick={() => setExpandedGroups((prev) => {
+                        const next = new Set(prev);
+                        next.has(entry.name) ? next.delete(entry.name) : next.add(entry.name);
+                        return next;
+                      })}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] text-left transition-colors"
+                      style={{ color: "#c7c7cc" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      {isExpanded ? <ChevronDown size={10} style={{ flexShrink: 0 }} /> : <ChevronRight size={10} style={{ flexShrink: 0 }} />}
+                      <FolderOpen size={11} style={{ flexShrink: 0 }} />
+                      <span className="flex-1 truncate font-semibold">{entry.name}</span>
+                      <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 10 }}>{entry.totalCount}</span>
+                    </button>
+                    {isExpanded && entry.children.map((child) => {
+                      const sel = selectedNames.includes(child.fullName);
+                      return (
+                        <button
+                          key={child.fullName}
+                          onClick={() => toggle(child.fullName)}
+                          className="w-full flex items-center gap-2 py-2 rounded-lg text-[11px] text-left transition-colors"
+                          style={{ paddingLeft: 26, paddingRight: 12, background: sel ? "rgba(59,130,246,0.1)" : "transparent", color: sel ? "#93c5fd" : "#c7c7cc" }}
+                          onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                          onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}
+                        >
+                          <FolderOpen size={11} style={{ flexShrink: 0 }} />
+                          <span className="flex-1 truncate">{child.label}</span>
+                          <span style={{ color: "rgba(134,134,139,0.5)", fontSize: 10 }}>{child.doc_count}</span>
+                          {sel && <Check size={10} style={{ color: "#93c5fd", flexShrink: 0 }} />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>
@@ -3260,11 +3360,19 @@ export default function App() {
     return <LoginScreen uiLang={authUiLang} onSetUiLang={handleSetAuthUiLang} onLogin={handleLogin} />;
   }
 
-  return <AuthedApp currentUser={currentUser} onLogout={handleLogout} />;
+  // Keying on the user id forces a full remount on every login/logout — otherwise
+  // React reuses the same AuthedApp instance across accounts in the same tab and
+  // in-memory state (chats, KB filters, etc.) from the previous user leaks through
+  // until a hard page reload happens to wipe it.
+  return <AuthedApp key={currentUser?.id ?? "anon"} currentUser={currentUser} onLogout={handleLogout} />;
 }
 
 function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; onLogout: () => void }) {
-  const [chats, setChats] = useState<Chat[]>(loadChatsFromStorage);
+  // Renaming a shared KB folder is restricted to admins and Ban Giám đốc — everyone
+  // else needs to go through the (not yet built) approval workflow instead of
+  // renaming freely.
+  const canRenameFolders = currentUser?.role === "admin" || currentUser?.department === "Ban Giám đốc";
+  const [chats, setChats] = useState<Chat[]>(() => loadChatsFromStorage(currentUser?.id));
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [mode, setMode] = useState<"chat" | "translate">("chat");
 
@@ -3403,10 +3511,24 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const [templateSearch, setTemplateSearch] = useState("");
   const templateMenuRef = useRef<HTMLDivElement>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  // Bulk multi-select delete for chat history — separate from the single-chat
+  // delete above so that flow stays untouched.
+  const [chatSelectMode, setChatSelectMode] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [bulkDeletingChats, setBulkDeletingChats] = useState(false);
   const [clearDataConfirmOpen, setClearDataConfirmOpen] = useState(false);
   const [clearDataPassword, setClearDataPassword] = useState("");
   const [clearDataError, setClearDataError] = useState("");
   const [clearDataVerifying, setClearDataVerifying] = useState(false);
+  // Destructive KB actions (delete folder/group/document) require re-entering the
+  // admin password — same idea as clearData above, but generic over any delete action.
+  const [kbDeleteAction, setKbDeleteAction] = useState<(() => void | Promise<void>) | null>(null);
+  const [kbDeletePassword, setKbDeletePassword] = useState("");
+  const [kbDeleteError, setKbDeleteError] = useState("");
+  const [kbDeleteVerifying, setKbDeleteVerifying] = useState(false);
+  // Multi-select for bulk-deleting several KB collections at once (admin only,
+  // inside the Knowledge Base browser modal).
+  const [selectedKbFolders, setSelectedKbFolders] = useState<Set<string>>(new Set());
   const [userMgmtOpen, setUserMgmtOpen] = useState(false);
   const [userList, setUserList] = useState<AuthUser[]>([]);
   const [userListLoading, setUserListLoading] = useState(false);
@@ -3585,7 +3707,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         const existing = Array.isArray(c.notes) ? c.notes : c.notes ? [c.notes as unknown as string] : [];
         return { ...c, notes: [...existing, t] };
       });
-      saveChatsToStorage(updated);
+      saveChatsToStorage(updated, currentUser?.id);
       return updated;
     });
     setChatNoteInputs((prev) => ({ ...prev, [chatId]: "" }));
@@ -3598,7 +3720,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         const existing = Array.isArray(c.notes) ? c.notes : c.notes ? [c.notes as unknown as string] : [];
         return { ...c, notes: existing.filter((_, i) => i !== idx) };
       });
-      saveChatsToStorage(updated);
+      saveChatsToStorage(updated, currentUser?.id);
       return updated;
     });
   };
@@ -3606,7 +3728,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     if (!chatId) return;
     setChats((prev) => {
       const updated = prev.map((c) => (c.id === chatId ? { ...c, notes: [] } : c));
-      saveChatsToStorage(updated);
+      saveChatsToStorage(updated, currentUser?.id);
       return updated;
     });
   };
@@ -3915,7 +4037,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
             <div className="flex items-center gap-1 flex-shrink-0">
               <span className="text-[9px]" style={{ color: "#f87171" }}>Xóa?</span>
               <button
-                onClick={(e) => { e.stopPropagation(); deleteFolder(folderName); }}
+                onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); requestKbDelete(() => deleteFolder(folderName)); }}
                 className="px-1.5 py-0.5 rounded text-[9px] font-medium"
                 style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}
               >
@@ -3931,26 +4053,30 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
             </div>
           ) : (
             <div className="opacity-0 group-hover/folder:opacity-100 flex gap-0.5 flex-shrink-0">
-              <button
-                onClick={(e) => { e.stopPropagation(); setRenamingFolder(folderName); setRenameValue(folderName); }}
-                className="p-0.5 rounded"
-                style={{ color: "#86868B" }}
-                title="Rename"
-                onMouseEnter={(e) => { e.currentTarget.style.color = "#c7c7cc"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-              >
-                <Pencil size={9} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setConfirmingDelete(folderName); }}
-                className="p-0.5 rounded"
-                style={{ color: "#86868B" }}
-                title="Delete folder"
-                onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-              >
-                <Trash2 size={9} />
-              </button>
+              {canRenameFolders && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setRenamingFolder(folderName); setRenameValue(folderName); }}
+                  className="p-0.5 rounded"
+                  style={{ color: "#86868B" }}
+                  title="Rename"
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "#c7c7cc"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  <Pencil size={9} />
+                </button>
+              )}
+              {currentUser?.role === "admin" && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setConfirmingDelete(folderName); }}
+                  className="p-0.5 rounded"
+                  style={{ color: "#86868B" }}
+                  title="Delete folder"
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  <Trash2 size={9} />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -3993,16 +4119,18 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                       >
                         <ArrowRight size={9} />
                       </button>
-                      <button
-                        onClick={() => deleteKbDoc(doc.document_id, name)}
-                        className="p-0.5 rounded"
-                        style={{ color: "#86868B" }}
-                        title="Delete file"
-                        onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                      >
-                        <Trash2 size={9} />
-                      </button>
+                      {currentUser?.role === "admin" && (
+                        <button
+                          onClick={() => requestKbDelete(() => deleteKbDoc(doc.document_id, name))}
+                          className="p-0.5 rounded"
+                          style={{ color: "#86868B" }}
+                          title="Delete file"
+                          onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                        >
+                          <Trash2 size={9} />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -4022,6 +4150,23 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   // current search text, which differs between a flat folder and a grouped child.
   const renderKbBrowserFolderRow = (name: string, displayName: string, docs: KBDocument[], matchCount: number, indent = false) => (
     <div key={name} className="group/kbf flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-white/5" style={indent ? { marginLeft: 20 } : undefined}>
+      {currentUser?.role === "admin" && (
+        <input
+          type="checkbox"
+          checked={selectedKbFolders.has(name)}
+          onChange={(e) => {
+            e.stopPropagation();
+            setSelectedKbFolders((prev) => {
+              const next = new Set(prev);
+              next.has(name) ? next.delete(name) : next.add(name);
+              return next;
+            });
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0"
+          style={{ accentColor: "#3B82F6" }}
+        />
+      )}
       <FolderOpen size={14} style={{ color: "#fbbf24", flexShrink: 0 }} />
       {renamingFolder === name ? (
         <input
@@ -4052,17 +4197,21 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       {confirmingDelete === name ? (
         <div className="flex items-center gap-1 shrink-0">
           <span className="text-[10px]" style={{ color: "#f87171" }}>Xóa?</span>
-          <button onClick={(e) => { e.stopPropagation(); deleteFolder(name); setConfirmingDelete(null); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
+          <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); requestKbDelete(() => deleteFolder(name)); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
           <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); }} className="px-1.5 py-0.5 rounded text-[10px]" style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}>✕</button>
         </div>
       ) : (
         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/kbf:opacity-100 transition-opacity">
-          <button onClick={(e) => { e.stopPropagation(); setRenamingFolder(name); setRenameValue(name); }} className="p-1 rounded hover:bg-white/10" title="Rename">
-            <Pencil size={11} style={{ color: "#86868B" }} />
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(name); }} className="p-1 rounded hover:bg-white/10" title="Delete folder">
-            <Trash2 size={11} style={{ color: "#86868B" }} />
-          </button>
+          {canRenameFolders && (
+            <button onClick={(e) => { e.stopPropagation(); setRenamingFolder(name); setRenameValue(name); }} className="p-1 rounded hover:bg-white/10" title="Rename">
+              <Pencil size={11} style={{ color: "#86868B" }} />
+            </button>
+          )}
+          {currentUser?.role === "admin" && (
+            <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(name); }} className="p-1 rounded hover:bg-white/10" title="Delete folder">
+              <Trash2 size={11} style={{ color: "#86868B" }} />
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -4263,8 +4412,14 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     fetch("/chat/sessions")
       .then((r) => r.json())
       .then((serverChats: Chat[]) => {
-        if (Array.isArray(serverChats) && serverChats.length > 0) {
+        // The server response is authoritative once it arrives — including an
+        // empty array, which is the normal, expected state for a brand-new
+        // account. Only bailing out on a genuinely malformed response (not an
+        // empty one) previously left a previous account's cached chats on
+        // screen for any user with zero real sessions of their own.
+        if (Array.isArray(serverChats)) {
           setChats(serverChats);
+          saveChatsToStorage(serverChats, currentUser?.id);
         }
       })
       .catch(() => {})
@@ -4293,7 +4448,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const persistChat = useCallback((chatId: string, updatedMessages: Message[]) => {
     setChats((prev) => {
       const updated = prev.map((c) => c.id === chatId ? { ...c, messages: updatedMessages } : c);
-      saveChatsToStorage(updated);
+      saveChatsToStorage(updated, currentUser?.id);
       return updated;
     });
   }, []);
@@ -4411,7 +4566,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       chatId = Date.now().toString();
       const title = content.length > 48 ? content.slice(0, 48) + "…" : content;
       const newChatEntry: Chat = { id: chatId, title, createdAt: Date.now(), messages: nextMessages };
-      setChats((prev) => { const u = [newChatEntry, ...prev]; saveChatsToStorage(u); return u; });
+      setChats((prev) => { const u = [newChatEntry, ...prev]; saveChatsToStorage(u, currentUser?.id); return u; });
       setActiveChatId(chatId);
       activeChatIdRef.current = chatId;
     } else {
@@ -4432,7 +4587,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         if (!chat) return prevChats;
         const newMsgs = updater(chat.messages);
         const updated = prevChats.map((c) => c.id === cid ? { ...c, messages: newMsgs } : c);
-        saveChatsToStorage(updated);
+        saveChatsToStorage(updated, currentUser?.id);
         return updated;
       });
       if (activeChatIdRef.current === cid) {
@@ -4627,10 +4782,19 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const deleteChat = (chatId: string) => {
     setChats((prev) => {
       const updated = prev.filter((c) => c.id !== chatId);
-      saveChatsToStorage(updated);
+      saveChatsToStorage(updated, currentUser?.id);
       return updated;
     });
     if (activeChatId === chatId) newChat();
+  };
+
+  const deleteChats = (chatIds: Set<string>) => {
+    setChats((prev) => {
+      const updated = prev.filter((c) => !chatIds.has(c.id));
+      saveChatsToStorage(updated, currentUser?.id);
+      return updated;
+    });
+    if (activeChatId && chatIds.has(activeChatId)) newChat();
   };
 
   const handleConfirmClearData = async () => {
@@ -4653,6 +4817,39 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     } catch {
       setClearDataError(S.clearDataWrongPassword);
       setClearDataVerifying(false);
+    }
+  };
+
+  // Opens the password-confirm modal; `action` runs only after the current admin's
+  // password is re-verified. Used for every destructive KB action (folder, folder
+  // group, or single document delete) instead of wiring each one separately.
+  const requestKbDelete = (action: () => void | Promise<void>) => {
+    setKbDeleteAction(() => action);
+    setKbDeletePassword("");
+    setKbDeleteError("");
+  };
+
+  const handleConfirmKbDelete = async () => {
+    if (!kbDeletePassword.trim() || kbDeleteVerifying || !kbDeleteAction) return;
+    setKbDeleteVerifying(true);
+    setKbDeleteError("");
+    try {
+      const res = await fetch("/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: kbDeletePassword }),
+      });
+      if (!res.ok) {
+        setKbDeleteError(S.clearDataWrongPassword);
+        setKbDeleteVerifying(false);
+        return;
+      }
+      await kbDeleteAction();
+      setKbDeleteAction(null);
+    } catch {
+      setKbDeleteError(S.clearDataWrongPassword);
+    } finally {
+      setKbDeleteVerifying(false);
     }
   };
 
@@ -4720,7 +4917,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const togglePinChat = (chatId: string) => {
     setChats((prev) => {
       const updated = prev.map((c) => c.id === chatId ? { ...c, pinned: !c.pinned } : c);
-      saveChatsToStorage(updated);
+      saveChatsToStorage(updated, currentUser?.id);
       return updated;
     });
   };
@@ -4755,15 +4952,27 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         <div className="px-3 pt-4 pb-2">
           <div className="flex items-center justify-between px-2 mb-3">
             <Logo />
-            <button
-              onClick={() => { setShowSearch((s) => !s); setSearchQuery(""); }}
-              className="w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150"
-              style={{ color: showSearch ? "#93c5fd" : "#86868B", background: showSearch ? "rgba(59,130,246,0.1)" : "transparent" }}
-              onMouseEnter={(e) => { if (!showSearch) e.currentTarget.style.color = "#F5F5F7"; }}
-              onMouseLeave={(e) => { if (!showSearch) e.currentTarget.style.color = "#86868B"; }}
-            >
-              <Search size={13} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => { setShowSearch((s) => !s); setSearchQuery(""); }}
+                className="w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150"
+                style={{ color: showSearch ? "#93c5fd" : "#86868B", background: showSearch ? "rgba(59,130,246,0.1)" : "transparent" }}
+                onMouseEnter={(e) => { if (!showSearch) e.currentTarget.style.color = "#F5F5F7"; }}
+                onMouseLeave={(e) => { if (!showSearch) e.currentTarget.style.color = "#86868B"; }}
+              >
+                <Search size={13} />
+              </button>
+              <button
+                onClick={() => { setChatSelectMode((s) => !s); setSelectedChatIds(new Set()); }}
+                className="w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150"
+                style={{ color: chatSelectMode ? "#93c5fd" : "#86868B", background: chatSelectMode ? "rgba(59,130,246,0.1)" : "transparent" }}
+                onMouseEnter={(e) => { if (!chatSelectMode) e.currentTarget.style.color = "#F5F5F7"; }}
+                onMouseLeave={(e) => { if (!chatSelectMode) e.currentTarget.style.color = "#86868B"; }}
+                title="Select multiple chats"
+              >
+                <ListChecks size={13} />
+              </button>
+            </div>
           </div>
           {showSearch && (
             <div className="px-2 mb-2">
@@ -4802,6 +5011,25 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           </button>
         </div>
 
+        {chatSelectMode && selectedChatIds.size > 0 && (
+          <div className="mx-3 mb-2 px-2.5 py-2 rounded-lg flex items-center justify-between" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
+            <span className="text-[11px]" style={{ color: "#93c5fd" }}>{selectedChatIds.size} đã chọn</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setSelectedChatIds(new Set())} className="text-[11px] px-2 py-1 rounded-lg" style={{ color: "#86868B" }}>
+                Bỏ chọn
+              </button>
+              <button
+                onClick={() => setBulkDeletingChats(true)}
+                className="text-[11px] px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5"
+                style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}
+              >
+                <Trash2 size={11} />
+                Xóa đã chọn
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* History */}
         <div className="flex-1 overflow-y-auto px-3 py-2 scrollbar-hide">
           {chats.length === 0 ? (
@@ -4823,11 +5051,35 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   <p className="text-[10px] font-medium uppercase tracking-widest px-2 mb-1.5"
                     style={{ color: group === "pinned" ? "rgba(251,191,36,0.6)" : "rgba(134,134,139,0.5)" }}>{label}</p>
                   {items.map((chat) => (
-                    <div key={chat.id} className="group relative mb-0.5">
+                    <div key={chat.id} className="group relative mb-0.5 flex items-center gap-1.5">
+                      {chatSelectMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedChatIds.has(chat.id)}
+                          onChange={() => setSelectedChatIds((prev) => {
+                            const next = new Set(prev);
+                            next.has(chat.id) ? next.delete(chat.id) : next.add(chat.id);
+                            return next;
+                          })}
+                          className="shrink-0 ml-1"
+                          style={{ accentColor: "#3B82F6" }}
+                        />
+                      )}
                       <button
-                        onClick={() => loadChat(chat)}
-                        className="w-full text-left px-2.5 py-2 rounded-lg transition-all duration-150 pr-12"
+                        onClick={() => {
+                          if (chatSelectMode) {
+                            setSelectedChatIds((prev) => {
+                              const next = new Set(prev);
+                              next.has(chat.id) ? next.delete(chat.id) : next.add(chat.id);
+                              return next;
+                            });
+                          } else {
+                            loadChat(chat);
+                          }
+                        }}
+                        className="flex-1 min-w-0 text-left px-2.5 py-2 rounded-lg transition-all duration-150"
                         style={{
+                          paddingRight: chatSelectMode ? 10 : 48,
                           background: activeChatId === chat.id ? "rgba(59,130,246,0.1)" : "transparent",
                           border: activeChatId === chat.id ? "1px solid rgba(59,130,246,0.15)" : "1px solid transparent",
                         }}
@@ -4846,22 +5098,26 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                           {chat.title}
                         </p>
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); togglePinChat(chat.id); }}
-                        className={`absolute right-6 top-1/2 -translate-y-1/2 ${chat.pinned ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity p-1 rounded`}
-                        style={{ color: chat.pinned ? "#fbbf24" : "#86868B" }}
-                        title={chat.pinned ? "Unpin" : "Pin"}
-                      >
-                        <span style={{ fontSize: 11 }}>★</span>
-                      </button>
-                      <button
-                          onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); }}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
-                          style={{ color: "#ef4444" }}
-                          title="Delete"
-                        >
-                          <X size={11} />
-                        </button>
+                      {!chatSelectMode && (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); togglePinChat(chat.id); }}
+                            className={`absolute right-6 top-1/2 -translate-y-1/2 ${chat.pinned ? "opacity-100" : "opacity-0 group-hover:opacity-100"} transition-opacity p-1 rounded`}
+                            style={{ color: chat.pinned ? "#fbbf24" : "#86868B" }}
+                            title={chat.pinned ? "Unpin" : "Pin"}
+                          >
+                            <span style={{ fontSize: 11 }}>★</span>
+                          </button>
+                          <button
+                              onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); }}
+                              className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
+                              style={{ color: "#ef4444" }}
+                              title="Delete"
+                            >
+                              <X size={11} />
+                            </button>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -4884,43 +5140,14 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                 </span>
               )}
             </span>
-            {addingFolder ? (
-              <div className="flex items-center gap-1 flex-1">
-                <input
-                  autoFocus
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && newFolderName.trim()) {
-                      const name = newFolderName.trim();
-                      if (!collections.some(c => c.name === name) && !pendingFolders.includes(name)) {
-                        setPendingFolders((prev) => [...prev, name]);
-                        setExpandedFolders((prev) => new Set([...prev, name]));
-                      }
-                      setKbFilter(name);
-                      setAddingFolder(false);
-                      setNewFolderName("");
-                    }
-                    if (e.key === "Escape") { setAddingFolder(false); setNewFolderName(""); }
-                  }}
-                  placeholder="Folder name…"
-                  className="flex-1 px-2 py-0.5 rounded-md text-[10px] min-w-0"
-                  style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.35)", color: "#c7c7cc", outline: "none" }}
-                />
-                <button onClick={() => { setAddingFolder(false); setNewFolderName(""); }} style={{ color: "#86868B" }}>
-                  <X size={10} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1">
-                <button onClick={() => setAddingFolder(true)} className="p-1 rounded opacity-50 hover:opacity-100 transition-opacity" title="New folder">
-                  <Plus size={10} style={{ color: "#86868B" }} />
-                </button>
-                <button onClick={() => { loadKbDocs(); fetchCollections(); }} className="p-1 rounded opacity-40 hover:opacity-100 transition-opacity" title="Refresh">
-                  <RefreshCw size={10} style={{ color: "#86868B" }} className={kbLoading ? "animate-spin" : ""} />
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-1">
+              <button onClick={() => { setAddingFolder(true); setNewFolderName(""); }} className="p-1 rounded opacity-50 hover:opacity-100 transition-opacity" title="New folder">
+                <Plus size={10} style={{ color: "#86868B" }} />
+              </button>
+              <button onClick={() => { loadKbDocs(); fetchCollections(); }} className="p-1 rounded opacity-40 hover:opacity-100 transition-opacity" title="Refresh">
+                <RefreshCw size={10} style={{ color: "#86868B" }} className={kbLoading ? "animate-spin" : ""} />
+              </button>
+            </div>
           </div>
 
           {/* Folder accordion */}
@@ -4966,7 +5193,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <span className="text-[9px]" style={{ color: "#f87171" }}>Xóa cả?</span>
                           <button
-                            onClick={(e) => { e.stopPropagation(); deleteFolderGroup(entry.children.map((c) => c.fullName)); }}
+                            onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); requestKbDelete(() => deleteFolderGroup(entry.children.map((c) => c.fullName))); }}
                             className="px-1.5 py-0.5 rounded text-[9px] font-medium"
                             style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}
                           >
@@ -4981,16 +5208,18 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setConfirmingDelete(entry.name); }}
-                          className="p-0.5 rounded opacity-0 group-hover/folder:opacity-100 flex-shrink-0"
-                          style={{ color: "#86868B" }}
-                          title="Delete entire folder"
-                          onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-                        >
-                          <Trash2 size={9} />
-                        </button>
+                        currentUser?.role === "admin" && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfirmingDelete(entry.name); }}
+                            className="p-0.5 rounded opacity-0 group-hover/folder:opacity-100 flex-shrink-0"
+                            style={{ color: "#86868B" }}
+                            title="Delete entire folder"
+                            onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                          >
+                            <Trash2 size={9} />
+                          </button>
+                        )
                       )}
                     </div>
                     {isGroupExpanded && entry.children.map((child) => renderFolderRow(child.fullName, child.label, child.files, true))}
@@ -5714,7 +5943,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           <div
             className="fixed inset-0 z-[100] flex items-center justify-center"
             style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
-            onClick={() => setKbBrowserOpen(false)}
+            onClick={() => { setKbBrowserOpen(false); setSelectedKbFolders(new Set()); }}
           >
             <div
               className="rounded-2xl flex flex-col"
@@ -5727,7 +5956,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   <h2 className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Knowledge Base</h2>
                   <span className="text-[10px]" style={{ color: "#86868B" }}>{kbDocs.length} docs · {folderGroups.filter((e) => e.name !== "default").length} folders</span>
                 </div>
-                <button onClick={() => setKbBrowserOpen(false)} className="p-1 rounded hover:bg-white/5">
+                <button onClick={() => { setKbBrowserOpen(false); setSelectedKbFolders(new Set()); }} className="p-1 rounded hover:bg-white/5">
                   <XIcon size={14} style={{ color: "#86868B" }} />
                 </button>
               </div>
@@ -5749,6 +5978,32 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   </button>
                 )}
               </div>
+              {selectedKbFolders.size > 0 && (
+                <div className="px-5 py-2 flex items-center justify-between" style={{ background: "rgba(59,130,246,0.08)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <span className="text-[11px]" style={{ color: "#93c5fd" }}>{selectedKbFolders.size} đã chọn</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedKbFolders(new Set())}
+                      className="text-[11px] px-2 py-1 rounded-lg"
+                      style={{ color: "#86868B" }}
+                    >
+                      Bỏ chọn
+                    </button>
+                    <button
+                      onClick={() => {
+                        const names = Array.from(selectedKbFolders);
+                        requestKbDelete(() => deleteFolderGroup(names));
+                        setSelectedKbFolders(new Set());
+                      }}
+                      className="text-[11px] px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5"
+                      style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}
+                    >
+                      <Trash2 size={11} />
+                      Xóa đã chọn
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex-1 overflow-y-auto scrollbar-hide">
                 {!kbBrowserFolder ? (
                   <div className="px-3 py-2">
@@ -5790,17 +6045,19 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                             {confirmingDelete === entry.name ? (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span className="text-[10px]" style={{ color: "#f87171" }}>Xóa cả?</span>
-                                <button onClick={(e) => { e.stopPropagation(); deleteFolderGroup(entry.children.map((c) => c.fullName)); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
+                                <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); requestKbDelete(() => deleteFolderGroup(entry.children.map((c) => c.fullName))); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
                                 <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(null); }} className="px-1.5 py-0.5 rounded text-[10px]" style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}>✕</button>
                               </div>
                             ) : (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setConfirmingDelete(entry.name); }}
-                                className="p-1 rounded hover:bg-white/10 shrink-0 opacity-0 group-hover/kbf:opacity-100 transition-opacity"
-                                title="Delete entire folder"
-                              >
-                                <Trash2 size={11} style={{ color: "#86868B" }} />
-                              </button>
+                              currentUser?.role === "admin" && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setConfirmingDelete(entry.name); }}
+                                  className="p-1 rounded hover:bg-white/10 shrink-0 opacity-0 group-hover/kbf:opacity-100 transition-opacity"
+                                  title="Delete entire folder"
+                                >
+                                  <Trash2 size={11} style={{ color: "#86868B" }} />
+                                </button>
+                              )
                             )}
                           </div>
                           {isGroupExpanded && childMatches
@@ -5827,7 +6084,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                             {kbBrowserConfirmDeleteDoc === d.document_id ? (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span className="text-[10px]" style={{ color: "#f87171" }}>Xóa?</span>
-                                <button onClick={() => { deleteKbDoc(d.document_id, filename); setKbBrowserConfirmDeleteDoc(null); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
+                                <button onClick={() => { setKbBrowserConfirmDeleteDoc(null); requestKbDelete(() => deleteKbDoc(d.document_id, filename)); }} className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>Có</button>
                                 <button onClick={() => setKbBrowserConfirmDeleteDoc(null)} className="px-1.5 py-0.5 rounded text-[10px]" style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}>✕</button>
                               </div>
                             ) : (
@@ -5858,9 +6115,11 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                                 ) : (
                                   <button onClick={() => setKbViewerDoc(d)} className="px-2 py-1 rounded text-[10px]" style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}>View</button>
                                 )}
-                                <button onClick={() => setKbBrowserConfirmDeleteDoc(d.document_id)} className="p-1 rounded hover:bg-white/10" title="Delete document">
-                                  <Trash2 size={11} style={{ color: "#86868B" }} />
-                                </button>
+                                {currentUser?.role === "admin" && (
+                                  <button onClick={() => setKbBrowserConfirmDeleteDoc(d.document_id)} className="p-1 rounded hover:bg-white/10" title="Delete document">
+                                    <Trash2 size={11} style={{ color: "#86868B" }} />
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -6473,6 +6732,55 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         </div>
       )}
 
+      {bulkDeletingChats && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setBulkDeletingChats(false)}
+        >
+          <div
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 320, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
+                <Trash2 size={16} style={{ color: "#f87171" }} />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>{S.deleteConfirmTitle}</p>
+                <p className="text-[11px] mt-1 leading-relaxed" style={{ color: "#86868B" }}>{selectedChatIds.size} cuộc trò chuyện sẽ bị xóa vĩnh viễn.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setBulkDeletingChats(false)}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                onClick={() => {
+                  deleteChats(selectedChatIds);
+                  setSelectedChatIds(new Set());
+                  setBulkDeletingChats(false);
+                  setChatSelectMode(false);
+                }}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "#ef4444", color: "#fff" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#dc2626")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#ef4444")}
+              >
+                {S.deleteBtn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {clearDataConfirmOpen && (
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center"
@@ -6530,6 +6838,139 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                 onMouseLeave={(e) => { if (clearDataPassword.trim() && !clearDataVerifying) e.currentTarget.style.background = "#ef4444"; }}
               >
                 {S.clearDataConfirmBtn}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {kbDeleteAction && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setKbDeleteAction(null)}
+        >
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleConfirmKbDelete(); }}
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 340, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
+                <Trash2 size={16} style={{ color: "#f87171" }} />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>{S.kbDeleteConfirmTitle}</p>
+                <p className="text-[11px] mt-1 leading-relaxed" style={{ color: "#86868B" }}>{S.kbDeleteConfirmDesc}</p>
+              </div>
+            </div>
+            <input
+              type="password"
+              autoFocus
+              value={kbDeletePassword}
+              onChange={(e) => { setKbDeletePassword(e.target.value); setKbDeleteError(""); }}
+              placeholder={S.clearDataPasswordPlaceholder}
+              className="w-full text-[12.5px] rounded-xl px-3.5 py-2.5 outline-none"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+            />
+            {kbDeleteError && (
+              <p className="text-[11px] -mt-2" style={{ color: "#f87171" }}>{kbDeleteError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setKbDeleteAction(null)}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                type="submit"
+                disabled={!kbDeletePassword.trim() || kbDeleteVerifying}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{
+                  background: kbDeletePassword.trim() && !kbDeleteVerifying ? "#ef4444" : "rgba(239,68,68,0.3)",
+                  color: "#fff",
+                  cursor: kbDeletePassword.trim() && !kbDeleteVerifying ? "pointer" : "not-allowed",
+                }}
+                onMouseEnter={(e) => { if (kbDeletePassword.trim() && !kbDeleteVerifying) e.currentTarget.style.background = "#dc2626"; }}
+                onMouseLeave={(e) => { if (kbDeletePassword.trim() && !kbDeleteVerifying) e.currentTarget.style.background = "#ef4444"; }}
+              >
+                {S.kbDeleteConfirmBtn}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {addingFolder && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => { setAddingFolder(false); setNewFolderName(""); }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = newFolderName.trim();
+              if (!name) return;
+              if (!collections.some((c) => c.name === name) && !pendingFolders.includes(name)) {
+                setPendingFolders((prev) => [...prev, name]);
+                setExpandedFolders((prev) => new Set([...prev, name]));
+              }
+              setKbFilter(name);
+              setAddingFolder(false);
+              setNewFolderName("");
+            }}
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 320, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
+                <FolderOpen size={16} style={{ color: "#93c5fd" }} />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>New folder</p>
+              </div>
+            </div>
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") { setAddingFolder(false); setNewFolderName(""); } }}
+              placeholder="Folder name…"
+              className="w-full text-[12.5px] rounded-xl px-3.5 py-2.5 outline-none"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setAddingFolder(false); setNewFolderName(""); }}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                type="submit"
+                disabled={!newFolderName.trim()}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{
+                  background: newFolderName.trim() ? "#3B82F6" : "rgba(59,130,246,0.3)",
+                  color: "#fff",
+                  cursor: newFolderName.trim() ? "pointer" : "not-allowed",
+                }}
+                onMouseEnter={(e) => { if (newFolderName.trim()) e.currentTarget.style.background = "#2563eb"; }}
+                onMouseLeave={(e) => { if (newFolderName.trim()) e.currentTarget.style.background = "#3B82F6"; }}
+              >
+                OK
               </button>
             </div>
           </form>
@@ -6599,9 +7040,11 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
               ))}
             </div>
 
-            <form onSubmit={handleCreateUser} className="flex flex-col gap-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <form onSubmit={handleCreateUser} autoComplete="off" className="flex flex-col gap-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
               <input
                 type="email"
+                name="new-employee-email"
+                autoComplete="off"
                 value={newUserEmail}
                 onChange={(e) => setNewUserEmail(e.target.value)}
                 placeholder={S.loginEmailPlaceholder}
@@ -6610,6 +7053,8 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
               />
               <input
                 type="password"
+                name="new-employee-password"
+                autoComplete="new-password"
                 value={newUserPassword}
                 onChange={(e) => setNewUserPassword(e.target.value)}
                 placeholder={S.loginPasswordPlaceholder}
