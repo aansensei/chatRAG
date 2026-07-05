@@ -7,6 +7,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.infrastructure.queue.redis.publisher import publish, set_job_status, get_job_status
+from app.infrastructure.storage.local.rename_requests_store import (
+    create_request, get_request, list_requests, resolve_request,
+)
 from app.infrastructure.vector.supabase.repository import (
     list_documents, delete_document, list_collections,
     rename_collection, delete_collection_docs, move_document_collection,
@@ -126,6 +129,53 @@ def move_document_route(document_id: str, body: MoveDocumentBody):
         raise HTTPException(status_code=400, detail="collection cannot be empty")
     move_document_collection(document_id, body.collection.strip())
     return {"ok": True}
+
+
+class RenameRequestBody(BaseModel):
+    collection: str
+    new_name: str
+
+
+class RejectRequestBody(BaseModel):
+    reason: str
+
+
+@router.post("/rename-requests")
+def create_rename_request(body: RenameRequestBody, user: dict = Depends(get_current_user)):
+    if not body.new_name.strip():
+        raise HTTPException(status_code=400, detail="new_name cannot be empty")
+    return create_request(user["id"], user["email"], body.collection, body.new_name.strip())
+
+
+@router.get("/rename-requests")
+def get_rename_requests(user: dict = Depends(get_current_user)):
+    # Admins and Ban Giám đốc see every request so they can review and act on
+    # them; everyone else only sees their own, to check on status/reason.
+    is_reviewer = user["role"] == "admin" or user.get("department") == "Ban Giám đốc"
+    return list_requests(requester_id=None if is_reviewer else user["id"])
+
+
+@router.post("/rename-requests/{request_id}/approve")
+def approve_rename_request(request_id: str, admin: dict = Depends(require_admin_or_executive)):
+    req = get_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Request already resolved")
+    rename_collection(req["collection"], req["new_name"])
+    return resolve_request(request_id, "approved", admin["id"])
+
+
+@router.post("/rename-requests/{request_id}/reject")
+def reject_rename_request(request_id: str, body: RejectRequestBody, admin: dict = Depends(require_admin_or_executive)):
+    if not body.reason.strip():
+        raise HTTPException(status_code=400, detail="reason cannot be empty")
+    req = get_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Request already resolved")
+    return resolve_request(request_id, "rejected", admin["id"], body.reason.strip())
 
 
 _MIME_MAP = {
