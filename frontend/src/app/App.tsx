@@ -7016,15 +7016,28 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                       {u.role === "admin" ? S.userMgmtRoleAdmin : S.userMgmtRoleUser}
                     </p>
                   </div>
-                  <select
-                    value={u.department || ""}
-                    onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
-                    className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
-                    style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
-                  >
-                    <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
-                    {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d}</option>)}
-                  </select>
+                  {u.role === "admin" ? (
+                    // Admin already has full access regardless of department — showing
+                    // an editable dropdown next to the "Admin" label looked like two
+                    // conflicting roles. Department is informational only here.
+                    <span
+                      className="text-[10px] rounded-lg px-2 py-1.5 shrink-0 text-center"
+                      style={{ width: 128, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "#86868B" }}
+                      title="Admin không cần gán phòng ban để có quyền"
+                    >
+                      {u.department || S.userMgmtNoDepartment}
+                    </span>
+                  ) : (
+                    <select
+                      value={u.department || ""}
+                      onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
+                      className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
+                      style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
+                    >
+                      <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
+                      {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d}</option>)}
+                    </select>
+                  )}
                   {u.id !== currentUser?.id && (
                     <button
                       onClick={() => setDeletingUserId(u.id)}
