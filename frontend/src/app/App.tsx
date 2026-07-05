@@ -43,6 +43,9 @@ import {
   LogOut,
   Users,
   ListChecks,
+  Clock,
+  Send,
+  Inbox,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -771,6 +774,19 @@ function chatGroup(createdAt: number): "today" | "week" | "older" {
 }
 
 type Collection = { name: string; doc_count: number };
+
+type RenameRequest = {
+  id: string;
+  requester_id: string;
+  requester_email: string;
+  collection: string;
+  new_name: string;
+  status: "pending" | "approved" | "rejected";
+  reason: string | null;
+  created_at: number;
+  resolved_at: number | null;
+  resolved_by: string | null;
+};
 type ChatScope = { type: "all" } | { type: "selected"; collections: string[] };
 type Suggestion = { title: string; subtitle: string };
 
@@ -1837,9 +1853,25 @@ function SourcePanel({ source, onClose, onOpenDoc }: { source: Source; onClose: 
 
           <div className="mt-6 flex gap-2">
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (source.documentId) {
-                  window.open(`/ingest/documents/${source.documentId}/file`, "_blank");
+                  // A raw window.open() to the API URL can't carry the Bearer
+                  // token (browsers don't send custom headers on plain
+                  // navigations), which rendered as a JSON auth-error page —
+                  // fetch it through the app's authenticated fetch instead and
+                  // open the resulting blob. Open the tab synchronously first
+                  // (before the await) so popup blockers don't treat the later
+                  // navigation as an untrusted, gesture-less redirect.
+                  const win = window.open("", "_blank");
+                  try {
+                    const res = await fetch(`/ingest/documents/${source.documentId}/file`);
+                    if (res.ok && win) {
+                      const blob = await res.blob();
+                      win.location.href = URL.createObjectURL(blob);
+                    } else {
+                      win?.close();
+                    }
+                  } catch { win?.close(); }
                 } else {
                   onOpenDoc?.(source.title);
                   onClose();
@@ -3529,6 +3561,16 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   // Multi-select for bulk-deleting several KB collections at once (admin only,
   // inside the Knowledge Base browser modal).
   const [selectedKbFolders, setSelectedKbFolders] = useState<Set<string>>(new Set());
+  // Rename-approval workflow: non-privileged users submit a request instead of
+  // renaming directly; admins/Ban Giám đốc review and approve or reject it.
+  const [renameRequestTarget, setRenameRequestTarget] = useState<{ name: string; displayName: string } | null>(null);
+  const [renameRequestNewName, setRenameRequestNewName] = useState("");
+  const [renameRequestSubmitting, setRenameRequestSubmitting] = useState(false);
+  const [renameRequestsOpen, setRenameRequestsOpen] = useState(false);
+  const [renameRequests, setRenameRequests] = useState<RenameRequest[]>([]);
+  const [renameRequestsLoading, setRenameRequestsLoading] = useState(false);
+  const [rejectingRequestId, setRejectingRequestId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const [userMgmtOpen, setUserMgmtOpen] = useState(false);
   const [userList, setUserList] = useState<AuthUser[]>([]);
   const [userListLoading, setUserListLoading] = useState(false);
@@ -3675,6 +3717,14 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const [kbBrowserFolder, setKbBrowserFolder] = useState<string | null>(null);
   const [kbBrowserSearch, setKbBrowserSearch] = useState("");
   const [kbViewerDoc, setKbViewerDoc] = useState<KBDocument | null>(null);
+  const [kbViewerContent, setKbViewerContent] = useState<
+    | { kind: "pdf" | "image"; url: string }
+    | { kind: "html"; html: string }
+    | { kind: "text"; text: string }
+    | { kind: "loading" }
+    | { kind: "error" }
+    | null
+  >(null);
   const [kbBrowserConfirmDeleteDoc, setKbBrowserConfirmDeleteDoc] = useState<string | null>(null);
   const [memories, setMemories] = useState<{ id: string; content: string; created_at: number }[]>([]);
   const [newMemory, setNewMemory] = useState("");
@@ -3903,6 +3953,29 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     await loadKbDocs();
   }, [fetchCollections, loadKbDocs]);
 
+  // The parent group ("AanJSC_Documents") isn't a real collection — it's just a
+  // shared name prefix — so "renaming" it means renaming every child's prefix
+  // in one batch (e.g. "AanJSC_Documents/Engineering" -> "NewName/Engineering").
+  const renameFolderGroup = useCallback(async (oldPrefix: string, newPrefix: string, childFullNames: string[]) => {
+    try {
+      await Promise.all(
+        childFullNames.map((fullName) => {
+          const label = fullName.slice(oldPrefix.length + 1);
+          return fetch(`/ingest/collections/${encodeURIComponent(fullName)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ new_name: `${newPrefix}/${label}` }),
+          }).then((res) => { if (!res.ok) throw new Error(`HTTP ${res.status}`); });
+        })
+      );
+      addToast(`Đã đổi tên thành "${newPrefix}"`, "success");
+    } catch (err) {
+      addToast(`Đổi tên thất bại: ${err}`, "error");
+    }
+    await fetchCollections();
+    await loadKbDocs();
+  }, [fetchCollections, loadKbDocs, addToast]);
+
   // Deletes every child collection under a grouped parent folder (e.g. all of
   // "AanJSC_Documents/Engineering", "AanJSC_Documents/Finance", ...) in one action.
   const deleteFolderGroup = useCallback(async (childNames: string[]) => {
@@ -4053,7 +4126,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
             </div>
           ) : (
             <div className="opacity-0 group-hover/folder:opacity-100 flex gap-0.5 flex-shrink-0">
-              {canRenameFolders && (
+              {canRenameFolders ? (
                 <button
                   onClick={(e) => { e.stopPropagation(); setRenamingFolder(folderName); setRenameValue(folderName); }}
                   className="p-0.5 rounded"
@@ -4063,6 +4136,17 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
                   <Pencil size={9} />
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setRenameRequestTarget({ name: folderName, displayName }); setRenameRequestNewName(displayName); }}
+                  className="p-0.5 rounded"
+                  style={{ color: "#86868B" }}
+                  title="Request rename"
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "#c7c7cc"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  <Send size={9} />
                 </button>
               )}
               {currentUser?.role === "admin" && (
@@ -4202,9 +4286,13 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         </div>
       ) : (
         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/kbf:opacity-100 transition-opacity">
-          {canRenameFolders && (
+          {canRenameFolders ? (
             <button onClick={(e) => { e.stopPropagation(); setRenamingFolder(name); setRenameValue(name); }} className="p-1 rounded hover:bg-white/10" title="Rename">
               <Pencil size={11} style={{ color: "#86868B" }} />
+            </button>
+          ) : (
+            <button onClick={(e) => { e.stopPropagation(); setRenameRequestTarget({ name, displayName }); setRenameRequestNewName(displayName); }} className="p-1 rounded hover:bg-white/10" title="Request rename">
+              <Send size={11} style={{ color: "#86868B" }} />
             </button>
           )}
           {currentUser?.role === "admin" && (
@@ -4365,11 +4453,71 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     fetchCollections();
     fetchSuggestions({ type: "all" }, uiLang);
     loadKbDocs();
+    loadRenameRequests();
     fetch("/chat/models")
       .then((r) => r.ok ? r.json() : { models: [] })
       .then((data) => setOllamaModels(data.models ?? []))
       .catch(() => {});
   }, []);
+
+  // Fetches the file through the app's own authenticated fetch (window.fetch is
+  // globally patched to attach the Bearer token) instead of pointing an
+  // <iframe>/<img> straight at the API URL — a raw resource load can't carry a
+  // custom Authorization header, which previously rendered as a raw
+  // "Missing or invalid Authorization header" JSON error inside the viewer.
+  const kbViewerObjectUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (kbViewerObjectUrlRef.current) {
+      URL.revokeObjectURL(kbViewerObjectUrlRef.current);
+      kbViewerObjectUrlRef.current = null;
+    }
+    if (!kbViewerDoc) { setKbViewerContent(null); return; }
+    let cancelled = false;
+    setKbViewerContent({ kind: "loading" });
+    const filename = kbViewerDoc.source.split("/").pop()?.split("\\").pop() || kbViewerDoc.source;
+    const ext = filename.split(".").pop()?.toLowerCase() || "";
+    const fileUrl = `/ingest/documents/${kbViewerDoc.document_id}/file`;
+
+    (async () => {
+      try {
+        const res = await fetch(fileUrl);
+        if (!res.ok) { if (!cancelled) setKbViewerContent({ kind: "error" }); return; }
+        const blob = await res.blob();
+        if (cancelled) return;
+
+        if (ext === "pdf" || ["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
+          const url = URL.createObjectURL(blob);
+          kbViewerObjectUrlRef.current = url;
+          setKbViewerContent({ kind: ext === "pdf" ? "pdf" : "image", url });
+        } else if (ext === "docx") {
+          // Lazy-loaded — most users never open a docx preview in a session,
+          // so this ~150KB parser shouldn't bloat the initial page bundle.
+          const mammoth = await import("mammoth");
+          const buf = await blob.arrayBuffer();
+          const { value: html } = await mammoth.convertToHtml({ arrayBuffer: buf });
+          if (!cancelled) setKbViewerContent({ kind: "html", html });
+        } else if (ext === "xlsx" || ext === "xls") {
+          const XLSX = await import("xlsx");
+          const buf = await blob.arrayBuffer();
+          const wb = XLSX.read(buf, { type: "array" });
+          const html = wb.SheetNames.map((name) => {
+            const sheet = wb.Sheets[name];
+            return `<h3>${name}</h3>` + XLSX.utils.sheet_to_html(sheet);
+          }).join("<hr/>");
+          if (!cancelled) setKbViewerContent({ kind: "html", html });
+        } else if (["csv", "txt", "md", "json"].includes(ext)) {
+          const text = await blob.text();
+          if (!cancelled) setKbViewerContent({ kind: "text", text });
+        } else {
+          if (!cancelled) setKbViewerContent({ kind: "error" });
+        }
+      } catch {
+        if (!cancelled) setKbViewerContent({ kind: "error" });
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [kbViewerDoc]);
 
   useEffect(() => {
     const m = input.match(/https?:\/\/[^\s]+/);
@@ -4853,6 +5001,65 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     }
   };
 
+  const loadRenameRequests = async () => {
+    setRenameRequestsLoading(true);
+    try {
+      const res = await fetch("/ingest/rename-requests");
+      if (res.ok) setRenameRequests(await res.json());
+    } catch { /* noop */ }
+    setRenameRequestsLoading(false);
+  };
+
+  const submitRenameRequest = async () => {
+    if (!renameRequestTarget || !renameRequestNewName.trim() || renameRequestSubmitting) return;
+    setRenameRequestSubmitting(true);
+    try {
+      const res = await fetch("/ingest/rename-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collection: renameRequestTarget.name, new_name: renameRequestNewName.trim() }),
+      });
+      if (res.ok) {
+        addToast(`Đã gửi yêu cầu đổi tên "${renameRequestTarget.displayName}", chờ admin duyệt`, "success");
+        setRenameRequestTarget(null);
+        setRenameRequestNewName("");
+      } else {
+        addToast("Gửi yêu cầu thất bại", "error");
+      }
+    } catch {
+      addToast("Gửi yêu cầu thất bại", "error");
+    } finally {
+      setRenameRequestSubmitting(false);
+    }
+  };
+
+  const approveRenameRequestAction = async (id: string) => {
+    const res = await fetch(`/ingest/rename-requests/${id}/approve`, { method: "POST" });
+    if (res.ok) {
+      addToast("Đã duyệt yêu cầu đổi tên", "success");
+      await Promise.all([loadRenameRequests(), fetchCollections(), loadKbDocs()]);
+    } else {
+      addToast("Duyệt yêu cầu thất bại", "error");
+    }
+  };
+
+  const rejectRenameRequestAction = async () => {
+    if (!rejectingRequestId || !rejectReason.trim()) return;
+    const res = await fetch(`/ingest/rename-requests/${rejectingRequestId}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: rejectReason.trim() }),
+    });
+    if (res.ok) {
+      addToast("Đã từ chối yêu cầu", "success");
+      setRejectingRequestId(null);
+      setRejectReason("");
+      await loadRenameRequests();
+    } else {
+      addToast("Từ chối yêu cầu thất bại", "error");
+    }
+  };
+
   const exportActiveChat = (format: "txt" | "md" | "docx" | "json") => {
     const chat = chats.find((c) => c.id === activeChatId);
     if (!chat) return;
@@ -5141,6 +5348,21 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
               )}
             </span>
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => { setRenameRequestsOpen(true); loadRenameRequests(); }}
+                className="p-1 rounded opacity-50 hover:opacity-100 transition-opacity relative"
+                title="Yêu cầu đổi tên"
+              >
+                <Inbox size={10} style={{ color: "#86868B" }} />
+                {renameRequests.filter((r) => r.status === "pending").length > 0 && (
+                  <span
+                    className="absolute -top-1 -right-1 rounded-full flex items-center justify-center text-[8px] font-bold"
+                    style={{ width: 12, height: 12, background: "#f59e0b", color: "#1c1c1e" }}
+                  >
+                    {renameRequests.filter((r) => r.status === "pending").length}
+                  </span>
+                )}
+              </button>
               <button onClick={() => { setAddingFolder(true); setNewFolderName(""); }} className="p-1 rounded opacity-50 hover:opacity-100 transition-opacity" title="New folder">
                 <Plus size={10} style={{ color: "#86868B" }} />
               </button>
@@ -5185,9 +5407,31 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                         {isGroupExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                       </button>
                       <FolderOpen size={11} style={{ color: "#8b8b93", flexShrink: 0 }} />
-                      <span className="flex-1 text-left text-[11px] font-semibold truncate" style={{ color: "#d1d1d6" }}>
-                        {entry.name}
-                      </span>
+                      {renamingFolder === entry.name ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onFocus={(e) => e.target.select()}
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") {
+                              const v = renameValue.trim();
+                              setRenamingFolder(null);
+                              if (v && v !== entry.name) renameFolderGroup(entry.name, v, entry.children.map((c) => c.fullName));
+                            }
+                            if (e.key === "Escape") setRenamingFolder(null);
+                          }}
+                          onBlur={() => setRenamingFolder(null)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 text-[11px] bg-transparent outline-none"
+                          style={{ border: "0.5px solid rgba(59,130,246,0.4)", borderRadius: 4, padding: "1px 4px", color: "#d1d1d6" }}
+                        />
+                      ) : (
+                        <span className="flex-1 text-left text-[11px] font-semibold truncate" style={{ color: "#d1d1d6" }}>
+                          {entry.name}
+                        </span>
+                      )}
                       <span className="text-[9px] flex-shrink-0" style={{ color: "rgba(134,134,139,0.4)" }}>{entry.totalCount}</span>
                       {confirmingDelete === entry.name ? (
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -5208,7 +5452,20 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                           </button>
                         </div>
                       ) : (
-                        currentUser?.role === "admin" && (
+                        <>
+                        {canRenameFolders && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setRenamingFolder(entry.name); setRenameValue(entry.name); }}
+                            className="p-0.5 rounded opacity-0 group-hover/folder:opacity-100 flex-shrink-0"
+                            style={{ color: "#86868B" }}
+                            title="Rename entire folder"
+                            onMouseEnter={(e) => { e.currentTarget.style.color = "#c7c7cc"; (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                          >
+                            <Pencil size={9} />
+                          </button>
+                        )}
+                        {currentUser?.role === "admin" && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setConfirmingDelete(entry.name); }}
                             className="p-0.5 rounded opacity-0 group-hover/folder:opacity-100 flex-shrink-0"
@@ -5219,7 +5476,8 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                           >
                             <Trash2 size={9} />
                           </button>
-                        )
+                        )}
+                        </>
                       )}
                     </div>
                     {isGroupExpanded && entry.children.map((child) => renderFolderRow(child.fullName, child.label, child.files, true))}
@@ -6184,10 +6442,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         {/* Document viewer modal */}
         {kbViewerDoc && (() => {
           const filename = kbViewerDoc.source.split("/").pop()?.split("\\").pop() || kbViewerDoc.source;
-          const ext = filename.split(".").pop()?.toLowerCase() || "";
           const fileUrl = `/ingest/documents/${kbViewerDoc.document_id}/file`;
-          const isPdf = ext === "pdf";
-          const isImage = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
           const downloadFile = async () => {
             try {
               const res = await fetch(fileUrl);
@@ -6243,16 +6498,30 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
 
                 {/* Body */}
                 <div className="flex-1 min-h-0 relative" style={{ background: "#111" }}>
-                  {isPdf ? (
+                  {!kbViewerContent || kbViewerContent.kind === "loading" ? (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Loader size={20} className="animate-spin" style={{ color: "#86868B" }} />
+                    </div>
+                  ) : kbViewerContent.kind === "pdf" ? (
                     <iframe
-                      src={`${fileUrl}#toolbar=1&navpanes=0&scrollbar=1`}
+                      src={`${kbViewerContent.url}#toolbar=1&navpanes=0&scrollbar=1`}
                       className="w-full h-full border-0"
                       title={filename}
                     />
-                  ) : isImage ? (
+                  ) : kbViewerContent.kind === "image" ? (
                     <div className="w-full h-full flex items-center justify-center p-6">
-                      <img src={fileUrl} alt={filename} className="max-w-full max-h-full object-contain rounded-lg" />
+                      <img src={kbViewerContent.url} alt={filename} className="max-w-full max-h-full object-contain rounded-lg" />
                     </div>
+                  ) : kbViewerContent.kind === "html" ? (
+                    <div
+                      className="w-full h-full overflow-y-auto p-6 selectable-text kb-doc-preview"
+                      style={{ background: "#fff", color: "#111" }}
+                      dangerouslySetInnerHTML={{ __html: kbViewerContent.html }}
+                    />
+                  ) : kbViewerContent.kind === "text" ? (
+                    <pre className="w-full h-full overflow-auto p-6 text-[12px] selectable-text" style={{ color: "#d1d1d6", whiteSpace: "pre-wrap" }}>
+                      {kbViewerContent.text}
+                    </pre>
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-4">
                       <FileType2 size={48} style={{ color: "#3C3C3E" }} />
@@ -6971,6 +7240,189 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                 onMouseLeave={(e) => { if (newFolderName.trim()) e.currentTarget.style.background = "#3B82F6"; }}
               >
                 OK
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {renameRequestTarget && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => { setRenameRequestTarget(null); setRenameRequestNewName(""); }}
+        >
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitRenameRequest(); }}
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 340, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
+                <Send size={16} style={{ color: "#93c5fd" }} />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Yêu cầu đổi tên "{renameRequestTarget.displayName}"</p>
+                <p className="text-[11px] mt-1 leading-relaxed" style={{ color: "#86868B" }}>Admin hoặc Ban Giám đốc sẽ xem và duyệt yêu cầu này.</p>
+              </div>
+            </div>
+            <input
+              autoFocus
+              value={renameRequestNewName}
+              onChange={(e) => setRenameRequestNewName(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              placeholder="Tên mới…"
+              className="w-full text-[12.5px] rounded-xl px-3.5 py-2.5 outline-none"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setRenameRequestTarget(null); setRenameRequestNewName(""); }}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                type="submit"
+                disabled={!renameRequestNewName.trim() || renameRequestSubmitting}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{
+                  background: renameRequestNewName.trim() && !renameRequestSubmitting ? "#3B82F6" : "rgba(59,130,246,0.3)",
+                  color: "#fff",
+                  cursor: renameRequestNewName.trim() && !renameRequestSubmitting ? "pointer" : "not-allowed",
+                }}
+              >
+                Gửi yêu cầu
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {renameRequestsOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setRenameRequestsOpen(false)}
+        >
+          <div
+            className="rounded-2xl flex flex-col"
+            style={{ width: 420, maxHeight: "70vh", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center gap-2">
+                <Inbox size={14} style={{ color: "#3B82F6" }} />
+                <h2 className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Yêu cầu đổi tên folder</h2>
+              </div>
+              <button onClick={() => setRenameRequestsOpen(false)} className="p-1 rounded hover:bg-white/5">
+                <XIcon size={14} style={{ color: "#86868B" }} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-3 flex flex-col gap-2">
+              {renameRequestsLoading ? (
+                <p className="text-[11px] text-center py-4" style={{ color: "#86868B" }}>...</p>
+              ) : renameRequests.length === 0 ? (
+                <p className="text-[11px] text-center py-4" style={{ color: "#86868B" }}>Không có yêu cầu nào</p>
+              ) : (
+                renameRequests.map((r) => (
+                  <div key={r.id} className="rounded-xl p-3 flex flex-col gap-1.5" style={{ background: "rgba(255,255,255,0.03)" }}>
+                    <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#c7c7cc" }}>
+                      <span className="truncate">{r.collection.split("/").pop()}</span>
+                      <ArrowRight size={10} style={{ flexShrink: 0, color: "#86868B" }} />
+                      <span className="truncate font-medium" style={{ color: "#f5f5f7" }}>{r.new_name}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px]" style={{ color: "#86868B" }}>{r.requester_email}</span>
+                      {r.status === "pending" && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium" style={{ color: "#fbbf24" }}>
+                          <Clock size={10} /> Chờ duyệt
+                        </span>
+                      )}
+                      {r.status === "approved" && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium" style={{ color: "#4ade80" }}>
+                          <CheckCircle size={10} /> Đã duyệt
+                        </span>
+                      )}
+                      {r.status === "rejected" && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium" style={{ color: "#f87171" }}>
+                          <XIcon size={10} /> Từ chối
+                        </span>
+                      )}
+                    </div>
+                    {r.status === "rejected" && r.reason && (
+                      <p className="text-[10px] italic" style={{ color: "#86868B" }}>Lý do: {r.reason}</p>
+                    )}
+                    {r.status === "pending" && canRenameFolders && (
+                      <div className="flex gap-2 mt-1">
+                        <button
+                          onClick={() => approveRenameRequestAction(r.id)}
+                          className="flex-1 px-2 py-1 rounded-lg text-[10px] font-medium"
+                          style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}
+                        >
+                          Duyệt
+                        </button>
+                        <button
+                          onClick={() => { setRejectingRequestId(r.id); setRejectReason(""); }}
+                          className="flex-1 px-2 py-1 rounded-lg text-[10px] font-medium"
+                          style={{ background: "rgba(239,68,68,0.15)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}
+                        >
+                          Từ chối
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectingRequestId && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setRejectingRequestId(null)}
+        >
+          <form
+            onSubmit={(e) => { e.preventDefault(); rejectRenameRequestAction(); }}
+            className="rounded-2xl p-5 flex flex-col gap-4"
+            style={{ width: 320, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Lý do từ chối</p>
+            <input
+              autoFocus
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Nhập lý do…"
+              className="w-full text-[12.5px] rounded-xl px-3.5 py-2.5 outline-none"
+              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setRejectingRequestId(null)}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc" }}
+              >
+                {S.cancelBtn}
+              </button>
+              <button
+                type="submit"
+                disabled={!rejectReason.trim()}
+                className="px-4 py-2 rounded-xl text-[12px] font-medium transition-all"
+                style={{
+                  background: rejectReason.trim() ? "#ef4444" : "rgba(239,68,68,0.3)",
+                  color: "#fff",
+                  cursor: rejectReason.trim() ? "pointer" : "not-allowed",
+                }}
+              >
+                Từ chối
               </button>
             </div>
           </form>
