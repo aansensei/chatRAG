@@ -5,12 +5,19 @@ query/list) must agree on who counts as "in" a department or "privileged" —
 importing from here instead of duplicating the checks is what keeps them from
 drifting apart.
 """
+import os
 
 # Real department folders under AanJSC_Documents/ — anything else (default,
 # ad-hoc project folders, misc shared resources) is not department-owned and
 # stays open to every authenticated user. Keep in sync with the frontend's
 # DEPARTMENT_OPTIONS values.
 RESTRICTED_DEPARTMENTS = {"Engineering", "Executive", "Finance", "HR", "IT", "Marketing", "Sales"}
+
+# Temporary testing toggle (AanSensei, 2026-07-07): set RESTRICT_BY_DEPARTMENT=false
+# in .env to let any logged-in user read across all departments while testing —
+# CONFIDENTIAL/SECRET documents stay blocked regardless (see can_see_confidential).
+# Remove this flag (or set back to "true") once department-scoped testing resumes.
+_RESTRICT_BY_DEPARTMENT = os.environ.get("RESTRICT_BY_DEPARTMENT", "true").lower() != "false"
 
 CONFIDENTIAL_LEVELS = {"confidential", "secret"}
 
@@ -35,7 +42,11 @@ def has_write_authority(user: dict, collection: str) -> bool:
 def can_read_collection(user: dict, collection: str) -> bool:
     """Shared/general folders (not named after a real department) stay open to
     every authenticated user. A real department's folder is only readable by
-    members of that department (or admin/Ban Giám đốc)."""
+    members of that department (or admin/Ban Giám đốc) — unless department
+    restriction is temporarily disabled for testing (see _RESTRICT_BY_DEPARTMENT
+    above); confidentiality (can_see_confidential) is never affected by this."""
+    if not _RESTRICT_BY_DEPARTMENT:
+        return True
     dept = department_of(collection)
     if dept not in RESTRICTED_DEPARTMENTS:
         return True
