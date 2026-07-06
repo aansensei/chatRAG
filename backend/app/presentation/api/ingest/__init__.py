@@ -13,9 +13,9 @@ from app.infrastructure.storage.local.rename_requests_store import (
 from app.infrastructure.vector.supabase.repository import (
     list_documents, delete_document, list_collections,
     rename_collection, delete_collection_docs, move_document_collection,
-    get_document_file_path, relink_document_file,
+    get_document_file_path, relink_document_file, get_document_collection,
 )
-from app.presentation.api.auth import get_collections, get_current_user, require_admin, require_admin_or_executive
+from app.presentation.api.auth import get_collections, get_current_user, require_admin_or_executive
 
 router = APIRouter(prefix="/ingest", tags=["ingest"], dependencies=[Depends(get_current_user)])
 
@@ -24,10 +24,24 @@ ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".docx",
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 
 
+def _department_of(collection: str) -> str:
+    return collection.rsplit("/", 1)[-1]
+
+
+def _has_kb_authority(user: dict, collection: str) -> bool:
+    """Admins and Ban Giám đốc can add/delete anywhere. A department head can do
+    the same, but only within their own department's folder — everyone else has
+    to go through the request/approval flow instead."""
+    if user["role"] == "admin" or user.get("department") == "Ban Giám đốc":
+        return True
+    return bool(user.get("is_department_head")) and user.get("department") == _department_of(collection)
+
+
 @router.post("/upload")
 async def upload(
     file: UploadFile = File(...),
     collection: str = Form(default="default"),
+    user: dict = Depends(get_current_user),
 ):
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -63,6 +77,12 @@ async def upload(
         "collection": collection,
     })
 
+    # Uploads go live immediately (no upload-blocking review), but anyone without
+    # direct authority over this folder still needs someone to sign off after the
+    # fact — rejecting removes the document again.
+    if not _has_kb_authority(user, collection):
+        create_request(user["id"], user["email"], "add", collection, document_id=document_id, filename=file.filename)
+
     return {"job_id": job_id, "document_id": document_id, "status": "queued"}
 
 
@@ -91,7 +111,15 @@ def documents(collections: list[str] = Depends(get_collections)):
 
 
 @router.delete("/documents/{document_id}")
-def delete_doc(document_id: str, _admin: dict = Depends(require_admin)):
+def delete_doc(document_id: str, user: dict = Depends(get_current_user)):
+    collection = get_document_collection(document_id)
+    # Fail closed if the document can't be found — admin-only in that edge case,
+    # since there's no collection to check department authority against.
+    if collection:
+        if not _has_kb_authority(user, collection):
+            raise HTTPException(status_code=403, detail="Không có quyền xóa trực tiếp — hãy gửi yêu cầu xóa")
+    elif user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     delete_document(document_id)
     return {"ok": True}
 
@@ -118,7 +146,9 @@ def rename_collection_route(name: str, body: RenameCollectionBody, _user: dict =
 
 
 @router.delete("/collections/{name:path}")
-def delete_collection_route(name: str, _admin: dict = Depends(require_admin)):
+def delete_collection_route(name: str, user: dict = Depends(get_current_user)):
+    if not _has_kb_authority(user, name):
+        raise HTTPException(status_code=403, detail="Không có quyền xóa trực tiếp — hãy gửi yêu cầu xóa")
     delete_collection_docs(name)
     return {"ok": True}
 
@@ -136,6 +166,12 @@ class RenameRequestBody(BaseModel):
     new_name: str
 
 
+class DeleteRequestBody(BaseModel):
+    collection: str
+    document_id: str | None = None  # None means "delete the entire folder"
+    filename: str | None = None
+
+
 class RejectRequestBody(BaseModel):
     reason: str
 
@@ -144,30 +180,61 @@ class RejectRequestBody(BaseModel):
 def create_rename_request(body: RenameRequestBody, user: dict = Depends(get_current_user)):
     if not body.new_name.strip():
         raise HTTPException(status_code=400, detail="new_name cannot be empty")
-    return create_request(user["id"], user["email"], body.collection, body.new_name.strip())
+    return create_request(user["id"], user["email"], "rename", body.collection, new_name=body.new_name.strip())
+
+
+@router.post("/delete-requests")
+def create_delete_request(body: DeleteRequestBody, user: dict = Depends(get_current_user)):
+    return create_request(user["id"], user["email"], "delete", body.collection, document_id=body.document_id, filename=body.filename)
 
 
 @router.get("/rename-requests")
-def get_rename_requests(user: dict = Depends(get_current_user)):
-    # Admins and Ban Giám đốc see every request so they can review and act on
-    # them; everyone else only sees their own, to check on status/reason.
-    is_reviewer = user["role"] == "admin" or user.get("department") == "Ban Giám đốc"
-    return list_requests(requester_id=None if is_reviewer else user["id"])
+def get_kb_requests(user: dict = Depends(get_current_user)):
+    # Admins and Ban Giám đốc see every request. A department head additionally
+    # sees every request for their own department (not just ones they filed).
+    # Everyone else only sees their own, to check on status/reason.
+    is_admin_reviewer = user["role"] == "admin" or user.get("department") == "Ban Giám đốc"
+    if is_admin_reviewer:
+        return list_requests()
+    own = list_requests(requester_id=user["id"])
+    if not user.get("is_department_head"):
+        return own
+    dept = user.get("department")
+    all_requests = list_requests()
+    own_ids = {r["id"] for r in own}
+    return own + [r for r in all_requests if r["id"] not in own_ids and _department_of(r["collection"]) == dept]
+
+
+def _require_reviewer(user: dict, req: dict) -> None:
+    if not _has_kb_authority(user, req["collection"]):
+        raise HTTPException(status_code=403, detail="Không có quyền duyệt yêu cầu này")
 
 
 @router.post("/rename-requests/{request_id}/approve")
-def approve_rename_request(request_id: str, admin: dict = Depends(require_admin_or_executive)):
+def approve_kb_request(request_id: str, user: dict = Depends(get_current_user)):
     req = get_request(request_id)
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
     if req["status"] != "pending":
         raise HTTPException(status_code=409, detail="Request already resolved")
-    rename_collection(req["collection"], req["new_name"])
-    return resolve_request(request_id, "approved", admin["id"])
+    if req["request_type"] == "rename":
+        if user["role"] != "admin" and user.get("department") != "Ban Giám đốc":
+            raise HTTPException(status_code=403, detail="Admin or Ban Giám đốc access required")
+        rename_collection(req["collection"], req["new_name"])
+    elif req["request_type"] == "delete":
+        _require_reviewer(user, req)
+        if req["document_id"]:
+            delete_document(req["document_id"])
+        else:
+            delete_collection_docs(req["collection"])
+    elif req["request_type"] == "add":
+        _require_reviewer(user, req)
+        # Already live since upload time — approving just confirms it stays.
+    return resolve_request(request_id, "approved", user["id"])
 
 
 @router.post("/rename-requests/{request_id}/reject")
-def reject_rename_request(request_id: str, body: RejectRequestBody, admin: dict = Depends(require_admin_or_executive)):
+def reject_kb_request(request_id: str, body: RejectRequestBody, user: dict = Depends(get_current_user)):
     if not body.reason.strip():
         raise HTTPException(status_code=400, detail="reason cannot be empty")
     req = get_request(request_id)
@@ -175,7 +242,15 @@ def reject_rename_request(request_id: str, body: RejectRequestBody, admin: dict 
         raise HTTPException(status_code=404, detail="Request not found")
     if req["status"] != "pending":
         raise HTTPException(status_code=409, detail="Request already resolved")
-    return resolve_request(request_id, "rejected", admin["id"], body.reason.strip())
+    if req["request_type"] == "rename":
+        if user["role"] != "admin" and user.get("department") != "Ban Giám đốc":
+            raise HTTPException(status_code=403, detail="Admin or Ban Giám đốc access required")
+    else:
+        _require_reviewer(user, req)
+        if req["request_type"] == "add" and req["document_id"]:
+            # The document already went live at upload time — rejecting undoes that.
+            delete_document(req["document_id"])
+    return resolve_request(request_id, "rejected", user["id"], body.reason.strip())
 
 
 _MIME_MAP = {

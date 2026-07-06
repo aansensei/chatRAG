@@ -684,6 +684,7 @@ type Message = {
   isStreaming?: boolean;
   followUps?: string[];
   confidence?: number | null;
+  suggestWebSearch?: boolean;
 };
 
 type Chat = {
@@ -775,7 +776,7 @@ function chatGroup(createdAt: number): "today" | "week" | "older" {
 
 type Collection = { name: string; doc_count: number };
 
-type RenameRequest = {
+type KbRequest = {
   id: string;
   requester_id: string;
   requester_email: string;
@@ -786,6 +787,9 @@ type RenameRequest = {
   created_at: number;
   resolved_at: number | null;
   resolved_by: string | null;
+  request_type: "rename" | "delete" | "add";
+  document_id: string | null;
+  filename: string | null;
 };
 type ChatScope = { type: "all" } | { type: "selected"; collections: string[] };
 type Suggestion = { title: string; subtitle: string };
@@ -1359,6 +1363,7 @@ function ChatMessage({
   activeSource,
   onFollowUp,
   onRegenerate,
+  onSuggestWebSearch,
   uiLang,
   availableModels,
 }: {
@@ -1366,6 +1371,7 @@ function ChatMessage({
   onSourceClick: (source: Source) => void;
   activeSource: string | null;
   onFollowUp?: (text: string) => void;
+  onSuggestWebSearch?: () => void;
   onRegenerate?: (modelId?: string) => void;
   uiLang: Lang;
   availableModels?: { id: string; label: string; providerLabel: string }[];
@@ -1374,6 +1380,7 @@ function ChatMessage({
   const [copied, setCopied] = useState(false);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [webSearchSuggestionDismissed, setWebSearchSuggestionDismissed] = useState(false);
   const modelPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1437,6 +1444,31 @@ function ChatMessage({
         {message.confidence !== undefined && message.confidence !== null && message.confidence >= 0.55 && (
           <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium mb-2.5" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#86868B" }}>
             <span>◈ {Math.round(message.confidence * 100)}% confidence</span>
+          </div>
+        )}
+
+        {message.suggestWebSearch && !webSearchSuggestionDismissed && onSuggestWebSearch && (
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl mb-3" style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.18)" }}>
+            <Globe size={13} style={{ color: "#93c5fd", flexShrink: 0 }} />
+            <p className="flex-1 text-[12px]" style={{ color: "#c7c7cc" }}>
+              Ciel cảm thấy thông tin nội bộ chưa đủ chắc chắn cho câu hỏi này — tham khảo thêm nguồn từ web có thể sẽ hữu ích. Bạn có muốn Ciel tìm trên web không?
+            </p>
+            <div className="flex gap-1.5 shrink-0">
+              <button
+                onClick={() => { setWebSearchSuggestionDismissed(true); onSuggestWebSearch(); }}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}
+              >
+                Có
+              </button>
+              <button
+                onClick={() => setWebSearchSuggestionDismissed(true)}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Không
+              </button>
+            </div>
           </div>
         )}
 
@@ -3155,7 +3187,7 @@ function TranslatorPanel({
   );
 }
 
-type AuthUser = { id: string; email: string; role: string; created_at: number; department?: string | null };
+type AuthUser = { id: string; email: string; role: string; created_at: number; department?: string | null; is_department_head?: boolean };
 
 const DEPARTMENT_OPTIONS = ["Ban Giám đốc", "Phòng Kế toán", "Phòng Kỹ thuật", "Phòng Nhân sự", "Phòng Kinh doanh", "Phòng Marketing"];
 
@@ -3404,7 +3436,16 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   // else needs to go through the (not yet built) approval workflow instead of
   // renaming freely.
   const canRenameFolders = currentUser?.role === "admin" || currentUser?.department === "Ban Giám đốc";
+  // Mirrors the backend's _has_kb_authority: admins and Ban Giám đốc can add/delete
+  // anywhere; a department head can do the same but only within their own
+  // department's folder. Everyone else has to file a request instead.
+  const canActOnCollection = (collection: string) => {
+    if (currentUser?.role === "admin" || currentUser?.department === "Ban Giám đốc") return true;
+    const department = collection.split("/").pop();
+    return !!currentUser?.is_department_head && currentUser?.department === department;
+  };
   const [chats, setChats] = useState<Chat[]>(() => loadChatsFromStorage(currentUser?.id));
+  const [chatsSynced, setChatsSynced] = useState(false);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [mode, setMode] = useState<"chat" | "translate">("chat");
 
@@ -3567,10 +3608,15 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const [renameRequestNewName, setRenameRequestNewName] = useState("");
   const [renameRequestSubmitting, setRenameRequestSubmitting] = useState(false);
   const [renameRequestsOpen, setRenameRequestsOpen] = useState(false);
-  const [renameRequests, setRenameRequests] = useState<RenameRequest[]>([]);
+  const [renameRequests, setRenameRequests] = useState<KbRequest[]>([]);
   const [renameRequestsLoading, setRenameRequestsLoading] = useState(false);
   const [rejectingRequestId, setRejectingRequestId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // Approving a "delete entire folder" request is far more destructive than any
+  // other request type here — it wipes every document in that folder at once,
+  // with no undo if the source files aren't preserved elsewhere. Everything else
+  // (rename, single-document delete, add-confirmation) approves in one click.
+  const [confirmingApproveId, setConfirmingApproveId] = useState<string | null>(null);
   const [userMgmtOpen, setUserMgmtOpen] = useState(false);
   const [userList, setUserList] = useState<AuthUser[]>([]);
   const [userListLoading, setUserListLoading] = useState(false);
@@ -3578,6 +3624,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
   const [newUserDepartment, setNewUserDepartment] = useState("");
+  const [newUserIsDeptHead, setNewUserIsDeptHead] = useState(false);
   const [userMgmtError, setUserMgmtError] = useState("");
   const [creatingUser, setCreatingUser] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -3601,7 +3648,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       const res = await fetch("/auth/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newUserEmail.trim(), password: newUserPassword, role: newUserRole, department: newUserDepartment || null }),
+        body: JSON.stringify({ email: newUserEmail.trim(), password: newUserPassword, role: newUserRole, department: newUserDepartment || null, is_department_head: newUserRole === "user" && !!newUserDepartment && newUserIsDeptHead }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -3612,6 +3659,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       setNewUserPassword("");
       setNewUserRole("user");
       setNewUserDepartment("");
+      setNewUserIsDeptHead(false);
       refreshUserList();
     } catch {
       setUserMgmtError(S.userMgmtGenericError);
@@ -3631,6 +3679,15 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ department: department || null }),
+    });
+    refreshUserList();
+  };
+
+  const handleToggleDeptHead = async (id: string, isDepartmentHead: boolean) => {
+    await fetch(`/auth/users/${id}/department-head`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_department_head: isDepartmentHead }),
     });
     refreshUserList();
   };
@@ -4149,12 +4206,23 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   <Send size={9} />
                 </button>
               )}
-              {currentUser?.role === "admin" && (
+              {canActOnCollection(folderName) ? (
                 <button
                   onClick={(e) => { e.stopPropagation(); setConfirmingDelete(folderName); }}
                   className="p-0.5 rounded"
                   style={{ color: "#86868B" }}
                   title="Delete folder"
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                >
+                  <Trash2 size={9} />
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); submitDeleteRequest(folderName, null, null); }}
+                  className="p-0.5 rounded"
+                  style={{ color: "#86868B" }}
+                  title="Gửi yêu cầu xóa cả thư mục"
                   onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
@@ -4203,7 +4271,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                       >
                         <ArrowRight size={9} />
                       </button>
-                      {currentUser?.role === "admin" && (
+                      {canActOnCollection(folderName) ? (
                         <button
                           onClick={() => requestKbDelete(() => deleteKbDoc(doc.document_id, name))}
                           className="p-0.5 rounded"
@@ -4213,6 +4281,17 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                           onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                         >
                           <Trash2 size={9} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => submitDeleteRequest(folderName, doc.document_id, name)}
+                          className="p-0.5 rounded"
+                          style={{ color: "#86868B" }}
+                          title="Gửi yêu cầu xóa"
+                          onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.1)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                        >
+                          <Send size={9} />
                         </button>
                       )}
                     </div>
@@ -4295,8 +4374,12 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
               <Send size={11} style={{ color: "#86868B" }} />
             </button>
           )}
-          {currentUser?.role === "admin" && (
+          {canActOnCollection(name) ? (
             <button onClick={(e) => { e.stopPropagation(); setConfirmingDelete(name); }} className="p-1 rounded hover:bg-white/10" title="Delete folder">
+              <Trash2 size={11} style={{ color: "#86868B" }} />
+            </button>
+          ) : (
+            <button onClick={(e) => { e.stopPropagation(); submitDeleteRequest(name, null, null); }} className="p-1 rounded hover:bg-white/10" title="Gửi yêu cầu xóa cả thư mục">
               <Trash2 size={11} style={{ color: "#86868B" }} />
             </button>
           )}
@@ -4571,7 +4654,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         }
       })
       .catch(() => {})
-      .finally(() => { serverSyncReadyRef.current = true; });
+      .finally(() => { serverSyncReadyRef.current = true; setChatsSynced(true); });
   }, []);
 
   useEffect(() => {
@@ -4601,7 +4684,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     });
   }, []);
 
-  const sendMessage = async (text?: string, modelOverride?: string) => {
+  const sendMessage = async (text?: string, modelOverride?: string, forceWeb?: boolean) => {
     const content = (text ?? input).trim();
     if (!content || isProcessing) return;
     const modelForRequest = modelOverride ?? activeModel;
@@ -4646,8 +4729,8 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     isWebSearchActiveRef.current = false;
     webSearchResultsRef.current = [];
     const hasWebIntent = /tìm trên web|trên web|duyệt web|tìm web|tìm trên mạng|trên mạng|tìm kiếm trên|search (the )?web|search online|look (it )?up online|find online|google (it|this)|搜索网络|网上搜|上网搜|搜一下|ウェブで|ネットで調べ|検索して/i.test(content);
-    if (hasWebIntent) setWebSearchMode(true);
-    if ((webSearchMode || hasWebIntent) && !urlMatch) {
+    if (hasWebIntent || forceWeb) setWebSearchMode(true);
+    if ((webSearchMode || hasWebIntent || forceWeb) && !urlMatch) {
       isWebSearchActiveRef.current = true;
       setIsProcessing(true);
       setProcessingStep("web-search");
@@ -4839,7 +4922,15 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         const existing = prev.find((m) => m.id === aiId);
         const content = existing?.content?.trim() ? tryConvertListToTable(existing.content, S.tableColItem, S.tableColContent) : "No answer returned.";
         finalContent = content;
-        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: capturedWebSources ? [] : finalSources, webSources: capturedWebSources, confidence: finalConfidence, isStreaming: false };
+        // Only worth suggesting web search when we didn't already use it this turn.
+        // Two independent signals, since neither alone covers every case: a low
+        // confidence score catches weak/scattered retrieval, but a well-ranked chunk
+        // that's simply off-topic for this specific question still yields a
+        // confident-looking score even though the model ends up saying it doesn't
+        // know — so also check whether the answer itself admits that in its own words.
+        const _noInfoPattern = /không (có|tìm thấy) (tài liệu|thông tin)|chưa có (tài liệu|thông tin)|không đề cập|no relevant information|no (internal )?document|don'?t have (information|data)|not (mentioned|available|found) in the document/i;
+        const suggestWebSearch = !capturedWebSources && ((finalConfidence !== null && finalConfidence < 0.55) || _noInfoPattern.test(content));
+        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: capturedWebSources ? [] : finalSources, webSources: capturedWebSources, confidence: finalConfidence, isStreaming: false, suggestWebSearch };
         return existing
           ? prev.map((m) => m.id === aiId ? finalMsg : m)
           : [...prev, finalMsg];
@@ -5033,17 +5124,34 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     }
   };
 
-  const approveRenameRequestAction = async (id: string) => {
+  const submitDeleteRequest = async (collection: string, documentId: string | null, filename: string | null) => {
+    try {
+      const res = await fetch("/ingest/delete-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collection, document_id: documentId, filename }),
+      });
+      if (res.ok) {
+        addToast(`Đã gửi yêu cầu xóa "${filename || collection.split("/").pop()}", chờ duyệt`, "success");
+      } else {
+        addToast("Gửi yêu cầu thất bại", "error");
+      }
+    } catch {
+      addToast("Gửi yêu cầu thất bại", "error");
+    }
+  };
+
+  const approveKbRequestAction = async (id: string) => {
     const res = await fetch(`/ingest/rename-requests/${id}/approve`, { method: "POST" });
     if (res.ok) {
-      addToast("Đã duyệt yêu cầu đổi tên", "success");
+      addToast("Đã duyệt yêu cầu", "success");
       await Promise.all([loadRenameRequests(), fetchCollections(), loadKbDocs()]);
     } else {
       addToast("Duyệt yêu cầu thất bại", "error");
     }
   };
 
-  const rejectRenameRequestAction = async () => {
+  const rejectKbRequestAction = async () => {
     if (!rejectingRequestId || !rejectReason.trim()) return;
     const res = await fetch(`/ingest/rename-requests/${rejectingRequestId}/reject`, {
       method: "POST",
@@ -5054,7 +5162,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       addToast("Đã từ chối yêu cầu", "success");
       setRejectingRequestId(null);
       setRejectReason("");
-      await loadRenameRequests();
+      await Promise.all([loadRenameRequests(), fetchCollections(), loadKbDocs()]);
     } else {
       addToast("Từ chối yêu cầu thất bại", "error");
     }
@@ -5239,7 +5347,13 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
 
         {/* History */}
         <div className="flex-1 overflow-y-auto px-3 py-2 scrollbar-hide">
-          {chats.length === 0 ? (
+          {chats.length === 0 && !chatsSynced ? (
+            <div className="flex flex-col gap-1.5 px-1">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-9 rounded-lg animate-pulse" style={{ background: "rgba(28,28,30,0.5)", border: "1px solid rgba(255,255,255,0.05)" }} />
+              ))}
+            </div>
+          ) : chats.length === 0 ? (
             <p className="text-center text-[11px] py-4" style={{ color: "rgba(134,134,139,0.4)" }}>No chats yet</p>
           ) : (
             (["pinned", "today", "week", "older"] as const).map((group) => {
@@ -5375,8 +5489,10 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           {/* Folder accordion */}
           <div className="overflow-y-auto scrollbar-hide flex-1 px-2 pb-1">
             {kbLoading ? (
-              <div className="flex items-center justify-center py-5 gap-2" style={{ color: "#86868B" }}>
-                <Loader size={12} className="animate-spin" /><span className="text-[11px]">Loading…</span>
+              <div className="flex flex-col gap-1.5 px-1 py-1">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-7 rounded-lg animate-pulse" style={{ background: "rgba(28,28,30,0.5)", border: "1px solid rgba(255,255,255,0.05)" }} />
+                ))}
               </div>
             ) : Object.keys(folderMap).length === 0 ? (
               <div className="flex flex-col items-center justify-center py-5 gap-1">
@@ -6373,9 +6489,17 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                                 ) : (
                                   <button onClick={() => setKbViewerDoc(d)} className="px-2 py-1 rounded text-[10px]" style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}>View</button>
                                 )}
-                                {currentUser?.role === "admin" && (
+                                {canActOnCollection(d.collection || kbBrowserFolder || "") ? (
                                   <button onClick={() => setKbBrowserConfirmDeleteDoc(d.document_id)} className="p-1 rounded hover:bg-white/10" title="Delete document">
                                     <Trash2 size={11} style={{ color: "#86868B" }} />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => submitDeleteRequest(d.collection || kbBrowserFolder || "", d.document_id, filename)}
+                                    className="p-1 rounded hover:bg-white/10"
+                                    title="Gửi yêu cầu xóa"
+                                  >
+                                    <Send size={11} style={{ color: "#86868B" }} />
                                   </button>
                                 )}
                               </div>
@@ -6602,6 +6726,11 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   onRegenerate={
                     msg.role === "assistant" && messages[idx - 1]?.role === "user" && !isProcessing
                       ? (modelId?: string) => sendMessage(messages[idx - 1].content, modelId)
+                      : undefined
+                  }
+                  onSuggestWebSearch={
+                    messages[idx - 1]?.role === "user" && !isProcessing
+                      ? () => sendMessage(messages[idx - 1].content, undefined, true)
                       : undefined
                   }
                 />
@@ -7316,7 +7445,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
             <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
               <div className="flex items-center gap-2">
                 <Inbox size={14} style={{ color: "#3B82F6" }} />
-                <h2 className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Yêu cầu đổi tên folder</h2>
+                <h2 className="text-[13px] font-semibold" style={{ color: "#f5f5f7" }}>Yêu cầu chờ duyệt</h2>
               </div>
               <button onClick={() => setRenameRequestsOpen(false)} className="p-1 rounded hover:bg-white/5">
                 <XIcon size={14} style={{ color: "#86868B" }} />
@@ -7330,11 +7459,27 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
               ) : (
                 renameRequests.map((r) => (
                   <div key={r.id} className="rounded-xl p-3 flex flex-col gap-1.5" style={{ background: "rgba(255,255,255,0.03)" }}>
-                    <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#c7c7cc" }}>
-                      <span className="truncate">{r.collection.split("/").pop()}</span>
-                      <ArrowRight size={10} style={{ flexShrink: 0, color: "#86868B" }} />
-                      <span className="truncate font-medium" style={{ color: "#f5f5f7" }}>{r.new_name}</span>
-                    </div>
+                    {r.request_type === "rename" ? (
+                      <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#c7c7cc" }}>
+                        <Pencil size={10} style={{ flexShrink: 0, color: "#86868B" }} />
+                        <span className="truncate">{r.collection.split("/").pop()}</span>
+                        <ArrowRight size={10} style={{ flexShrink: 0, color: "#86868B" }} />
+                        <span className="truncate font-medium" style={{ color: "#f5f5f7" }}>{r.new_name}</span>
+                      </div>
+                    ) : r.request_type === "delete" ? (
+                      <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#c7c7cc" }}>
+                        <Trash2 size={10} style={{ flexShrink: 0, color: "#f87171" }} />
+                        <span className="truncate">Xóa {r.document_id ? "tài liệu" : "cả thư mục"}:</span>
+                        <span className="truncate font-medium" style={{ color: "#f5f5f7" }}>{r.filename || r.collection.split("/").pop()}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#c7c7cc" }}>
+                        <Plus size={10} style={{ flexShrink: 0, color: "#4ade80" }} />
+                        <span className="truncate">Thêm tài liệu:</span>
+                        <span className="truncate font-medium" style={{ color: "#f5f5f7" }}>{r.filename}</span>
+                      </div>
+                    )}
+                    <p className="text-[9px]" style={{ color: "#52525b" }}>{r.collection}</p>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10px]" style={{ color: "#86868B" }}>{r.requester_email}</span>
                       {r.status === "pending" && (
@@ -7356,10 +7501,36 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                     {r.status === "rejected" && r.reason && (
                       <p className="text-[10px] italic" style={{ color: "#86868B" }}>Lý do: {r.reason}</p>
                     )}
-                    {r.status === "pending" && canRenameFolders && (
+                    {r.status === "pending" && (r.request_type === "rename" ? canRenameFolders : canActOnCollection(r.collection)) && (
+                      confirmingApproveId === r.id ? (
+                        <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                          <p className="text-[10px]" style={{ color: "#fca5a5" }}>
+                            Chắc chắn xóa TOÀN BỘ tài liệu trong "{r.collection.split("/").pop()}"? Không thể hoàn tác trừ khi còn file gốc.
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => { setConfirmingApproveId(null); approveKbRequestAction(r.id); }}
+                              className="flex-1 px-2 py-1 rounded-lg text-[10px] font-medium"
+                              style={{ background: "rgba(239,68,68,0.2)", color: "#f87171", border: "1px solid rgba(239,68,68,0.4)" }}
+                            >
+                              Có, xóa hết
+                            </button>
+                            <button
+                              onClick={() => setConfirmingApproveId(null)}
+                              className="flex-1 px-2 py-1 rounded-lg text-[10px] font-medium"
+                              style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}
+                            >
+                              Hủy
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
                       <div className="flex gap-2 mt-1">
                         <button
-                          onClick={() => approveRenameRequestAction(r.id)}
+                          onClick={() => {
+                            if (r.request_type === "delete" && !r.document_id) { setConfirmingApproveId(r.id); return; }
+                            approveKbRequestAction(r.id);
+                          }}
                           className="flex-1 px-2 py-1 rounded-lg text-[10px] font-medium"
                           style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}
                         >
@@ -7373,6 +7544,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                           Từ chối
                         </button>
                       </div>
+                      )
                     )}
                   </div>
                 ))
@@ -7389,7 +7561,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           onClick={() => setRejectingRequestId(null)}
         >
           <form
-            onSubmit={(e) => { e.preventDefault(); rejectRenameRequestAction(); }}
+            onSubmit={(e) => { e.preventDefault(); rejectKbRequestAction(); }}
             className="rounded-2xl p-5 flex flex-col gap-4"
             style={{ width: 320, background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
             onClick={(e) => e.stopPropagation()}
@@ -7480,15 +7652,32 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                       {u.department || S.userMgmtNoDepartment}
                     </span>
                   ) : (
-                    <select
-                      value={u.department || ""}
-                      onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
-                      className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
-                      style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
-                    >
-                      <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
-                      {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d}</option>)}
-                    </select>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <select
+                        value={u.department || ""}
+                        onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
+                        className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
+                        style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
+                      >
+                        <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
+                        {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d}</option>)}
+                      </select>
+                      {u.department && (
+                        <label
+                          className="flex items-center gap-1 text-[9px] shrink-0 cursor-pointer"
+                          style={{ color: u.is_department_head ? "#93c5fd" : "#86868B" }}
+                          title="Trưởng phòng ban — duyệt yêu cầu thêm/xóa tài liệu trong phòng ban này"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!u.is_department_head}
+                            onChange={(e) => handleToggleDeptHead(u.id, e.target.checked)}
+                            style={{ accentColor: "#3B82F6" }}
+                          />
+                          TP
+                        </label>
+                      )}
+                    </div>
                   )}
                   {u.id !== currentUser?.id && (
                     <button
@@ -7546,6 +7735,17 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{d}</option>)}
                 </select>
               </div>
+              {newUserRole === "user" && newUserDepartment && (
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer" style={{ color: "#c7c7cc" }}>
+                  <input
+                    type="checkbox"
+                    checked={newUserIsDeptHead}
+                    onChange={(e) => setNewUserIsDeptHead(e.target.checked)}
+                    style={{ accentColor: "#3B82F6" }}
+                  />
+                  Trưởng phòng ban (duyệt yêu cầu thêm/xóa tài liệu trong phòng)
+                </label>
+              )}
               {userMgmtError && (
                 <p className="text-[11px]" style={{ color: "#f87171" }}>{userMgmtError}</p>
               )}

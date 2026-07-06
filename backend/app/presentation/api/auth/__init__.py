@@ -13,6 +13,7 @@ from app.infrastructure.storage.local.auth_store import (
     get_user_by_email,
     get_user_by_id,
     list_users,
+    set_department_head,
     set_user_department,
     update_user,
     verify_password,
@@ -93,6 +94,7 @@ class CreateUserBody(BaseModel):
     password: str
     role: str = "user"
     department: str | None = None
+    is_department_head: bool = False
 
 
 class UpdateMeBody(BaseModel):
@@ -105,12 +107,16 @@ class UpdateDepartmentBody(BaseModel):
     department: str | None = None
 
 
+class UpdateDepartmentHeadBody(BaseModel):
+    is_department_head: bool
+
+
 @router.post("/login")
 def login(body: LoginBody):
     user = get_user_by_email(body.email)
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Sai email hoặc mật khẩu")
-    public_user = {"id": user["id"], "email": user["email"], "role": user["role"], "created_at": user["created_at"], "department": user.get("department")}
+    public_user = {"id": user["id"], "email": user["email"], "role": user["role"], "created_at": user["created_at"], "department": user.get("department"), "is_department_head": user.get("is_department_head", False)}
     return {"access_token": _create_access_token(user), "token_type": "bearer", "user": public_user}
 
 
@@ -144,12 +150,20 @@ def add_user(body: CreateUserBody, _admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="role phải là 'admin' hoặc 'user'")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 8 ký tự")
-    return create_user(body.email, body.password, body.role, body.department)
+    return create_user(body.email, body.password, body.role, body.department, body.is_department_head)
 
 
 @router.patch("/users/{user_id}/department")
 def update_user_department(user_id: str, body: UpdateDepartmentBody, _admin: dict = Depends(require_admin)):
     updated = set_user_department(user_id, body.department)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated
+
+
+@router.patch("/users/{user_id}/department-head")
+def update_user_department_head(user_id: str, body: UpdateDepartmentHeadBody, _admin: dict = Depends(require_admin)):
+    updated = set_department_head(user_id, body.is_department_head)
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
     return updated

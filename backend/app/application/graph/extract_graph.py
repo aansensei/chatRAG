@@ -12,6 +12,18 @@ from app.application.retrieval.ask_question import _call_llm_once
 
 logger = logging.getLogger(__name__)
 
+# Single source of truth for which collections pay the extra LLM-call cost of
+# graph extraction — checked both at ingest time (embedding_worker) and at
+# retrieval time (ask_question), so the two can never drift out of sync.
+GRAPH_ENABLED_COLLECTIONS = {
+    "AanJSC_Documents/Engineering",
+    "AanJSC_Documents/Executive",
+    "AanJSC_Documents/Finance",
+    "AanJSC_Documents/HR",
+    "AanJSC_Documents/Marketing",
+    "AanJSC_Documents/Sales",
+}
+
 _MAX_CHUNK_CHARS = 3000
 
 _PROMPT = """Trích xuất các thực thể (entity) và mối quan hệ (relation) có trong đoạn văn bản dưới đây.

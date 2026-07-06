@@ -214,11 +214,6 @@ def _format_memory_block(user_id: str | None = None) -> str:
         return ""
     return "Ghi nhớ về người dùng (luôn tôn trọng):\n" + "\n".join(lines) + "\n\n"
 
-# GraphRAG POC — only these collections have a pre-built entity/relationship graph
-# (see backend/scripts/build_graph.py). Extend this set as more collections get one.
-_GRAPH_ENABLED_COLLECTIONS = {"AanJSC_Documents/Engineering"}
-
-
 def _format_graph_block(question: str, collections: list[str] | None) -> str:
     """Injects cross-document entity relationships for multi-hop questions a single
     retrieved chunk can't answer alone (e.g. "NASA contract" in one file, "ORION-X
@@ -227,7 +222,10 @@ def _format_graph_block(question: str, collections: list[str] | None) -> str:
     """
     if not collections:
         return ""
-    target = [c for c in collections if c in _GRAPH_ENABLED_COLLECTIONS]
+    # Imported lazily (not at module top) to avoid a circular import: extract_graph
+    # imports _call_llm_once from this module.
+    from app.application.graph.extract_graph import GRAPH_ENABLED_COLLECTIONS
+    target = [c for c in collections if c in GRAPH_ENABLED_COLLECTIONS]
     if not target:
         return ""
     try:
@@ -843,6 +841,7 @@ def _call_llm_once(prompt: str, model: str | None, api_key: str | None, max_toke
                            timeout=httpx.Timeout(connect=8.0, read=20.0, write=4.0, pool=4.0))
             if r.status_code == 200:
                 return (r.json()["choices"][0]["message"]["content"] or "").strip()
+            logger.warning("Groq filter call %s: %s", r.status_code, r.text[:200])
             return ""
         if key.startswith("csk-"):
             r = httpx.post("https://api.cerebras.ai/v1/chat/completions", headers=headers,
@@ -1804,7 +1803,10 @@ def stream_ask(
                 if lang == "vi"
                 else "No relevant information found in the documents."
             )
-            yield _sse({"type": "done", "answer": msg, "sources": [], "confidence": confidence_val})
+            # Explicit low confidence (rather than leaving it None) — the frontend's
+            # web-search suggestion is keyed off a real number below its threshold,
+            # and "no relevant chunks at all" is exactly the case that should trigger it.
+            yield _sse({"type": "done", "answer": msg, "sources": [], "confidence": 0.3})
             return
 
         if chunks:
@@ -1861,7 +1863,7 @@ def stream_ask(
                             if lang == "vi"
                             else "No relevant information found in the documents."
                         )
-                        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
+                        yield _sse({"type": "done", "sources": [], "confidence": 0.3})
                         return
                     filtered = []
                 else:
@@ -1896,6 +1898,15 @@ def stream_ask(
                 if _spread <= 1e-9:
                     return 0.75
                 return 0.5 + 0.47 * (raw - _lo) / _spread
+
+            # The reranker path above sets confidence_val from its own score; every
+            # other path (LLM-filter, filename/tabular passthrough) leaves it None,
+            # which silently breaks both the confidence badge and the web-search
+            # suggestion downstream. Fall back to the same relative-rank scale already
+            # used for per-source confidence, so an overall score is always available
+            # whenever there's at least one retrieved chunk to base it on.
+            if confidence_val is None and filtered:
+                confidence_val = round(_display_confidence(filtered[0].get("similarity", 0.0)), 2)
 
             # Build sources and the prompt's [N] numbering from the SAME final list, with
             # the SAME index — otherwise a citation the LLM emits has no matching source

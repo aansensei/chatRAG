@@ -1,6 +1,17 @@
 import os
+import re
 
 from supabase import Client, create_client
+
+# PDF text extraction leaves standalone page-marker chunks (e.g. "[Page 1]")
+# with no real content — dropping them here stops them from being surfaced
+# as citable sources with a misleading confidence score.
+_JUNK_CONTENT_RE = re.compile(r"^\s*\[?page\s*\d+\]?\s*$", re.IGNORECASE)
+
+
+def _is_junk_chunk(content: str | None) -> bool:
+    text = (content or "").strip()
+    return len(text) < 20 or bool(_JUNK_CONTENT_RE.match(text))
 
 
 def _get_client() -> Client:
@@ -76,6 +87,18 @@ def relink_document_file(document_id: str, new_file_path: str) -> int:
 
 def delete_document(document_id: str) -> None:
     _get_client().table("chunks").delete().eq("document_id", document_id).execute()
+
+
+def get_document_collection(document_id: str) -> str | None:
+    result = (
+        _get_client().table("chunks")
+        .select("collection")
+        .eq("document_id", document_id)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0]["collection"] if rows else None
 
 
 def get_document_file_path(document_id: str) -> str | None:
@@ -250,30 +273,35 @@ def search_chunks(
                 extras.append(row)
                 existing_ids.add(row["id"])
 
-    return hits + extras
+    return [c for c in hits + extras if not _is_junk_chunk(c.get("content"))]
 
 
 def fetch_context_windows(hits: list[dict], window: int = 1) -> list[dict]:
-    """Merge neighboring chunks into each hit's content (parent-child style).
+    """Merge neighboring chunks into each hit's content (parent-child style),
+    and collapse hits from the same document whose windows overlap (or touch)
+    into a single citation — otherwise two closely-spaced chunks from one
+    document surface as separate, near-duplicate numbered sources.
     Does one query per unique document — not one per chunk.
-    Returns the same hits but with expanded content around each match.
     """
     if not hits:
         return hits
 
     from collections import defaultdict
+    indexed_hits = list(enumerate(hits))
     by_doc: dict[str, list[tuple[int, dict]]] = defaultdict(list)
-    for h in hits:
+    output: list[tuple[int, dict]] = []
+    for i, h in indexed_hits:
         doc_id = h.get("document_id")
         idx = h.get("chunk_index")
         if doc_id is not None and idx is not None:
-            by_doc[doc_id].append((idx, h))
+            by_doc[doc_id].append((i, h))
+        else:
+            output.append((i, h))
 
     client = _get_client()
-    expanded: dict[str | None, dict] = {}
 
-    for doc_id, idx_hits in by_doc.items():
-        indices = [idx for idx, _ in idx_hits]
+    for doc_id, doc_hits in by_doc.items():
+        indices = [h["chunk_index"] for _, h in doc_hits]
         min_idx = max(0, min(indices) - window)
         max_idx = max(indices) + window
         rows = (
@@ -288,16 +316,22 @@ def fetch_context_windows(hits: list[dict], window: int = 1) -> list[dict]:
         )
         row_by_idx = {r["chunk_index"]: r["content"] for r in rows}
 
-        for hit_idx, orig_hit in idx_hits:
-            parts = [
-                row_by_idx[i]
-                for i in range(hit_idx - window, hit_idx + window + 1)
-                if i in row_by_idx
-            ]
-            merged = "\n".join(parts) if len(parts) > 1 else orig_hit.get("content", "")
-            expanded[orig_hit.get("id")] = {**orig_hit, "content": merged}
+        groups: list[dict] = []
+        for orig_i, h in sorted(doc_hits, key=lambda t: t[1]["chunk_index"]):
+            lo, hi = h["chunk_index"] - window, h["chunk_index"] + window
+            if groups and lo <= groups[-1]["hi"] + 1:
+                g = groups[-1]
+                g["hi"] = max(g["hi"], hi)
+                g["lo"] = min(g["lo"], lo)
+                if h.get("similarity", 0.0) > g["best"].get("similarity", 0.0):
+                    g["best"], g["orig_i"] = h, orig_i
+            else:
+                groups.append({"lo": lo, "hi": hi, "best": h, "orig_i": orig_i})
 
-    order = {h.get("id"): i for i, h in enumerate(hits)}
-    result = [expanded.get(h.get("id"), h) for h in hits]
-    result.sort(key=lambda h: order.get(h.get("id"), 999))
-    return result
+        for g in groups:
+            parts = [row_by_idx[i] for i in range(g["lo"], g["hi"] + 1) if i in row_by_idx]
+            merged_content = "\n".join(parts) if parts else g["best"].get("content", "")
+            output.append((g["orig_i"], {**g["best"], "content": merged_content}))
+
+    output.sort(key=lambda t: t[0])
+    return [h for _, h in output]

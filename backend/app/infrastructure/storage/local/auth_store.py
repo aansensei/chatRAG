@@ -24,6 +24,8 @@ def _connect() -> sqlite3.Connection:
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
     if "department" not in existing_cols:
         conn.execute("ALTER TABLE users ADD COLUMN department TEXT")
+    if "is_department_head" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN is_department_head INTEGER NOT NULL DEFAULT 0")
     return conn
 
 
@@ -35,17 +37,17 @@ def verify_password(password: str, password_hash: str) -> bool:
     return _pwd_context.verify(password, password_hash)
 
 
-def create_user(email: str, password: str, role: str = "user", department: str | None = None) -> dict:
+def create_user(email: str, password: str, role: str = "user", department: str | None = None, is_department_head: bool = False) -> dict:
     conn = _connect()
     try:
         user_id = str(uuid.uuid4())
         created_at = int(time.time())
         conn.execute(
-            "INSERT INTO users (id, email, password_hash, role, created_at, department) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, email.lower().strip(), hash_password(password), role, created_at, department),
+            "INSERT INTO users (id, email, password_hash, role, created_at, department, is_department_head) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, email.lower().strip(), hash_password(password), role, created_at, department, int(is_department_head)),
         )
         conn.commit()
-        return {"id": user_id, "email": email.lower().strip(), "role": role, "created_at": created_at, "department": department}
+        return {"id": user_id, "email": email.lower().strip(), "role": role, "created_at": created_at, "department": department, "is_department_head": is_department_head}
     finally:
         conn.close()
 
@@ -54,12 +56,12 @@ def get_user_by_email(email: str) -> dict | None:
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT id, email, password_hash, role, created_at, department FROM users WHERE email = ?",
+            "SELECT id, email, password_hash, role, created_at, department, is_department_head FROM users WHERE email = ?",
             (email.lower().strip(),),
         ).fetchone()
         if not row:
             return None
-        return {"id": row[0], "email": row[1], "password_hash": row[2], "role": row[3], "created_at": row[4], "department": row[5]}
+        return {"id": row[0], "email": row[1], "password_hash": row[2], "role": row[3], "created_at": row[4], "department": row[5], "is_department_head": bool(row[6])}
     finally:
         conn.close()
 
@@ -68,11 +70,11 @@ def get_user_by_id(user_id: str) -> dict | None:
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT id, email, role, created_at, department FROM users WHERE id = ?", (user_id,)
+            "SELECT id, email, role, created_at, department, is_department_head FROM users WHERE id = ?", (user_id,)
         ).fetchone()
         if not row:
             return None
-        return {"id": row[0], "email": row[1], "role": row[2], "created_at": row[3], "department": row[4]}
+        return {"id": row[0], "email": row[1], "role": row[2], "created_at": row[3], "department": row[4], "is_department_head": bool(row[5])}
     finally:
         conn.close()
 
@@ -81,9 +83,9 @@ def list_users() -> list[dict]:
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT id, email, role, created_at, department FROM users ORDER BY created_at ASC"
+            "SELECT id, email, role, created_at, department, is_department_head FROM users ORDER BY created_at ASC"
         ).fetchall()
-        return [{"id": r[0], "email": r[1], "role": r[2], "created_at": r[3], "department": r[4]} for r in rows]
+        return [{"id": r[0], "email": r[1], "role": r[2], "created_at": r[3], "department": r[4], "is_department_head": bool(r[5])} for r in rows]
     finally:
         conn.close()
 
@@ -104,12 +106,7 @@ def update_user(user_id: str, email: str | None = None, password: str | None = N
         params.append(user_id)
         conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
         conn.commit()
-        row = conn.execute(
-            "SELECT id, email, role, created_at, department FROM users WHERE id = ?", (user_id,)
-        ).fetchone()
-        if not row:
-            return None
-        return {"id": row[0], "email": row[1], "role": row[2], "created_at": row[3], "department": row[4]}
+        return get_user_by_id(user_id)
     finally:
         conn.close()
 
@@ -118,6 +115,16 @@ def set_user_department(user_id: str, department: str | None) -> dict | None:
     conn = _connect()
     try:
         conn.execute("UPDATE users SET department = ? WHERE id = ?", (department, user_id))
+        conn.commit()
+        return get_user_by_id(user_id)
+    finally:
+        conn.close()
+
+
+def set_department_head(user_id: str, is_department_head: bool) -> dict | None:
+    conn = _connect()
+    try:
+        conn.execute("UPDATE users SET is_department_head = ? WHERE id = ?", (int(is_department_head), user_id))
         conn.commit()
         return get_user_by_id(user_id)
     finally:
