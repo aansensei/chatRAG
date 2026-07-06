@@ -42,9 +42,13 @@ jobs:
             echo "::endgroup::"
           done
         env:
-          # huggingface.co has intermittently refused connections from GitHub-hosted
-          # runners; route through the community mirror as a fallback.
-          HF_ENDPOINT: https://hf-mirror.com
+          # GitHub-hosted runners share IP ranges across millions of jobs/day, and
+          # huggingface.co throttles/blocks anonymous requests from those ranges far
+          # more aggressively than from a normal residential IP — the mirror fallback
+          # hit the exact same wall. An authenticated request gets a much higher rate
+          # limit; set HF_TOKEN as a repo secret (Settings > Secrets and variables >
+          # Actions) with a read-only token from https://huggingface.co/settings/tokens.
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
   frontend:
     runs-on: ubuntu-latest
