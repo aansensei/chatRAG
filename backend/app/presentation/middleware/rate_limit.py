@@ -25,6 +25,13 @@ _LIMITED_PREFIXES = ("/chat", "/ingest", "/memory")
 # uploads into a wave of false "upload failed" errors once the budget is exhausted.
 _JOB_STATUS_RE = re.compile(r"^/ingest/jobs/[^/]+$")
 
+# The upload POST itself just writes the file to disk and enqueues a background
+# job — the actual OCR/embedding cost happens later, off the request. Counting it
+# against the same budget as /chat and /memory means a folder sync with more than
+# 30 files starts 429-ing partway through, surfacing as false "upload failed"
+# errors for the rest of the batch.
+_UPLOAD_RE = re.compile(r"^/ingest/upload$")
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -35,6 +42,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not path.startswith(_LIMITED_PREFIXES):
             return await call_next(request)
         if request.method == "GET" and _JOB_STATUS_RE.match(path):
+            return await call_next(request)
+        if request.method == "POST" and _UPLOAD_RE.match(path):
             return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()

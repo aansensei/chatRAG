@@ -95,6 +95,9 @@ const UI_STRINGS = {
     thisWeek: "7 ngày trước",
     older: "Cũ hơn",
     pinned: "Đã ghim",
+    webSearchSuggestion: "Ciel cảm thấy thông tin nội bộ chưa đủ chắc chắn cho câu hỏi này — tham khảo thêm nguồn từ web có thể sẽ hữu ích. Bạn có muốn Ciel tìm trên web không?",
+    webSearchSuggestionYes: "Có",
+    webSearchSuggestionNo: "Không",
     deleteConfirmTitle: "Xóa chat này?",
     deleteConfirmDesc: "Hành động này không thể hoàn tác. Lịch sử và ghi nhớ sẽ bị xóa vĩnh viễn.",
     deleteBtn: "Xóa",
@@ -233,6 +236,9 @@ const UI_STRINGS = {
     thisWeek: "Previous 7 days",
     older: "Older",
     pinned: "Pinned",
+    webSearchSuggestion: "Ciel feels the internal documents may not be enough to confidently answer this — checking the web could help. Want Ciel to search online?",
+    webSearchSuggestionYes: "Yes",
+    webSearchSuggestionNo: "No",
     deleteConfirmTitle: "Delete this chat?",
     deleteConfirmDesc: "This cannot be undone. Chat history and notes will be permanently deleted.",
     deleteBtn: "Delete",
@@ -371,6 +377,9 @@ const UI_STRINGS = {
     thisWeek: "近 7 天",
     older: "更早",
     pinned: "已固定",
+    webSearchSuggestion: "Ciel 认为内部文档可能不足以确定地回答此问题——参考网络资料或许有帮助。需要 Ciel 联网搜索吗？",
+    webSearchSuggestionYes: "需要",
+    webSearchSuggestionNo: "不需要",
     deleteConfirmTitle: "删除此对话？",
     deleteConfirmDesc: "此操作无法撤销，聊天记录和笔记将被永久删除。",
     deleteBtn: "删除",
@@ -509,6 +518,9 @@ const UI_STRINGS = {
     thisWeek: "直近 7 日間",
     older: "それ以前",
     pinned: "ピン留め",
+    webSearchSuggestion: "Cielは、この質問には社内資料だけでは確信が持てないと感じています。ウェブで調べると役立つかもしれません。ウェブ検索を行いますか？",
+    webSearchSuggestionYes: "はい",
+    webSearchSuggestionNo: "いいえ",
     deleteConfirmTitle: "このチャットを削除しますか？",
     deleteConfirmDesc: "この操作は元に戻せません。チャット履歴とメモが完全に削除されます。",
     deleteBtn: "削除",
@@ -1451,7 +1463,7 @@ function ChatMessage({
           <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl mb-3" style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.18)" }}>
             <Globe size={13} style={{ color: "#93c5fd", flexShrink: 0 }} />
             <p className="flex-1 text-[12px]" style={{ color: "#c7c7cc" }}>
-              Ciel cảm thấy thông tin nội bộ chưa đủ chắc chắn cho câu hỏi này — tham khảo thêm nguồn từ web có thể sẽ hữu ích. Bạn có muốn Ciel tìm trên web không?
+              {S.webSearchSuggestion}
             </p>
             <div className="flex gap-1.5 shrink-0">
               <button
@@ -1459,14 +1471,14 @@ function ChatMessage({
                 className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
                 style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}
               >
-                Có
+                {S.webSearchSuggestionYes}
               </button>
               <button
                 onClick={() => setWebSearchSuggestionDismissed(true)}
                 className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
                 style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}
               >
-                Không
+                {S.webSearchSuggestionNo}
               </button>
             </div>
           </div>
@@ -1789,7 +1801,7 @@ function useTypewriter(phrases: string[], speed = 60, pause = 3200) {
   return displayed;
 }
 
-function SourcePanel({ source, onClose, onOpenDoc }: { source: Source; onClose: () => void; onOpenDoc?: (title: string) => void }) {
+function SourcePanel({ source, onClose, onOpenDoc, onViewInApp }: { source: Source; onClose: () => void; onOpenDoc?: (title: string) => void; onViewInApp?: (doc: { document_id: string; source: string }) => void }) {
   const [copied, setCopied] = useState(false);
   const copyExcerpt = () => {
     navigator.clipboard.writeText(source.excerpt || "").then(() => {
@@ -1885,25 +1897,14 @@ function SourcePanel({ source, onClose, onOpenDoc }: { source: Source; onClose: 
 
           <div className="mt-6 flex gap-2">
             <button
-              onClick={async () => {
-                if (source.documentId) {
-                  // A raw window.open() to the API URL can't carry the Bearer
-                  // token (browsers don't send custom headers on plain
-                  // navigations), which rendered as a JSON auth-error page —
-                  // fetch it through the app's authenticated fetch instead and
-                  // open the resulting blob. Open the tab synchronously first
-                  // (before the await) so popup blockers don't treat the later
-                  // navigation as an untrusted, gesture-less redirect.
-                  const win = window.open("", "_blank");
-                  try {
-                    const res = await fetch(`/ingest/documents/${source.documentId}/file`);
-                    if (res.ok && win) {
-                      const blob = await res.blob();
-                      win.location.href = URL.createObjectURL(blob);
-                    } else {
-                      win?.close();
-                    }
-                  } catch { win?.close(); }
+              onClick={() => {
+                if (source.documentId && onViewInApp) {
+                  // Reuse the same in-app viewer as the KB Browser's "View" button
+                  // (renders PDF/image inline, docx/xlsx via mammoth/xlsx) instead of
+                  // opening a raw blob in a new tab — which forces a download prompt
+                  // for docx/xlsx since browsers can't render those natively.
+                  onViewInApp({ document_id: source.documentId, source: source.filename || source.title });
+                  onClose();
                 } else {
                   onOpenDoc?.(source.title);
                   onClose();
@@ -3189,7 +3190,22 @@ function TranslatorPanel({
 
 type AuthUser = { id: string; email: string; role: string; created_at: number; department?: string | null; is_department_head?: boolean };
 
-const DEPARTMENT_OPTIONS = ["Ban Giám đốc", "Phòng Kế toán", "Phòng Kỹ thuật", "Phòng Nhân sự", "Phòng Kinh doanh", "Phòng Marketing"];
+// value must match the KB collection folder name exactly (e.g. "AanJSC_Documents/Engineering")
+// — the department-head approval system compares user.department against that folder name
+// directly, so a display-only Vietnamese label here would silently break authority matching.
+const DEPARTMENT_OPTIONS: { value: string; label: string }[] = [
+  { value: "Ban Giám đốc", label: "Ban Giám đốc" },
+  { value: "Finance", label: "Phòng Kế toán" },
+  { value: "Engineering", label: "Phòng Kỹ thuật" },
+  { value: "HR", label: "Phòng Nhân sự" },
+  { value: "Sales", label: "Phòng Kinh doanh" },
+  { value: "Marketing", label: "Phòng Marketing" },
+  { value: "IT", label: "Phòng Công nghệ thông tin" },
+];
+
+function departmentLabel(value?: string | null): string {
+  return DEPARTMENT_OPTIONS.find((d) => d.value === value)?.label || value || "";
+}
 
 function LoginScreen({ uiLang, onSetUiLang, onLogin }: { uiLang: Lang; onSetUiLang: (lang: Lang) => void; onLogin: (token: string, user: AuthUser) => void }) {
   const S = UI_STRINGS[uiLang];
@@ -7083,6 +7099,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
             // Expand all folders to find the doc
             setExpandedFolders(new Set(collections.map((c) => c.name).concat(["default"])));
           }}
+          onViewInApp={(doc) => setKbViewerDoc(doc as KBDocument)}
         />
       )}
 
@@ -7649,7 +7666,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                       style={{ width: 128, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "#86868B" }}
                       title="Admin không cần gán phòng ban để có quyền"
                     >
-                      {u.department || S.userMgmtNoDepartment}
+                      {u.department ? departmentLabel(u.department) : S.userMgmtNoDepartment}
                     </span>
                   ) : (
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -7660,7 +7677,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                         style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
                       >
                         <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
-                        {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d}</option>)}
+                        {DEPARTMENT_OPTIONS.map((d) => <option key={d.value} value={d.value} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d.label}</option>)}
                       </select>
                       {u.department && (
                         <label
@@ -7732,7 +7749,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7" }}
                 >
                   <option value="" style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{S.userMgmtNoDepartment}</option>
-                  {DEPARTMENT_OPTIONS.map((d) => <option key={d} value={d} style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{d}</option>)}
+                  {DEPARTMENT_OPTIONS.map((d) => <option key={d.value} value={d.value} style={{ background: "#1c1c1e", color: "#F5F5F7" }}>{d.label}</option>)}
                 </select>
               </div>
               {newUserRole === "user" && newUserDepartment && (
