@@ -110,6 +110,11 @@ const UI_STRINGS = {
     uploadFiles: "Tải lên tệp",
     syncFolder: "Đồng bộ thư mục",
     syncing: (done: number, total: number) => `Đồng bộ ${done}/${total}...`,
+    sensitivityLabel: "Mức độ bảo mật",
+    sensitivityPublic: "Công khai",
+    sensitivityInternal: "Nội bộ",
+    sensitivityConfidential: "Bảo mật",
+    sensitivitySecret: "Tuyệt mật",
     addToExisting: "Thêm vào thư mục có sẵn",
     createNewFolder: "Tạo thư mục mới",
     selectTargetFolder: "Chọn thư mục đích",
@@ -251,6 +256,11 @@ const UI_STRINGS = {
     uploadFiles: "Upload files",
     syncFolder: "Sync folder",
     syncing: (done: number, total: number) => `Syncing ${done}/${total}...`,
+    sensitivityLabel: "Sensitivity",
+    sensitivityPublic: "Public",
+    sensitivityInternal: "Internal",
+    sensitivityConfidential: "Confidential",
+    sensitivitySecret: "Secret",
     addToExisting: "Add to existing folder",
     createNewFolder: "Create new folder",
     selectTargetFolder: "Select target folder",
@@ -392,6 +402,11 @@ const UI_STRINGS = {
     uploadFiles: "上传文件",
     syncFolder: "同步文件夹",
     syncing: (done: number, total: number) => `同步中 ${done}/${total}...`,
+    sensitivityLabel: "保密级别",
+    sensitivityPublic: "公开",
+    sensitivityInternal: "内部",
+    sensitivityConfidential: "机密",
+    sensitivitySecret: "绝密",
     addToExisting: "添加到已有文件夹",
     createNewFolder: "创建新文件夹",
     selectTargetFolder: "选择目标文件夹",
@@ -533,6 +548,11 @@ const UI_STRINGS = {
     uploadFiles: "ファイルをアップロード",
     syncFolder: "フォルダを同期",
     syncing: (done: number, total: number) => `同期中 ${done}/${total}...`,
+    sensitivityLabel: "機密レベル",
+    sensitivityPublic: "公開",
+    sensitivityInternal: "社内限定",
+    sensitivityConfidential: "機密",
+    sensitivitySecret: "極秘",
     addToExisting: "既存フォルダに追加",
     createNewFolder: "新しいフォルダを作成",
     selectTargetFolder: "対象フォルダを選択",
@@ -669,6 +689,7 @@ type KBDocument = {
   collection?: string;
   has_file?: boolean;
   file_path?: string;
+  sensitivity?: "public" | "internal" | "confidential" | "secret";
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -683,6 +704,7 @@ type Source = {
   confidence: number;
   documentId?: string;
   filename?: string;
+  sensitivity?: "public" | "internal" | "confidential" | "secret";
 };
 
 type WebSource = { title: string; href: string; domain: string; snippet?: string };
@@ -1801,14 +1823,45 @@ function useTypewriter(phrases: string[], speed = 60, pause = 3200) {
   return displayed;
 }
 
-function SourcePanel({ source, onClose, onOpenDoc, onViewInApp }: { source: Source; onClose: () => void; onOpenDoc?: (title: string) => void; onViewInApp?: (doc: { document_id: string; source: string }) => void }) {
+const _SOURCE_SENSITIVITY_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  public: { label: "Public", color: "#86efac", bg: "rgba(34,197,94,0.12)" },
+  confidential: { label: "Confidential", color: "#fcd34d", bg: "rgba(245,158,11,0.15)" },
+  secret: { label: "Secret", color: "#f87171", bg: "rgba(239,68,68,0.15)" },
+};
+
+const _NOTE_STRINGS: Record<Lang, { heading: string; loading: string; error: string }> = {
+  vi: { heading: "Ghi chú tóm tắt", loading: "Đang tóm tắt tài liệu…", error: "Không thể tạo tóm tắt lúc này." },
+  en: { heading: "Summary note", loading: "Summarizing document…", error: "Couldn't generate a summary right now." },
+  zh: { heading: "摘要笔记", loading: "正在总结文档…", error: "暂时无法生成摘要。" },
+  ja: { heading: "要約ノート", loading: "ドキュメントを要約中…", error: "現在要約を生成できません。" },
+};
+
+function SourcePanel({ source, uiLang = "vi", onClose, onOpenDoc, onViewInApp }: { source: Source; uiLang?: Lang; onClose: () => void; onOpenDoc?: (title: string) => void; onViewInApp?: (doc: { document_id: string; source: string }) => void }) {
   const [copied, setCopied] = useState(false);
+  const [note, setNote] = useState<{ kind: "loading" | "ready" | "error"; text?: string }>({ kind: "loading" });
   const copyExcerpt = () => {
     navigator.clipboard.writeText(source.excerpt || "").then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
   };
+  useEffect(() => {
+    if (!source.documentId) { setNote({ kind: "error" }); return; }
+    let cancelled = false;
+    setNote({ kind: "loading" });
+    fetch("/chat/source-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document_id: source.documentId, lang: uiLang }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { summary?: string }) => {
+        if (!cancelled) setNote(data.summary ? { kind: "ready", text: data.summary } : { kind: "error" });
+      })
+      .catch(() => { if (!cancelled) setNote({ kind: "error" }); });
+    return () => { cancelled = true; };
+  }, [source.documentId, uiLang]);
+  const NS = _NOTE_STRINGS[uiLang] || _NOTE_STRINGS.vi;
   return (
     <div
       className="fixed inset-0 z-50 flex items-stretch justify-end"
@@ -1839,8 +1892,16 @@ function SourcePanel({ source, onClose, onOpenDoc, onViewInApp }: { source: Sour
               <p className="text-[13px] font-medium truncate max-w-[300px]" style={{ color: "#F5F5F7" }}>
                 {source.title}
               </p>
-              <p className="text-[11px]" style={{ color: "#86868B" }}>
+              <p className="text-[11px] flex items-center gap-1.5" style={{ color: "#86868B" }}>
                 {source.date}{source.page ? ` · Page ${source.page}` : ""}
+                {source.sensitivity && _SOURCE_SENSITIVITY_BADGE[source.sensitivity] && (
+                  <span
+                    className="text-[9px] font-medium px-1.5 py-0.5 rounded"
+                    style={{ color: _SOURCE_SENSITIVITY_BADGE[source.sensitivity].color, background: _SOURCE_SENSITIVITY_BADGE[source.sensitivity].bg }}
+                  >
+                    {_SOURCE_SENSITIVITY_BADGE[source.sensitivity].label}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -1934,6 +1995,31 @@ function SourcePanel({ source, onClose, onOpenDoc, onViewInApp }: { source: Sour
             >
               {copied ? <><Check size={11} />Copied</> : <><Copy size={11} />Copy</>}
             </button>
+          </div>
+
+          {/* AI summary note — NotebookLM-style detailed note for the full source document */}
+          <div className="mt-6">
+            <p className="text-[11px] font-medium uppercase tracking-widest mb-3" style={{ color: "#86868B" }}>
+              {NS.heading}
+            </p>
+            <div
+              className="rounded-xl p-4 text-sm leading-relaxed"
+              style={{
+                background: "rgba(245,197,66,0.05)",
+                border: "1px solid rgba(245,197,66,0.15)",
+                color: "#e8dcc0",
+              }}
+            >
+              {note.kind === "loading" ? (
+                <span className="flex items-center gap-2 text-[12.5px]" style={{ color: "#86868B" }}>
+                  <RefreshCw size={12} className="animate-spin" />{NS.loading}
+                </span>
+              ) : note.kind === "error" ? (
+                <span className="text-[12.5px]" style={{ color: "#86868B" }}>{NS.error}</span>
+              ) : (
+                <span className="selectable-text whitespace-pre-wrap text-[12.5px]">{note.text}</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -2069,6 +2155,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
   const [nameDialog, setNameDialog] = useState<{ open: boolean; value: string }>({ open: false, value: "" });
   const [multiSyncGroups, setMultiSyncGroups] = useState<{ collection: string; files: File[] }[] | null>(null);
   const [multiSyncing, setMultiSyncing] = useState(false);
+  const [sensitivity, setSensitivity] = useState<"public" | "internal" | "confidential" | "secret">("internal");
 
   useEffect(() => {
     if (!syncMenu) return;
@@ -2084,6 +2171,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
       const form = new FormData();
       form.append("file", file);
       form.append("collection", collection);
+      form.append("sensitivity", sensitivity);
       onToast(`Uploading "${file.name}"...`, "info");
       try {
         const res = await fetch("/ingest/upload", { method: "POST", body: form });
@@ -2171,6 +2259,21 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
           → <span style={{ color: "#93c5fd" }}>{targetCollection}</span>
         </p>
       )}
+
+      <div className="flex items-center gap-1.5 px-1 pb-0.5">
+        <span className="text-[10px]" style={{ color: "rgba(134,134,139,0.6)" }}>{T.sensitivityLabel}:</span>
+        <select
+          value={sensitivity}
+          onChange={(e) => setSensitivity(e.target.value as typeof sensitivity)}
+          className="text-[10px] rounded-md px-1.5 py-0.5 outline-none"
+          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
+        >
+          <option value="public">{T.sensitivityPublic}</option>
+          <option value="internal">{T.sensitivityInternal}</option>
+          <option value="confidential">{T.sensitivityConfidential}</option>
+          <option value="secret">{T.sensitivitySecret}</option>
+        </select>
+      </div>
 
       <button
         onClick={() => fileInputRef.current?.click()}
@@ -3710,6 +3813,19 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const [uiLang, setUiLang] = useState<Lang>(() => (localStorage.getItem("ui_lang") as Lang) || "vi");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const S = UI_STRINGS[uiLang];
+  const SENSITIVITY_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+    public: { label: S.sensitivityPublic, color: "#86efac", bg: "rgba(34,197,94,0.12)" },
+    confidential: { label: S.sensitivityConfidential, color: "#fcd34d", bg: "rgba(245,158,11,0.15)" },
+    secret: { label: S.sensitivitySecret, color: "#f87171", bg: "rgba(239,68,68,0.15)" },
+  };
+  const updateDocSensitivity = async (documentId: string, value: string) => {
+    const r = await fetch(`/ingest/documents/${documentId}/sensitivity`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sensitivity: value }),
+    });
+    if (r.ok) loadKbDocs(); else addToast("Không thể đổi mức độ bảo mật", "error");
+  };
   const handleSetLang = (lang: Lang) => { localStorage.setItem("ui_lang", lang); setUiLang(lang); };
   useEffect(() => {
     // Re-derive default template names when the UI language changes (or on first
@@ -4811,11 +4927,30 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     let chatId = activeChatId;
     if (!chatId) {
       chatId = Date.now().toString();
-      const title = content.length > 48 ? content.slice(0, 48) + "…" : content;
-      const newChatEntry: Chat = { id: chatId, title, createdAt: Date.now(), messages: nextMessages };
+      const fallbackTitle = content.length > 48 ? content.slice(0, 48) + "…" : content;
+      const newChatEntry: Chat = { id: chatId, title: fallbackTitle, createdAt: Date.now(), messages: nextMessages };
       setChats((prev) => { const u = [newChatEntry, ...prev]; saveChatsToStorage(u, currentUser?.id); return u; });
       setActiveChatId(chatId);
       activeChatIdRef.current = chatId;
+
+      // AI-generated title is the default; only keep the raw-question fallback
+      // (already showing above) if the call errors out or times out.
+      const titleChatId = chatId;
+      fetch("/chat/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: content, lang: uiLang }),
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((data: { title?: string }) => {
+          if (!data.title) return;
+          setChats((prev) => {
+            const u = prev.map((c) => (c.id === titleChatId && c.title === fallbackTitle ? { ...c, title: data.title! } : c));
+            saveChatsToStorage(u, currentUser?.id);
+            return u;
+          });
+        })
+        .catch(() => {});
     } else {
       persistChat(chatId, nextMessages);
     }
@@ -4865,7 +5000,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       const decoder = new TextDecoder();
       let buffer = "";
 
-      const mapSrc = (s: { id: string; content: string; section?: string; similarity: number; filename: string; document_id?: string }, i: number): Source => ({
+      const mapSrc = (s: { id: string; content: string; section?: string; similarity: number; filename: string; document_id?: string; sensitivity?: Source["sensitivity"] }, i: number): Source => ({
         id: `src-${Date.now()}-${i}`,
         title: s.section ?? s.filename ?? `Source ${i + 1}`,
         type: (s.filename?.endsWith(".pdf") ? "pdf" : "doc") as Source["type"],
@@ -4874,6 +5009,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         confidence: Math.round(s.similarity * 100),
         documentId: s.document_id,
         filename: s.filename,
+        sensitivity: s.sensitivity,
       });
 
       const handleLine = (line: string) => {
@@ -6470,6 +6606,14 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                             <span className="flex-1 text-[12px] truncate" style={{ color: broken ? "#d4b48a" : "#d1d1d6" }} title={filename + (broken ? " (file missing)" : "")}>
                               {filename}{broken && <span className="ml-1.5 text-[9px]" style={{ color: "#f59e0b" }}>· no file</span>}
                             </span>
+                            {d.sensitivity && SENSITIVITY_BADGE[d.sensitivity] && (
+                              <span
+                                className="text-[9px] font-medium px-1.5 py-0.5 rounded shrink-0"
+                                style={{ color: SENSITIVITY_BADGE[d.sensitivity].color, background: SENSITIVITY_BADGE[d.sensitivity].bg }}
+                              >
+                                {SENSITIVITY_BADGE[d.sensitivity].label}
+                              </span>
+                            )}
                             <span className="text-[10px] shrink-0" style={{ color: "#52525b" }}>{d.chunk_count} chunks</span>
                             {kbBrowserConfirmDeleteDoc === d.document_id ? (
                               <div className="flex items-center gap-1 shrink-0">
@@ -6479,6 +6623,20 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                               </div>
                             ) : (
                               <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/kbdoc:opacity-100 transition-opacity">
+                                {canActOnCollection(d.collection || kbBrowserFolder || "") && (
+                                  <select
+                                    value={d.sensitivity || "internal"}
+                                    onChange={(e) => updateDocSensitivity(d.document_id, e.target.value)}
+                                    className="text-[10px] rounded px-1 py-0.5 outline-none cursor-pointer"
+                                    style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc", border: "1px solid rgba(255,255,255,0.1)" }}
+                                    title={S.sensitivityLabel}
+                                  >
+                                    <option value="public">{S.sensitivityPublic}</option>
+                                    <option value="internal">{S.sensitivityInternal}</option>
+                                    <option value="confidential">{S.sensitivityConfidential}</option>
+                                    <option value="secret">{S.sensitivitySecret}</option>
+                                  </select>
+                                )}
                                 <select
                                   value=""
                                   onChange={(e) => { if (e.target.value) { moveDocument(d.document_id, e.target.value); setKbBrowserFolder(e.target.value); } }}
@@ -7089,6 +7247,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       {activeSource && (
         <SourcePanel
           source={activeSource}
+          uiLang={uiLang}
           onClose={() => {
             setActiveSource(null);
             setActiveSourceId(null);

@@ -18,6 +18,8 @@ from app.infrastructure.storage.local.auth_store import (
     update_user,
     verify_password,
 )
+from app.infrastructure.vector.supabase.repository import list_collections
+from app.shared.security.permissions import is_admin_or_leadership, can_read_collection
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +82,16 @@ async def require_admin_or_executive(user: dict = Depends(get_current_user)) -> 
     return user
 
 
-async def get_collections(_user: dict = Depends(get_current_user)) -> list[str]:
-    return []  # any authenticated user can see all collections — no per-user scoping yet
+async def get_collections(user: dict = Depends(get_current_user)) -> list[str] | None:
+    """None means unrestricted (admin/Ban Giám đốc — sees every collection).
+    Otherwise, the exact set of collections this user may query or list
+    documents from: their own department's folder plus every non-department
+    (shared/general) folder."""
+    if is_admin_or_leadership(user):
+        return None
+    allowed = [c["name"] for c in list_collections() if can_read_collection(user, c["name"])]
+    allowed.append("default")
+    return allowed
 
 
 class LoginBody(BaseModel):

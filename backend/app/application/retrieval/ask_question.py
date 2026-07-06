@@ -1470,6 +1470,7 @@ def stream_ask(
     history: list[dict] | None = None,
     chat_notes: str = "",
     user_id: str | None = None,
+    exclude_confidential: bool = False,
 ) -> Generator[str, None, None]:
     ollama_model = model or _OLLAMA_MODEL
 
@@ -1675,14 +1676,19 @@ def stream_ask(
             filename_chunks: list[dict] = []
             filename_doc_ids: set = set()
             if fn_tokens:
-                filename_chunks = filename_search_chunks(fn_tokens, collections=collections or None)
+                filename_chunks = filename_search_chunks(
+                    fn_tokens, collections=collections or None, exclude_confidential=exclude_confidential
+                )
                 filename_doc_ids = {c.get("document_id") for c in filename_chunks if c.get("document_id")}
 
             # Vector search — if filename match found, exclude those docs to avoid duplicate context.
             # No folder scoped: search each collection separately and merge (see
             # _search_per_collection) instead of one flat search across everything.
             if collections:
-                chunks = search_chunks(vector, match_count=_TOP_K, threshold=0.1, collections=collections)
+                chunks = search_chunks(
+                    vector, match_count=_TOP_K, threshold=0.1, collections=collections,
+                    exclude_confidential=exclude_confidential,
+                )
             else:
                 chunks = _search_per_collection(vector, match_count=_TOP_K, threshold=0.1)
 
@@ -1697,7 +1703,10 @@ def stream_ask(
                 def _search_text(q: str) -> list[dict]:
                     try:
                         vec = embed_text(q)
-                        return search_chunks(vec, match_count=_TOP_K, threshold=0.1, collections=collections or None)
+                        return search_chunks(
+                            vec, match_count=_TOP_K, threshold=0.1, collections=collections or None,
+                            exclude_confidential=exclude_confidential,
+                        )
                     except Exception as exc:
                         logger.warning("supplementary search failed for %r: %s", q, exc)
                         return []
@@ -1762,7 +1771,9 @@ def stream_ask(
             ))
             if ilike_tokens and not filename_doc_ids:
                 seen_ids = {c.get("id") for c in chunks if c.get("id")}
-                for kw_chunk in keyword_search_chunks(ilike_tokens[:6], collections=collections or None):
+                for kw_chunk in keyword_search_chunks(
+                    ilike_tokens[:6], collections=collections or None, exclude_confidential=exclude_confidential
+                ):
                     if kw_chunk.get("id") not in seen_ids:
                         chunks.append(kw_chunk)
                         seen_ids.add(kw_chunk.get("id"))
@@ -1935,6 +1946,7 @@ def stream_ask(
                     "similarity": round(_display_confidence(c.get("similarity", 0.0)), 3),
                     "filename": filename,
                     "document_id": doc_id,
+                    "sensitivity": meta.get("sensitivity", "internal") if isinstance(meta, dict) else "internal",
                 })
                 header = f"[{i + 1}]" + (f" [{section}]" if section else "")
                 parts.append(f"{header}\n{c['content'][:_MAX_CHUNK_CHARS * 2]}")

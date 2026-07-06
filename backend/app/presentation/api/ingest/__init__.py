@@ -14,38 +14,35 @@ from app.infrastructure.vector.supabase.repository import (
     list_documents, delete_document, list_collections,
     rename_collection, delete_collection_docs, move_document_collection,
     get_document_file_path, relink_document_file, get_document_collection,
+    set_document_sensitivity,
 )
 from app.presentation.api.auth import get_collections, get_current_user, require_admin_or_executive
+from app.shared.security.permissions import (
+    department_of as _department_of,
+    has_write_authority as _has_kb_authority,
+    can_see_confidential,
+)
 
 router = APIRouter(prefix="/ingest", tags=["ingest"], dependencies=[Depends(get_current_user)])
 
 STORAGE_PATH = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage"))
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".docx", ".xlsx", ".csv"}
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
-
-
-def _department_of(collection: str) -> str:
-    return collection.rsplit("/", 1)[-1]
-
-
-def _has_kb_authority(user: dict, collection: str) -> bool:
-    """Admins and Ban Giám đốc can add/delete anywhere. A department head can do
-    the same, but only within their own department's folder — everyone else has
-    to go through the request/approval flow instead."""
-    if user["role"] == "admin" or user.get("department") == "Ban Giám đốc":
-        return True
-    return bool(user.get("is_department_head")) and user.get("department") == _department_of(collection)
+ALLOWED_SENSITIVITY = {"public", "internal", "confidential", "secret"}
 
 
 @router.post("/upload")
 async def upload(
     file: UploadFile = File(...),
     collection: str = Form(default="default"),
+    sensitivity: str = Form(default="internal"),
     user: dict = Depends(get_current_user),
 ):
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"File type {ext} not supported")
+    if sensitivity not in ALLOWED_SENSITIVITY:
+        raise HTTPException(status_code=400, detail=f"sensitivity must be one of {sorted(ALLOWED_SENSITIVITY)}")
 
     job_id = str(uuid.uuid4())
     document_id = str(uuid.uuid4())
@@ -75,6 +72,7 @@ async def upload(
         "file_path": str(file_path),
         "original_filename": file.filename,
         "collection": collection,
+        "sensitivity": sensitivity,
     })
 
     # Uploads go live immediately (no upload-blocking review), but anyone without
@@ -106,8 +104,11 @@ def cancel_job(job_id: str):
 
 
 @router.get("/documents")
-def documents(collections: list[str] = Depends(get_collections)):
-    return list_documents(collections or None)
+def documents(collections: list[str] | None = Depends(get_collections), user: dict = Depends(get_current_user)):
+    docs = list_documents(collections)
+    if not can_see_confidential(user):
+        docs = [d for d in docs if d.get("sensitivity") not in ("confidential", "secret")]
+    return docs
 
 
 @router.delete("/documents/{document_id}")
@@ -122,6 +123,26 @@ def delete_doc(document_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     delete_document(document_id)
     return {"ok": True}
+
+
+class SensitivityBody(BaseModel):
+    sensitivity: str
+
+
+@router.patch("/documents/{document_id}/sensitivity")
+def update_document_sensitivity(document_id: str, body: SensitivityBody, user: dict = Depends(get_current_user)):
+    if body.sensitivity not in ALLOWED_SENSITIVITY:
+        raise HTTPException(status_code=400, detail=f"sensitivity must be one of {sorted(ALLOWED_SENSITIVITY)}")
+    collection = get_document_collection(document_id)
+    if collection:
+        if not _has_kb_authority(user, collection):
+            raise HTTPException(status_code=403, detail="Không có quyền đổi mức độ bảo mật tài liệu này")
+    elif user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    affected = set_document_sensitivity(document_id, body.sensitivity)
+    if affected == 0:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"ok": True, "chunks_updated": affected}
 
 
 @router.get("/collections")

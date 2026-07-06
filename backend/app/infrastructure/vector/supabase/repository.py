@@ -14,6 +14,13 @@ def _is_junk_chunk(content: str | None) -> bool:
     return len(text) < 20 or bool(_JUNK_CONTENT_RE.match(text))
 
 
+_CONFIDENTIAL_LEVELS = {"confidential", "secret"}
+
+
+def _is_confidential(chunk: dict) -> bool:
+    return (chunk.get("metadata") or {}).get("sensitivity") in _CONFIDENTIAL_LEVELS
+
+
 def _get_client() -> Client:
     url = os.environ["SUPABASE_URL"]
     key = os.environ["SUPABASE_SERVICE_KEY"]
@@ -46,6 +53,18 @@ def move_document_collection(document_id: str, new_collection: str) -> None:
     _get_client().table("chunks").update({"collection": new_collection}).eq("document_id", document_id).execute()
 
 
+def set_document_sensitivity(document_id: str, sensitivity: str) -> int:
+    """Sensitivity lives inside each chunk's metadata JSON (no dedicated documents
+    table exists), so this patches every chunk belonging to the document."""
+    client = _get_client()
+    rows = client.table("chunks").select("id, metadata").eq("document_id", document_id).execute().data
+    for row in rows:
+        meta = row.get("metadata") or {}
+        meta["sensitivity"] = sensitivity
+        client.table("chunks").update({"metadata": meta}).eq("id", row["id"]).execute()
+    return len(rows)
+
+
 def list_documents(collections: list[str] | None = None) -> list[dict]:
     from pathlib import Path as _P
     q = _get_client().table("chunks").select("document_id, metadata, chunk_index, collection").order("chunk_index").limit(10000)
@@ -66,6 +85,7 @@ def list_documents(collections: list[str] | None = None) -> list[dict]:
                 "has_file": has_file,
                 "pages": meta.get("pages"),
                 "collection": row.get("collection", "default"),
+                "sensitivity": meta.get("sensitivity", "internal"),
                 "chunk_count": 0,
             }
         seen[doc_id]["chunk_count"] += 1
@@ -115,6 +135,25 @@ def get_document_file_path(document_id: str) -> str | None:
     return None
 
 
+def get_document_content(document_id: str) -> tuple[str, str | None, str] | None:
+    """Returns (full_text, collection, sensitivity) for a document, chunks joined
+    in reading order. None if the document doesn't exist."""
+    result = (
+        _get_client().table("chunks")
+        .select("content, collection, metadata, chunk_index")
+        .eq("document_id", document_id)
+        .order("chunk_index")
+        .execute()
+    )
+    rows = result.data or []
+    if not rows:
+        return None
+    text = "\n\n".join(r.get("content") or "" for r in rows)
+    collection = rows[0].get("collection")
+    sensitivity = (rows[0].get("metadata") or {}).get("sensitivity", "internal")
+    return text, collection, sensitivity
+
+
 def upsert_chunks(rows: list[dict]) -> None:
     """
     rows: list of dicts with keys:
@@ -126,6 +165,7 @@ def upsert_chunks(rows: list[dict]) -> None:
 def filename_search_chunks(
     name_tokens: list[str],
     collections: list[str] | None = None,
+    exclude_confidential: bool = False,
 ) -> list[dict]:
     """
     Fetch chunks from documents whose filename (metadata->source) matches a token.
@@ -148,6 +188,8 @@ def filename_search_chunks(
         if collections:
             q = q.in_("collection", collections)
         rows = q.execute().data or []
+        if exclude_confidential:
+            rows = [r for r in rows if not _is_confidential(r)]
         if not rows:
             continue
         results = []
@@ -166,6 +208,7 @@ def keyword_search_chunks(
     keywords: list[str],
     match_count: int = 6,
     collections: list[str] | None = None,
+    exclude_confidential: bool = False,
 ) -> list[dict]:
     """Full-text ilike search for exact codes/identifiers that semantic search misses."""
     client = _get_client()
@@ -181,7 +224,7 @@ def keyword_search_chunks(
             q = q.in_("collection", collections)
         rows = q.execute().data or []
         for row in rows:
-            if row.get("id") not in seen_ids:
+            if row.get("id") not in seen_ids and not (exclude_confidential and _is_confidential(row)):
                 row["similarity"] = 0.5
                 results.append(row)
                 seen_ids.add(row["id"])
@@ -193,6 +236,7 @@ def search_chunks(
     match_count: int = 15,
     threshold: float = 0.3,
     collections: list[str] | None = None,
+    exclude_confidential: bool = False,
 ) -> list[dict]:
     params = {
         "query_embedding": query_vector,
@@ -220,6 +264,13 @@ def search_chunks(
             )
             allowed = {r["document_id"] for r in (allowed_rows.data or [])}
             hits = [h for h in hits if h.get("document_id") in allowed]
+        if not hits:
+            return []
+
+    # Drop confidential/secret hits before the section/neighbor expansion below,
+    # so a doc the user can't see never pulls in extra chunks through it either.
+    if exclude_confidential:
+        hits = [h for h in hits if not _is_confidential(h)]
         if not hits:
             return []
 

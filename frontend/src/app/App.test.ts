@@ -80,8 +80,12 @@ describe("groupFilesByFolderPath", () => {
   // Regression test: syncing a folder with department subfolders (e.g. the
   // AanJSC_Documents/{Executive,Finance,HR,...} structure) used to dump every file
   // from every subfolder into one collection named after the top-level folder,
-  // ignoring the subfolder structure entirely.
-  it("splits files into one group per immediate subfolder", () => {
+  // ignoring the subfolder structure entirely. It was then fixed the OTHER way too
+  // far — subfolders became separate top-level collections, losing the parent
+  // folder name entirely (e.g. syncing the whole AanJSC_Documents tree no longer
+  // showed up as one big folder with department subfolders in the KB browser).
+  // The correct behavior keeps both: "<top-level folder>/<subfolder>".
+  it("splits files into one group per immediate subfolder, prefixed with the top-level folder", () => {
     const files = [
       { webkitRelativePath: "AanJSC_Documents/Executive/02_BaoCao.pdf" },
       { webkitRelativePath: "AanJSC_Documents/Executive/23_SoDo.docx" },
@@ -91,9 +95,9 @@ describe("groupFilesByFolderPath", () => {
     const groups = groupFilesByFolderPath(files);
     const byCollection = Object.fromEntries(groups.map((g) => [g.collection, g.files.length]));
     expect(groups.length).toBe(3);
-    expect(byCollection["Executive"]).toBe(2);
-    expect(byCollection["Finance"]).toBe(1);
-    expect(byCollection["HR"]).toBe(1);
+    expect(byCollection["AanJSC_Documents/Executive"]).toBe(2);
+    expect(byCollection["AanJSC_Documents/Finance"]).toBe(1);
+    expect(byCollection["AanJSC_Documents/HR"]).toBe(1);
   });
 
   it("uses the top-level folder name as a single collection when there are no subfolders", () => {
@@ -116,6 +120,6 @@ describe("groupFilesByFolderPath", () => {
     const byCollection = Object.fromEntries(groups.map((g) => [g.collection, g.files.length]));
     expect(groups.length).toBe(2);
     expect(byCollection["Root"]).toBe(1);
-    expect(byCollection["Engineering"]).toBe(1);
+    expect(byCollection["Root/Engineering"]).toBe(1);
   });
 });

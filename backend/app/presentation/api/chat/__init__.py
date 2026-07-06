@@ -15,8 +15,9 @@ from pydantic import BaseModel
 
 from app.application.retrieval.ask_question import stream_ask, _call_llm_once, _stream_llm
 from app.infrastructure.storage.local.local_storage import load_chat_sessions, save_chat_sessions
-from app.infrastructure.vector.supabase.repository import list_documents
+from app.infrastructure.vector.supabase.repository import list_documents, get_document_content
 from app.presentation.api.auth import get_collections, get_current_user
+from app.shared.security.permissions import can_read_collection, can_see_confidential
 from app.shared.utils.metrics import log_query_metric
 
 logger = logging.getLogger(__name__)
@@ -50,12 +51,12 @@ class QuestionRequest(BaseModel):
     chat_notes: str | None = None
 
 
-def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id):
+def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential):
     t0 = time.time()
     success = True
     error: str | None = None
     try:
-        yield from stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id)
+        yield from stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential)
     except Exception as exc:
         success = False
         error = str(exc)
@@ -65,18 +66,32 @@ def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, 
 
 
 @router.post("")
-def chat(body: QuestionRequest, dep_collections: list[str] = Depends(get_collections), user: dict = Depends(get_current_user)):
-    if dep_collections:
-        active = dep_collections
+def chat(body: QuestionRequest, dep_collections: list[str] | None = Depends(get_collections), user: dict = Depends(get_current_user)):
+    # dep_collections is None for admin/Ban Giám đốc (unrestricted). Otherwise it's
+    # the exact set of collections this user may touch — anything the client asks
+    # for gets clamped to that set instead of trusted outright. If clamping leaves
+    # nothing (client asked only for collections it has zero access to), fall back
+    # to a collection name that can never exist rather than an empty list — every
+    # retrieval helper downstream treats an empty list as "no filter" (falsy check),
+    # which would silently search the entire KB instead of returning nothing.
+    if dep_collections is not None:
+        if body.collections:
+            active = [c for c in body.collections if c in dep_collections] or ["__no_access__"]
+        else:
+            active = dep_collections
     elif body.collections is not None:
         active = body.collections or None
     elif body.collection != "default":
         active = [body.collection]
     else:
         active = None
+    exclude_confidential = not can_see_confidential(user)
     history = [h.model_dump() for h in body.history] if body.history else None
     return StreamingResponse(
-        _instrumented_stream_ask(body.question, active, body.hybrid, body.model, body.api_key, history, body.chat_notes or "", user["id"]),
+        _instrumented_stream_ask(
+            body.question, active, body.hybrid, body.model, body.api_key, history,
+            body.chat_notes or "", user["id"], exclude_confidential,
+        ),
         media_type="text/event-stream",
     )
 
@@ -259,6 +274,107 @@ def _llm_generate_suggestions(names: list[str], lang: str) -> list[dict]:
     return []
 
 
+class TitleRequest(BaseModel):
+    question: str
+    answer: str = ""
+    lang: str = "vi"
+
+
+_TITLE_SCHEMA = {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}
+
+
+@router.post("/title")
+def generate_chat_title(body: TitleRequest):
+    """A short, on-topic title generated from the first exchange — the frontend
+    falls back to truncating the raw question itself if this call fails/times out."""
+    lang_name = {"vi": "Vietnamese", "en": "English", "zh": "Chinese", "ja": "Japanese"}.get(body.lang, "Vietnamese")
+    prompt = (
+        f"User question: {body.question[:500]}\n"
+        + (f"Assistant answer: {body.answer[:500]}\n" if body.answer else "")
+        + f"\nGenerate one short chat title summarizing what this conversation is about.\n"
+        f"Language: {lang_name}. Rules: 3-8 words, no quotes, no trailing punctuation."
+    )
+    try:
+        resp = httpx.post(
+            f"{_OLLAMA_URL}/api/generate",
+            json={
+                "model": _OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": "30m",
+                "format": _TITLE_SCHEMA,
+                "options": {"num_predict": 60, "temperature": 0.5},
+            },
+            timeout=httpx.Timeout(connect=3.0, read=15.0, write=2.0, pool=2.0),
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="title generation failed")
+        title = json.loads(resp.json().get("response", "").strip()).get("title", "").strip()
+        if not title:
+            raise HTTPException(status_code=502, detail="empty title")
+        return {"title": title}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="title generation failed")
+
+
+class SourceSummaryRequest(BaseModel):
+    document_id: str
+    lang: str = "vi"
+
+
+_MAX_SUMMARY_INPUT_CHARS = 12000
+
+
+@router.post("/source-summary")
+def summarize_source(body: SourceSummaryRequest, user: dict = Depends(get_current_user)):
+    """Full-document note for the source panel — NotebookLM-style detail, not just
+    the short excerpt already shown next to the citation."""
+    result = get_document_content(body.document_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Document not found")
+    text, collection, sensitivity = result
+    if collection and not can_read_collection(user, collection):
+        raise HTTPException(status_code=403, detail="Không có quyền xem tài liệu này")
+    if sensitivity in ("confidential", "secret") and not can_see_confidential(user):
+        raise HTTPException(status_code=403, detail="Không có quyền xem tài liệu này")
+
+    lang_name = {"vi": "Vietnamese", "en": "English", "zh": "Chinese", "ja": "Japanese"}.get(body.lang, "Vietnamese")
+    prompt = (
+        f"Document content:\n{text[:_MAX_SUMMARY_INPUT_CHARS]}\n\n"
+        f"Write a detailed note summarizing this document — key points, structure, "
+        f"and any figures/decisions worth remembering. Use short paragraphs or bullet points.\n"
+        f"Language: {lang_name}."
+    )
+    try:
+        resp = httpx.post(
+            f"{_OLLAMA_URL}/api/generate",
+            json={
+                "model": _OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": "30m",
+                "options": {"num_predict": 500, "temperature": 0.4},
+            },
+            # gemma3:4b on this hardware takes ~1s/12 tokens for a full-document
+            # summary — measured ~70s for an 800-token response, so a full note
+            # comfortably needs more than the ~10-20s timeouts used elsewhere in
+            # this file for short suggestion/title generations.
+            timeout=httpx.Timeout(connect=3.0, read=90.0, write=2.0, pool=2.0),
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Summary generation failed")
+        summary = resp.json().get("response", "").strip()
+        if not summary:
+            raise HTTPException(status_code=502, detail="Empty summary")
+        return {"summary": summary}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Summary generation failed")
+
+
 _SUGG_TEMPLATES: dict[str, list[tuple[str, str]]] = {
     "vi": [
         ("Tóm tắt {name}", "Những điểm chính trong tài liệu này"),
@@ -323,10 +439,19 @@ _SUGG_FILLERS: dict[str, list[tuple[str, str]]] = {
 
 
 @router.get("/suggestions")
-def get_suggestions(collections: str | None = None, lang: str = "vi"):
+def get_suggestions(
+    collections: str | None = None,
+    lang: str = "vi",
+    dep_collections: list[str] | None = Depends(get_collections),
+    user: dict = Depends(get_current_user),
+):
     import random
     col_list = [c.strip() for c in collections.split(",")] if collections else None
+    if dep_collections is not None:
+        col_list = [c for c in col_list if c in dep_collections] if col_list else dep_collections
     docs = list_documents(col_list)
+    if not can_see_confidential(user):
+        docs = [d for d in docs if d.get("sensitivity") not in ("confidential", "secret")]
     lang = lang if lang in _SUGG_TEMPLATES else "vi"
 
     names = list(dict.fromkeys(_doc_name(d["source"]) for d in docs if d.get("source")))

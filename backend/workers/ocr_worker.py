@@ -58,7 +58,12 @@ def handle(message: dict) -> None:
         set_job_status(job_id, status="chunking", step="chunk", progress=50)
 
         original_filename = message.get("original_filename") or Path(file_path).name
-        metadata = {**(result.metadata or {}), "source": original_filename, "file_path": file_path}
+        metadata = {
+            **(result.metadata or {}),
+            "source": original_filename,
+            "file_path": file_path,
+            "sensitivity": message.get("sensitivity", "internal"),
+        }
 
         publish(QUEUE_OUT, {
             "job_id": job_id,
