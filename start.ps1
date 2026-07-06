@@ -9,7 +9,7 @@ Write-Host "Starting chatRAG..." -ForegroundColor Cyan
 Start-Process pwsh -ArgumentList @(
     "-NoExit",
     "-Command",
-    "cd '$Root\backend'; python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+    "cd '$Root\backend'; python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 ) -WindowStyle Normal
 
 Start-Sleep -Milliseconds 500

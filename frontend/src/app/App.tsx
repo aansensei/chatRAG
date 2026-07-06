@@ -871,7 +871,7 @@ export function groupFilesByFolderPath<T extends { webkitRelativePath?: string }
     const rawPath = f.webkitRelativePath || "";
     const segments = rawPath.split("/").filter(Boolean);
     rootName = segments[0] || rootName;
-    const key = segments.length >= 3 ? segments[1] : rootName;
+    const key = segments.length >= 3 ? `${rootName}/${segments[1]}` : rootName;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(f);
   }

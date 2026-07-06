@@ -1870,7 +1870,7 @@ def stream_ask(
                             if lang == "vi"
                             else "No relevant information found in the documents."
                         )
-                        yield _sse({"type": "done", "sources": [], "confidence": 0.3})
+                        yield _sse({"type": "done", "answer": msg, "sources": [], "confidence": 0.3})
                         return
                     filtered = []
                 else:
