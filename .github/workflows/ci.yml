@@ -42,12 +42,14 @@ jobs:
             echo "::endgroup::"
           done
         env:
-          # GitHub-hosted runners share IP ranges across millions of jobs/day, and
-          # huggingface.co throttles/blocks anonymous requests from those ranges far
-          # more aggressively than from a normal residential IP — the mirror fallback
-          # hit the exact same wall. An authenticated request gets a much higher rate
-          # limit; set HF_TOKEN as a repo secret (Settings > Secrets and variables >
-          # Actions) with a read-only token from https://huggingface.co/settings/tokens.
+          # text_embedder.py defaults HF_HUB_OFFLINE=1 via os.environ.setdefault so a
+          # warm production instance skips the ~15-20s freshness check on every start.
+          # setdefault only applies when the var isn't already set — a CI runner is
+          # always a fresh machine with an empty HF cache, so leaving this unset here
+          # let that default win and block the very first download forever, which is
+          # what every previous fix (warm cache, retry, mirror, token) failed to
+          # address since none of them were the actual blocker.
+          HF_HUB_OFFLINE: "0"
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
   frontend:
