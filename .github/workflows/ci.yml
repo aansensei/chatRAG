@@ -27,10 +27,18 @@ jobs:
           key: hf-all-MiniLM-L6-v2
       # tests/*.py are standalone scripts (sys.exit-based), not pytest modules —
       # run each directly rather than via `pytest`, which fails on collection.
+      # test_embedder.py downloads its model from the HF Hub on first use; retry a
+      # few times since this occasionally fails with a transient connection error
+      # on GitHub-hosted runners even with the cache step above warm.
       - run: |
           for f in backend/tests/test_*.py; do
             echo "::group::$f"
-            PYTHONPATH=backend python "$f" || exit 1
+            for attempt in 1 2 3; do
+              PYTHONPATH=backend python "$f" && break
+              echo "attempt $attempt failed"
+              if [ "$attempt" = "3" ]; then exit 1; fi
+              sleep 15
+            done
             echo "::endgroup::"
           done
 

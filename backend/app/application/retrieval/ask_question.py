@@ -205,14 +205,15 @@ def _auto_extract_memory(question: str) -> list[str]:
     return extracted
 
 
-def _format_memory_block(user_id: str | None = None) -> str:
+def _format_memory_block(user_id: str | None = None, lang: str = "vi") -> str:
     items = get_memories(user_id)
     if not items:
         return ""
     lines = [f"- {m.get('content', '').strip()}" for m in items if m.get("content")]
     if not lines:
         return ""
-    return "Ghi nhớ về người dùng (luôn tôn trọng):\n" + "\n".join(lines) + "\n\n"
+    header = "Ghi nhớ về người dùng (luôn tôn trọng):" if lang == "vi" else "User memory (always respect):"
+    return header + "\n" + "\n".join(lines) + "\n\n"
 
 def _format_graph_block(question: str, collections: list[str] | None) -> str:
     """Injects cross-document entity relationships for multi-hop questions a single
@@ -371,7 +372,10 @@ _SYSTEM_EN = (
     "Do NOT introduce yourself or state your name unless directly asked. No emojis. "
     "If asked who created you/chatRAG, or who the author/developer is: answer 'aansensei'. "
     "READ THE CONTEXT AND CONVERSATION HISTORY CAREFULLY BEFORE ANSWERING. "
-    "Your answer must be grounded in the document context AND/OR conversation history below. "
+    "If a 'User memory' section appears below: it IS a valid source of information, especially for "
+    "questions about the user themselves (e.g. 'who am I', their preferences, their role) — use it to "
+    "answer directly, no document confirmation needed. "
+    "Your answer must be grounded in the document context AND/OR conversation history AND/OR user memory (if present) below. "
     "ALLOWED: synthesizing, translating, explaining from information in the context. "
     "ALLOWED: calculating, comparing, or adjusting numbers based on conversation history (e.g. user introduces a new variable or scenario based on prior answer). "
     "FORBIDDEN: inventing names, project names, figures, or facts NOT present in context or conversation history. "
@@ -397,7 +401,10 @@ _SYSTEM_EN = (
 _SYSTEM_VI = (
     f"{_CIEL_IDENTITY}"
     "ĐỌC KỸ CONTEXT VÀ LỊCH SỬ HỘI THOẠI TRƯỚC KHI TRẢ LỜI. "
-    "Câu trả lời phải dựa vào nội dung context TÀI LIỆU bên dưới VÀ/HOẶC lịch sử hội thoại. "
+    "Nếu bên dưới có mục 'Ghi nhớ về người dùng': đó LÀ một nguồn thông tin hợp lệ, đặc biệt cho các câu hỏi "
+    "về bản thân người dùng (vd 'tôi là ai', 'tôi thích gì', sở thích, vai trò của họ) — dùng nó để trả lời "
+    "trực tiếp, không cần tài liệu xác nhận thêm. "
+    "Câu trả lời phải dựa vào nội dung context TÀI LIỆU bên dưới VÀ/HOẶC lịch sử hội thoại VÀ/HOẶC Ghi nhớ về người dùng (nếu có). "
     "ĐƯỢC PHÉP: tổng hợp, dịch thuật, giải thích từ thông tin CÓ TRONG context. "
     "ĐƯỢC PHÉP: tính toán, so sánh, điều chỉnh số liệu dựa trên thông tin từ lịch sử hội thoại (ví dụ: user đưa ra giả thiết mới, thay đổi một biến trong kịch bản đã tính trước). "
     "CẤM: bịa tên người, tên dự án, con số hoặc sự kiện KHÔNG xuất hiện trong context hay lịch sử hội thoại. "
@@ -1489,7 +1496,7 @@ def stream_ask(
         saved = add_memory_internal(_fact, user_id)
         if saved:
             _new_memories.append(_fact)
-    memory_block = _format_memory_block(user_id)
+    memory_block = _format_memory_block(user_id, lang)
     chat_note_block = (
         f"[Ghi chú cho cuộc trò chuyện này — ưu tiên cao]\n{chat_notes.strip()}\n\n"
         if chat_notes and chat_notes.strip() else ""
