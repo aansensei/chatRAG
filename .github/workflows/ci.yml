@@ -41,6 +41,10 @@ jobs:
             done
             echo "::endgroup::"
           done
+        env:
+          # huggingface.co has intermittently refused connections from GitHub-hosted
+          # runners; route through the community mirror as a fallback.
+          HF_ENDPOINT: https://hf-mirror.com
 
   frontend:
     runs-on: ubuntu-latest
