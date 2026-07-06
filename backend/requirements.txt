@@ -33,6 +33,9 @@ passlib[bcrypt]>=1.7
 qdrant-client>=1.9
 supabase>=2.0
 
+# Tests (test_extractors.py synthesizes a PDF fixture at test time)
+fpdf2>=2.7
+
 # Config / Utils
 psutil>=5.9
 python-dotenv>=1.0
