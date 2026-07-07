@@ -261,6 +261,10 @@ const UI_STRINGS = {
     userMgmtDeleteConfirmTitle: "Xóa tài khoản này?",
     userMgmtDeleteConfirmDesc: "Người dùng sẽ không thể đăng nhập lại được nữa.",
     userMgmtNoDepartment: "Chưa gán phòng ban",
+    userMgmtExpiryLabel: "Ngày hết hạn",
+    userMgmtExpiryNone: "Không giới hạn",
+    userMgmtExpiryExpired: "Đã hết hạn",
+    userMgmtExpiryClearTitle: "Xóa ngày hết hạn (không giới hạn)",
   },
   en: {
     knowledgeBase: "Knowledge base",
@@ -433,6 +437,10 @@ const UI_STRINGS = {
     userMgmtDeleteConfirmTitle: "Delete this account?",
     userMgmtDeleteConfirmDesc: "This user will no longer be able to log in.",
     userMgmtNoDepartment: "No department",
+    userMgmtExpiryLabel: "Expiry date",
+    userMgmtExpiryNone: "No expiry",
+    userMgmtExpiryExpired: "Expired",
+    userMgmtExpiryClearTitle: "Clear expiry date (no limit)",
   },
   zh: {
     knowledgeBase: "知识库",
@@ -605,6 +613,10 @@ const UI_STRINGS = {
     userMgmtDeleteConfirmTitle: "删除此账户？",
     userMgmtDeleteConfirmDesc: "该用户将无法再登录。",
     userMgmtNoDepartment: "未分配部门",
+    userMgmtExpiryLabel: "到期日期",
+    userMgmtExpiryNone: "无限制",
+    userMgmtExpiryExpired: "已过期",
+    userMgmtExpiryClearTitle: "清除到期日期（无限制）",
   },
   ja: {
     knowledgeBase: "ナレッジベース",
@@ -777,6 +789,10 @@ const UI_STRINGS = {
     userMgmtDeleteConfirmTitle: "このアカウントを削除しますか？",
     userMgmtDeleteConfirmDesc: "このユーザーはログインできなくなります。",
     userMgmtNoDepartment: "部署未設定",
+    userMgmtExpiryLabel: "有効期限",
+    userMgmtExpiryNone: "無期限",
+    userMgmtExpiryExpired: "期限切れ",
+    userMgmtExpiryClearTitle: "有効期限を削除（無期限にする）",
   },
 } as const;
 
@@ -2443,10 +2459,10 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
           className="text-[10px] rounded-md px-1.5 py-0.5 outline-none"
           style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
         >
-          <option value="public">{T.sensitivityPublic}</option>
-          <option value="internal">{T.sensitivityInternal}</option>
-          <option value="confidential">{T.sensitivityConfidential}</option>
-          <option value="secret">{T.sensitivitySecret}</option>
+          <option value="public" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{T.sensitivityPublic}</option>
+          <option value="internal" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{T.sensitivityInternal}</option>
+          <option value="confidential" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{T.sensitivityConfidential}</option>
+          <option value="secret" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{T.sensitivitySecret}</option>
         </select>
       </div>
 
@@ -2674,7 +2690,7 @@ const STATUS_FALLBACK_PCT: Record<UploadJob["status"], number> = {
 function JobBadge({ job, onCancel }: { job: UploadJob; onCancel?: () => void }) {
   const pct = job.progress ?? STATUS_FALLBACK_PCT[job.status];
   const isRunning = !["completed", "failed"].includes(job.status);
-  const isStuck = isRunning && !!job.progressAt && (Date.now() - job.progressAt > 5 * 60 * 1000);
+  const isStuck = isRunning && !!job.progressAt && (Date.now() - job.progressAt > 2 * 60 * 1000);
   const color = job.status === "completed" ? "#10b981" : job.status === "failed" ? "#ef4444" : isStuck ? "#f59e0b" : "#3B82F6";
   const icon = job.status === "completed"
     ? <CheckCircle size={11} style={{ color: "#10b981" }} />
@@ -3532,7 +3548,7 @@ function TranslatorPanel({
   );
 }
 
-type AuthUser = { id: string; email: string; role: string; created_at: number; department?: string | null; is_department_head?: boolean };
+type AuthUser = { id: string; email: string; role: string; created_at: number; department?: string | null; is_department_head?: boolean; expires_at?: number | null };
 
 // value must match the KB collection folder name exactly (e.g. "AanJSC_Documents/Engineering")
 // — the department-head approval system compares user.department against that folder name
@@ -4014,6 +4030,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
   const [newUserDepartment, setNewUserDepartment] = useState("");
   const [newUserIsDeptHead, setNewUserIsDeptHead] = useState(false);
+  const [newUserExpiry, setNewUserExpiry] = useState("");
   const [userMgmtError, setUserMgmtError] = useState("");
   const [creatingUser, setCreatingUser] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -4037,7 +4054,11 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       const res = await fetch("/auth/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newUserEmail.trim(), password: newUserPassword, role: newUserRole, department: newUserDepartment || null, is_department_head: newUserRole === "user" && !!newUserDepartment && newUserIsDeptHead }),
+        body: JSON.stringify({
+          email: newUserEmail.trim(), password: newUserPassword, role: newUserRole, department: newUserDepartment || null,
+          is_department_head: newUserRole === "user" && !!newUserDepartment && newUserIsDeptHead,
+          expires_at: newUserExpiry ? Math.floor(new Date(newUserExpiry + "T23:59:59").getTime() / 1000) : null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -4049,6 +4070,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       setNewUserRole("user");
       setNewUserDepartment("");
       setNewUserIsDeptHead(false);
+      setNewUserExpiry("");
       refreshUserList();
     } catch {
       setUserMgmtError(S.userMgmtGenericError);
@@ -4077,6 +4099,16 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_department_head: isDepartmentHead }),
+    });
+    refreshUserList();
+  };
+
+  const handleUpdateUserExpiry = async (id: string, dateStr: string) => {
+    const expires_at = dateStr ? Math.floor(new Date(dateStr + "T23:59:59").getTime() / 1000) : null;
+    await fetch(`/auth/users/${id}/expiry`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expires_at }),
     });
     refreshUserList();
   };
@@ -6932,10 +6964,10 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                                     style={{ background: "rgba(255,255,255,0.06)", color: "#c7c7cc", border: "1px solid rgba(255,255,255,0.1)" }}
                                     title={S.sensitivityLabel}
                                   >
-                                    <option value="public">{S.sensitivityPublic}</option>
-                                    <option value="internal">{S.sensitivityInternal}</option>
-                                    <option value="confidential">{S.sensitivityConfidential}</option>
-                                    <option value="secret">{S.sensitivitySecret}</option>
+                                    <option value="public" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.sensitivityPublic}</option>
+                                    <option value="internal" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.sensitivityInternal}</option>
+                                    <option value="confidential" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.sensitivityConfidential}</option>
+                                    <option value="secret" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.sensitivitySecret}</option>
                                   </select>
                                 )}
                                 <select
@@ -8110,73 +8142,108 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
             <div className="flex flex-col gap-1.5 overflow-y-auto scrollbar-hide" style={{ maxHeight: 260 }}>
               {userListLoading ? (
                 <p className="text-[11px] text-center py-4" style={{ color: "#86868B" }}>...</p>
-              ) : userList.map((u) => (
+              ) : userList.map((u) => {
+                const isExpired = !!u.expires_at && u.expires_at < Date.now() / 1000;
+                const expiryDateStr = u.expires_at ? new Date(u.expires_at * 1000).toISOString().slice(0, 10) : "";
+                return (
                 <div
                   key={u.id}
-                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl"
+                  className="flex flex-col gap-1.5 px-3 py-2 rounded-xl"
                   style={{ background: "rgba(255,255,255,0.03)" }}
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[12px] font-medium truncate" style={{ color: "#f5f5f7" }}>
-                      {u.email}
-                      {u.id === currentUser?.id && <span style={{ color: "#86868B" }}> · {S.userMgmtYouLabel}</span>}
-                    </p>
-                    <p className="text-[10px] capitalize" style={{ color: "#86868B" }}>
-                      {u.role === "admin" ? S.userMgmtRoleAdmin : S.userMgmtRoleUser}
-                    </p>
-                  </div>
-                  {u.role === "admin" ? (
-                    // Admin already has full access regardless of department — showing
-                    // an editable dropdown next to the "Admin" label looked like two
-                    // conflicting roles. Department is informational only here.
-                    <span
-                      className="text-[10px] rounded-lg px-2 py-1.5 shrink-0 text-center"
-                      style={{ width: 128, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "#86868B" }}
-                      title="Admin không cần gán phòng ban để có quyền"
-                    >
-                      {u.department ? departmentLabel(u.department) : S.userMgmtNoDepartment}
-                    </span>
-                  ) : (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <select
-                        value={u.department || ""}
-                        onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
-                        className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
-                        style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
-                      >
-                        <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
-                        {DEPARTMENT_OPTIONS.map((d) => <option key={d.value} value={d.value} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d.label}</option>)}
-                      </select>
-                      {u.department && (
-                        <label
-                          className="flex items-center gap-1 text-[9px] shrink-0 cursor-pointer"
-                          style={{ color: u.is_department_head ? "#93c5fd" : "#86868B" }}
-                          title="Trưởng phòng ban — duyệt yêu cầu thêm/xóa tài liệu trong phòng ban này"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={!!u.is_department_head}
-                            onChange={(e) => handleToggleDeptHead(u.id, e.target.checked)}
-                            style={{ accentColor: "#3B82F6" }}
-                          />
-                          TP
-                        </label>
-                      )}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12px] font-medium truncate" style={{ color: "#f5f5f7" }}>
+                        {u.email}
+                        {u.id === currentUser?.id && <span style={{ color: "#86868B" }}> · {S.userMgmtYouLabel}</span>}
+                      </p>
+                      <p className="text-[10px] capitalize" style={{ color: "#86868B" }}>
+                        {u.role === "admin" ? S.userMgmtRoleAdmin : S.userMgmtRoleUser}
+                      </p>
                     </div>
-                  )}
-                  {u.id !== currentUser?.id && (
-                    <button
-                      onClick={() => setDeletingUserId(u.id)}
-                      className="p-1.5 rounded-lg transition-colors shrink-0"
-                      style={{ color: "#86868B" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(248,113,113,0.1)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; e.currentTarget.style.background = "transparent"; }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
+                    {u.id !== currentUser?.id && (
+                      <button
+                        onClick={() => setDeletingUserId(u.id)}
+                        className="p-1.5 rounded-lg transition-colors shrink-0"
+                        style={{ color: "#86868B" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(248,113,113,0.1)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "#86868B"; e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {u.role === "admin" ? (
+                      // Admin already has full access regardless of department — showing
+                      // an editable dropdown next to the "Admin" label looked like two
+                      // conflicting roles. Department is informational only here.
+                      <span
+                        className="text-[10px] rounded-lg px-2 py-1.5 shrink-0 text-center"
+                        style={{ width: 128, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", color: "#86868B" }}
+                        title="Admin không cần gán phòng ban để có quyền"
+                      >
+                        {u.department ? departmentLabel(u.department) : S.userMgmtNoDepartment}
+                      </span>
+                    ) : (
+                      <>
+                        <select
+                          value={u.department || ""}
+                          onChange={(e) => handleUpdateUserDepartment(u.id, e.target.value)}
+                          className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
+                          style={{ width: 128, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#c7c7cc" }}
+                        >
+                          <option value="" style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{S.userMgmtNoDepartment}</option>
+                          {DEPARTMENT_OPTIONS.map((d) => <option key={d.value} value={d.value} style={{ background: "#1c1c1e", color: "#c7c7cc" }}>{d.label}</option>)}
+                        </select>
+                        {u.department && (
+                          <label
+                            className="flex items-center gap-1 text-[9px] shrink-0 cursor-pointer"
+                            style={{ color: u.is_department_head ? "#93c5fd" : "#86868B" }}
+                            title="Trưởng phòng ban — duyệt yêu cầu thêm/xóa tài liệu trong phòng ban này"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!!u.is_department_head}
+                              onChange={(e) => handleToggleDeptHead(u.id, e.target.checked)}
+                              style={{ accentColor: "#3B82F6" }}
+                            />
+                            TP
+                          </label>
+                        )}
+                      </>
+                    )}
+                    <input
+                      type="date"
+                      value={expiryDateStr}
+                      onChange={(e) => handleUpdateUserExpiry(u.id, e.target.value)}
+                      title={S.userMgmtExpiryLabel}
+                      className="text-[10px] rounded-lg px-2 py-1.5 outline-none shrink-0"
+                      style={{
+                        background: "rgba(255,255,255,0.05)",
+                        border: `1px solid ${isExpired ? "rgba(248,113,113,0.4)" : "rgba(255,255,255,0.1)"}`,
+                        color: isExpired ? "#f87171" : "#c7c7cc",
+                        colorScheme: "dark",
+                      }}
+                    />
+                    {u.expires_at && (
+                      <button
+                        onClick={() => handleUpdateUserExpiry(u.id, "")}
+                        title={S.userMgmtExpiryClearTitle}
+                        className="text-[9px] shrink-0"
+                        style={{ color: "#86868B" }}
+                      >
+                        <XIcon size={11} />
+                      </button>
+                    )}
+                    {isExpired && (
+                      <span className="text-[9px] font-medium shrink-0" style={{ color: "#f87171" }}>
+                        {S.userMgmtExpiryExpired}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              ))}
+              );})}
             </div>
 
             <form onSubmit={handleCreateUser} autoComplete="off" className="flex flex-col gap-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
@@ -8231,6 +8298,17 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   Trưởng phòng ban (duyệt yêu cầu thêm/xóa tài liệu trong phòng)
                 </label>
               )}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] shrink-0" style={{ color: "#86868B" }}>{S.userMgmtExpiryLabel}:</span>
+                <input
+                  type="date"
+                  value={newUserExpiry}
+                  onChange={(e) => setNewUserExpiry(e.target.value)}
+                  className="text-[12px] rounded-lg px-3 py-1.5 outline-none"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#F5F5F7", colorScheme: "dark" }}
+                />
+                <span className="text-[10px]" style={{ color: "#52525b" }}>({S.userMgmtExpiryNone})</span>
+              </div>
               {userMgmtError && (
                 <p className="text-[11px]" style={{ color: "#f87171" }}>{userMgmtError}</p>
               )}

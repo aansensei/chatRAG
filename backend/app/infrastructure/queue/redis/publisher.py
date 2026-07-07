@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import redis
 
@@ -22,6 +23,7 @@ def set_job_status(
     r = _get_redis()
     key = f"job:{job_id}"
     r.hset(key, "status", status)
+    r.hset(key, "updated_at", str(time.time()))
     if step is not None:
         r.hset(key, "step", step)
     if error is not None:
@@ -32,3 +34,14 @@ def set_job_status(
 
 def get_job_status(job_id: str) -> dict:
     return _get_redis().hgetall(f"job:{job_id}")
+
+
+def iter_jobs() -> list[tuple[str, dict]]:
+    """All job_id/status pairs currently tracked in Redis — used by the
+    startup sweep and the stale-job watchdog, not by request-path code."""
+    r = _get_redis()
+    result = []
+    for key in r.keys("job:*"):
+        job_id = key.split(":", 1)[1]
+        result.append((job_id, r.hgetall(key)))
+    return result

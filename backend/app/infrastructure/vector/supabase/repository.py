@@ -212,6 +212,13 @@ def filename_search_chunks(
             rows = [r for r in rows if not _is_confidential(r)]
         if not rows:
             continue
+        # A token matching this many distinct documents isn't actually naming a
+        # specific file — it's a generic word (e.g. "báo cáo" -> "BaoCao") that
+        # happens to be a shared prefix across dozens of unrelated reports. Treat
+        # it as a miss so the caller falls back to ranked semantic search instead
+        # of returning an arbitrary, unranked slice of mostly-unrelated documents.
+        if len({r.get("document_id") for r in rows if r.get("document_id")}) > 3:
+            continue
         results = []
         seen_ids: set = set()
         for row in rows:

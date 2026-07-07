@@ -25,7 +25,15 @@ _OLLAMA_EMBED_MODELS = {"nomic-embed-text", "mxbai-embed-large", "all-minilm"}
 
 def _get_st_model(model_name: str) -> SentenceTransformer:
     if model_name not in _MODEL_CACHE:
-        _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+        # Unset (the common case): let sentence-transformers auto-detect and use
+        # the GPU — this is the embedding_worker process, doing bulk document
+        # embedding where GPU throughput matters. Explicitly set to "cpu" only in
+        # the main API process (see main.py) — it embeds one short query string
+        # per chat request, where CPU latency is a rounding error next to LLM
+        # generation time, and it's not worth a second full model copy competing
+        # for VRAM with the worker's copy on a GPU this small.
+        device = os.environ.get("EMBEDDING_DEVICE") or None
+        _MODEL_CACHE[model_name] = SentenceTransformer(model_name, device=device)
     return _MODEL_CACHE[model_name]
 
 

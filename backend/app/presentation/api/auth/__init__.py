@@ -15,6 +15,7 @@ from app.infrastructure.storage.local.auth_store import (
     list_users,
     set_department_head,
     set_user_department,
+    set_user_expiry,
     update_user,
     verify_password,
 )
@@ -44,6 +45,11 @@ def bootstrap_admin() -> None:
     logger.warning(f"[auth] Bootstrapped admin account: {email} — change the password after first login.")
 
 
+def _is_expired(user: dict) -> bool:
+    expires_at = user.get("expires_at")
+    return expires_at is not None and expires_at < int(time.time())
+
+
 def _create_access_token(user: dict) -> str:
     payload = {
         "sub": user["id"],
@@ -65,6 +71,8 @@ async def get_current_user(authorization: str = Header(default="")) -> dict:
     user = get_user_by_id(payload.get("sub", ""))
     if not user:
         raise HTTPException(status_code=401, detail="User no longer exists")
+    if _is_expired(user):
+        raise HTTPException(status_code=401, detail="Tài khoản đã hết hạn — liên hệ admin để gia hạn")
     return user
 
 
@@ -105,6 +113,7 @@ class CreateUserBody(BaseModel):
     role: str = "user"
     department: str | None = None
     is_department_head: bool = False
+    expires_at: int | None = None
 
 
 class UpdateMeBody(BaseModel):
@@ -121,12 +130,18 @@ class UpdateDepartmentHeadBody(BaseModel):
     is_department_head: bool
 
 
+class UpdateExpiryBody(BaseModel):
+    expires_at: int | None = None
+
+
 @router.post("/login")
 def login(body: LoginBody):
     user = get_user_by_email(body.email)
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Sai email hoặc mật khẩu")
-    public_user = {"id": user["id"], "email": user["email"], "role": user["role"], "created_at": user["created_at"], "department": user.get("department"), "is_department_head": user.get("is_department_head", False)}
+    if _is_expired(user):
+        raise HTTPException(status_code=403, detail="Tài khoản đã hết hạn — liên hệ admin để gia hạn")
+    public_user = {"id": user["id"], "email": user["email"], "role": user["role"], "created_at": user["created_at"], "department": user.get("department"), "is_department_head": user.get("is_department_head", False), "expires_at": user.get("expires_at")}
     return {"access_token": _create_access_token(user), "token_type": "bearer", "user": public_user}
 
 
@@ -160,7 +175,15 @@ def add_user(body: CreateUserBody, _admin: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="role phải là 'admin' hoặc 'user'")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 8 ký tự")
-    return create_user(body.email, body.password, body.role, body.department, body.is_department_head)
+    return create_user(body.email, body.password, body.role, body.department, body.is_department_head, body.expires_at)
+
+
+@router.patch("/users/{user_id}/expiry")
+def update_user_expiry(user_id: str, body: UpdateExpiryBody, _admin: dict = Depends(require_admin)):
+    updated = set_user_expiry(user_id, body.expires_at)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return updated
 
 
 @router.patch("/users/{user_id}/department")

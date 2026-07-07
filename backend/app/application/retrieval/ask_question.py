@@ -342,6 +342,10 @@ _VI_FILENAME_HINTS = {
     "ngan sach": ["NganSach"],
     "thưởng": ["Thuong"],
     "thuong": ["Thuong"],
+    "sơ đồ tổ chức": ["SoDoToChuc"],
+    "so do to chuc": ["SoDoToChuc"],
+    "kế hoạch marketing": ["KeHoach_Marketing"],
+    "ke hoach marketing": ["KeHoach_Marketing"],
 }
 
 _OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
