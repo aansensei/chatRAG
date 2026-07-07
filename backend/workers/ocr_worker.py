@@ -63,6 +63,7 @@ def handle(message: dict) -> None:
             "source": original_filename,
             "file_path": file_path,
             "sensitivity": message.get("sensitivity", "internal"),
+            "content_hash": message.get("content_hash"),
         }
 
         publish(QUEUE_OUT, {

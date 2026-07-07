@@ -1,3 +1,4 @@
+import hashlib
 import os
 import uuid
 from pathlib import Path
@@ -14,7 +15,7 @@ from app.infrastructure.vector.supabase.repository import (
     list_documents, delete_document, list_collections,
     rename_collection, delete_collection_docs, move_document_collection,
     get_document_file_path, relink_document_file, get_document_collection,
-    set_document_sensitivity,
+    set_document_sensitivity, find_duplicate_document,
 )
 from app.presentation.api.auth import get_collections, get_current_user, require_admin_or_executive
 from app.shared.security.permissions import (
@@ -36,6 +37,7 @@ async def upload(
     file: UploadFile = File(...),
     collection: str = Form(default="default"),
     sensitivity: str = Form(default="internal"),
+    force: bool = Form(default=False),
     user: dict = Depends(get_current_user),
 ):
     ext = Path(file.filename).suffix.lower()
@@ -63,6 +65,20 @@ async def upload(
                 status_code=413,
                 detail=f"File quá lớn (giới hạn {MAX_UPLOAD_BYTES // (1024 * 1024)}MB)",
             )
+
+    content_hash = hashlib.sha256(bytes(content)).hexdigest()
+    if not force:
+        existing = find_duplicate_document(collection, content_hash)
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "duplicate",
+                    "document_id": existing["document_id"],
+                    "filename": existing["filename"],
+                },
+            )
+
     file_path.write_bytes(bytes(content))
 
     set_job_status(job_id, status="queued", step="ocr", progress=0)
@@ -73,6 +89,7 @@ async def upload(
         "original_filename": file.filename,
         "collection": collection,
         "sensitivity": sensitivity,
+        "content_hash": content_hash,
     })
 
     # Uploads go live immediately (no upload-blocking review), but anyone without

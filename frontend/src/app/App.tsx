@@ -115,6 +115,10 @@ const UI_STRINGS = {
     sensitivityInternal: "Nội bộ",
     sensitivityConfidential: "Bảo mật",
     sensitivitySecret: "Tuyệt mật",
+    duplicateTitle: "Tài liệu trùng lặp",
+    duplicateDesc: (n: number) => `${n} tệp đã tồn tại trong thư mục này (nội dung giống hệt). Bỏ qua hay vẫn upload thêm bản mới?`,
+    duplicateUploadAnyway: "Vẫn upload",
+    duplicateSkipAll: "Bỏ qua",
     addToExisting: "Thêm vào thư mục có sẵn",
     createNewFolder: "Tạo thư mục mới",
     selectTargetFolder: "Chọn thư mục đích",
@@ -157,6 +161,7 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `Đã xuất "${name}"`,
     tableColItem: "Mục",
     tableColContent: "Nội dung",
+    noAnswerReturned: "Không nhận được phản hồi từ model — thử lại hoặc đổi sang model khác.",
     promptTemplatesBtn: "Mẫu prompt có sẵn",
     promptTemplatesHeader: "Mẫu prompt",
     deleteTemplateTitle: "Xóa mẫu",
@@ -272,6 +277,10 @@ const UI_STRINGS = {
     sensitivityInternal: "Internal",
     sensitivityConfidential: "Confidential",
     sensitivitySecret: "Secret",
+    duplicateTitle: "Duplicate documents",
+    duplicateDesc: (n: number) => `${n} file${n === 1 ? "" : "s"} already exist in this folder with identical content. Skip them or upload anyway?`,
+    duplicateUploadAnyway: "Upload anyway",
+    duplicateSkipAll: "Skip",
     addToExisting: "Add to existing folder",
     createNewFolder: "Create new folder",
     selectTargetFolder: "Select target folder",
@@ -314,6 +323,7 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `Exported "${name}"`,
     tableColItem: "Item",
     tableColContent: "Content",
+    noAnswerReturned: "No response from the model — try again or switch to a different model.",
     promptTemplatesBtn: "Prompt templates",
     promptTemplatesHeader: "Templates",
     deleteTemplateTitle: "Delete template",
@@ -429,6 +439,10 @@ const UI_STRINGS = {
     sensitivityInternal: "内部",
     sensitivityConfidential: "机密",
     sensitivitySecret: "绝密",
+    duplicateTitle: "重复文档",
+    duplicateDesc: (n: number) => `此文件夹中已有 ${n} 个内容完全相同的文件。跳过还是仍然上传？`,
+    duplicateUploadAnyway: "仍然上传",
+    duplicateSkipAll: "跳过",
     addToExisting: "添加到已有文件夹",
     createNewFolder: "创建新文件夹",
     selectTargetFolder: "选择目标文件夹",
@@ -471,6 +485,7 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `已导出 "${name}"`,
     tableColItem: "项目",
     tableColContent: "内容",
+    noAnswerReturned: "模型未返回响应 — 请重试或切换其他模型。",
     promptTemplatesBtn: "提示词模板",
     promptTemplatesHeader: "模板",
     deleteTemplateTitle: "删除模板",
@@ -586,6 +601,10 @@ const UI_STRINGS = {
     sensitivityInternal: "社内限定",
     sensitivityConfidential: "機密",
     sensitivitySecret: "極秘",
+    duplicateTitle: "重複ドキュメント",
+    duplicateDesc: (n: number) => `このフォルダには内容が同一のファイルが ${n} 件既に存在します。スキップしますか、それでもアップロードしますか？`,
+    duplicateUploadAnyway: "それでもアップロード",
+    duplicateSkipAll: "スキップ",
     addToExisting: "既存フォルダに追加",
     createNewFolder: "新しいフォルダを作成",
     selectTargetFolder: "対象フォルダを選択",
@@ -628,6 +647,7 @@ const UI_STRINGS = {
     exportedToast: (name: string) => `"${name}" をエクスポートしました`,
     tableColItem: "項目",
     tableColContent: "内容",
+    noAnswerReturned: "モデルから応答がありませんでした — 再試行するか、別のモデルに切り替えてください。",
     promptTemplatesBtn: "プロンプトテンプレート",
     promptTemplatesHeader: "テンプレート",
     deleteTemplateTitle: "テンプレートを削除",
@@ -2200,6 +2220,7 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
   const [multiSyncGroups, setMultiSyncGroups] = useState<{ collection: string; files: File[] }[] | null>(null);
   const [multiSyncing, setMultiSyncing] = useState(false);
   const [sensitivity, setSensitivity] = useState<"public" | "internal" | "confidential" | "secret">("internal");
+  const [duplicateQueue, setDuplicateQueue] = useState<{ files: File[]; collection: string; existingNames: string[] } | null>(null);
 
   useEffect(() => {
     if (!syncMenu) return;
@@ -2210,20 +2231,35 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
     return () => document.removeEventListener("mousedown", close);
   }, [syncMenu]);
 
-  const doUpload = async (files: File[], collection: string) => {
+  const doUpload = async (files: File[], collection: string, force = false) => {
+    const duplicates: { file: File; existingName: string }[] = [];
     for (const file of files) {
       const form = new FormData();
       form.append("file", file);
       form.append("collection", collection);
       form.append("sensitivity", sensitivity);
+      if (force) form.append("force", "true");
       onToast(`Uploading "${file.name}"...`, "info");
       try {
         const res = await fetch("/ingest/upload", { method: "POST", body: form });
+        if (res.status === 409) {
+          const body = await res.json().catch(() => ({}));
+          duplicates.push({ file, existingName: body?.detail?.filename || file.name });
+          onToast(`"${file.name}" đã tồn tại trong thư mục này — bỏ qua`, "info");
+          continue;
+        }
         if (!res.ok) { onToast(`Failed: "${file.name}"`, "error"); continue; }
         const data = await res.json();
         onUploaded({ jobId: data.job_id, filename: file.name, status: "queued" });
         setSyncProgress((p) => ({ ...p, done: p.done + 1 }));
       } catch { onToast(`Failed: "${file.name}"`, "error"); }
+    }
+    if (duplicates.length > 0) {
+      setDuplicateQueue({
+        files: duplicates.map((d) => d.file),
+        collection,
+        existingNames: duplicates.map((d) => d.existingName),
+      });
     }
   };
 
@@ -2489,6 +2525,44 @@ function SyncPanel({ onUploaded, onToast, targetCollection = "default", collecti
                 style={{ background: "#3B82F6", color: "white", opacity: multiSyncing ? 0.4 : 1 }}
               >
                 {T.multiSyncConfirmBtn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {duplicateQueue && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", zIndex: 200 }}>
+          <div className="rounded-2xl p-5 w-80" style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 60px rgba(0,0,0,0.7)" }}>
+            <p className="text-[13px] font-semibold mb-1" style={{ color: "#f5f5f7" }}>{T.duplicateTitle}</p>
+            <p className="text-[11px] mb-3" style={{ color: "rgba(134,134,139,0.7)" }}>
+              {T.duplicateDesc(duplicateQueue.files.length)}
+            </p>
+            <div className="flex flex-col gap-1 mb-4 max-h-40 overflow-y-auto scrollbar-thin">
+              {duplicateQueue.files.map((f, i) => (
+                <div key={i} className="px-2.5 py-1.5 rounded-lg text-[11px] truncate" style={{ background: "rgba(255,255,255,0.04)", color: "#c7c7cc" }}>
+                  {f.name}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDuplicateQueue(null)}
+                className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#86868B" }}
+              >
+                {T.duplicateSkipAll}
+              </button>
+              <button
+                onClick={() => {
+                  const { files, collection } = duplicateQueue;
+                  setDuplicateQueue(null);
+                  doUpload(files, collection, true);
+                }}
+                className="flex-1 px-3 py-1.5 rounded-xl text-[11px] font-medium"
+                style={{ background: "#3B82F6", color: "white" }}
+              >
+                {T.duplicateUploadAnyway}
               </button>
             </div>
           </div>
@@ -5141,7 +5215,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       let finalContent = "";
       updateStreamMsg((prev) => {
         const existing = prev.find((m) => m.id === aiId);
-        const content = existing?.content?.trim() ? tryConvertListToTable(existing.content, S.tableColItem, S.tableColContent) : "No answer returned.";
+        const content = existing?.content?.trim() ? tryConvertListToTable(existing.content, S.tableColItem, S.tableColContent) : S.noAnswerReturned;
         finalContent = content;
         // Only worth suggesting web search when we didn't already use it this turn.
         // Two independent signals, since neither alone covers every case: a low

@@ -53,6 +53,26 @@ def move_document_collection(document_id: str, new_collection: str) -> None:
     _get_client().table("chunks").update({"collection": new_collection}).eq("document_id", document_id).execute()
 
 
+def find_duplicate_document(collection: str, content_hash: str) -> dict | None:
+    """Checks for a prior upload with identical file bytes in the same folder —
+    content_hash is stamped into every chunk's metadata at ingest time (see
+    ocr_worker.py). Different folders are allowed to hold the same file
+    (e.g. a shared policy doc filed under two departments)."""
+    result = (
+        _get_client().table("chunks")
+        .select("document_id, metadata")
+        .eq("collection", collection)
+        .filter("metadata->>content_hash", "eq", content_hash)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    if not rows:
+        return None
+    meta = rows[0].get("metadata") or {}
+    return {"document_id": rows[0]["document_id"], "filename": meta.get("source", "")}
+
+
 def set_document_sensitivity(document_id: str, sensitivity: str) -> int:
     """Sensitivity lives inside each chunk's metadata JSON (no dedicated documents
     table exists), so this patches every chunk belonging to the document."""
