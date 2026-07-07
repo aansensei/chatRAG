@@ -16,8 +16,9 @@ from pydantic import BaseModel
 from app.application.retrieval.ask_question import stream_ask, _call_llm_once, _stream_llm
 from app.infrastructure.storage.local.local_storage import load_chat_sessions, save_chat_sessions
 from app.infrastructure.vector.supabase.repository import list_documents, get_document_content
-from app.presentation.api.auth import get_collections, get_current_user
+from app.presentation.api.auth import get_collections, get_current_user, require_admin
 from app.shared.security.permissions import can_read_collection, can_see_confidential
+from app.shared.utils.feedback import log_feedback, read_feedback
 from app.shared.utils.metrics import log_query_metric
 
 logger = logging.getLogger(__name__)
@@ -390,6 +391,31 @@ def summarize_source(body: SourceSummaryRequest, user: dict = Depends(get_curren
         raise
     except Exception:
         raise HTTPException(status_code=502, detail="Summary generation failed")
+
+
+class FeedbackRequest(BaseModel):
+    question: str
+    answer: str
+    rating: str  # "up" | "down"
+    model: str | None = None
+    document_ids: list[str] = []
+
+
+@router.post("/feedback")
+def submit_feedback(body: FeedbackRequest, user: dict = Depends(get_current_user)):
+    if body.rating not in ("up", "down"):
+        raise HTTPException(status_code=400, detail='rating must be "up" or "down"')
+    log_feedback(user["id"], body.question, body.answer, body.rating, body.model, body.document_ids)
+    return {"ok": True}
+
+
+@router.get("/feedback", dependencies=[Depends(require_admin)])
+def list_feedback():
+    entries = read_feedback()
+    entries.sort(key=lambda e: e.get("ts", 0), reverse=True)
+    up = sum(1 for e in entries if e.get("rating") == "up")
+    down = sum(1 for e in entries if e.get("rating") == "down")
+    return {"total": len(entries), "up": up, "down": down, "rows": entries[:200]}
 
 
 _SUGG_TEMPLATES: dict[str, list[tuple[str, str]]] = {

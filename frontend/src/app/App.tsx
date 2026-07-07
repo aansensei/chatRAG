@@ -46,6 +46,8 @@ import {
   Clock,
   Send,
   Inbox,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -162,6 +164,8 @@ const UI_STRINGS = {
     tableColItem: "Mục",
     tableColContent: "Nội dung",
     noAnswerReturned: "Không nhận được phản hồi từ model — thử lại hoặc đổi sang model khác.",
+    feedbackGoodTitle: "Câu trả lời hữu ích",
+    feedbackBadTitle: "Câu trả lời chưa tốt",
     promptTemplatesBtn: "Mẫu prompt có sẵn",
     promptTemplatesHeader: "Mẫu prompt",
     deleteTemplateTitle: "Xóa mẫu",
@@ -324,6 +328,8 @@ const UI_STRINGS = {
     tableColItem: "Item",
     tableColContent: "Content",
     noAnswerReturned: "No response from the model — try again or switch to a different model.",
+    feedbackGoodTitle: "Good response",
+    feedbackBadTitle: "Bad response",
     promptTemplatesBtn: "Prompt templates",
     promptTemplatesHeader: "Templates",
     deleteTemplateTitle: "Delete template",
@@ -486,6 +492,8 @@ const UI_STRINGS = {
     tableColItem: "项目",
     tableColContent: "内容",
     noAnswerReturned: "模型未返回响应 — 请重试或切换其他模型。",
+    feedbackGoodTitle: "回答很有帮助",
+    feedbackBadTitle: "回答不太好",
     promptTemplatesBtn: "提示词模板",
     promptTemplatesHeader: "模板",
     deleteTemplateTitle: "删除模板",
@@ -648,6 +656,8 @@ const UI_STRINGS = {
     tableColItem: "項目",
     tableColContent: "内容",
     noAnswerReturned: "モデルから応答がありませんでした — 再試行するか、別のモデルに切り替えてください。",
+    feedbackGoodTitle: "役に立った回答",
+    feedbackBadTitle: "不十分な回答",
     promptTemplatesBtn: "プロンプトテンプレート",
     promptTemplatesHeader: "テンプレート",
     deleteTemplateTitle: "テンプレートを削除",
@@ -783,6 +793,8 @@ type Message = {
   followUps?: string[];
   confidence?: number | null;
   suggestWebSearch?: boolean;
+  feedback?: "up" | "down";
+  model?: string;
 };
 
 type Chat = {
@@ -1462,6 +1474,7 @@ function ChatMessage({
   onFollowUp,
   onRegenerate,
   onSuggestWebSearch,
+  onFeedback,
   uiLang,
   availableModels,
 }: {
@@ -1471,6 +1484,7 @@ function ChatMessage({
   onFollowUp?: (text: string) => void;
   onSuggestWebSearch?: () => void;
   onRegenerate?: (modelId?: string) => void;
+  onFeedback?: (rating: "up" | "down") => void;
   uiLang: Lang;
   availableModels?: { id: string; label: string; providerLabel: string }[];
 }) {
@@ -1681,6 +1695,28 @@ function ChatMessage({
             {copied ? <Check size={11} style={{ color: "#10b981" }} /> : <Copy size={11} />}
             <span className="text-[10px]">{copied ? S.copiedBtn : S.copyBtn}</span>
           </button>
+          {onFeedback && !message.isStreaming && (
+            <>
+              <button
+                onClick={() => onFeedback("up")}
+                title={S.feedbackGoodTitle}
+                style={{ color: message.feedback === "up" ? "#10b981" : "#86868B" }}
+                onMouseEnter={(e) => { if (message.feedback !== "up") e.currentTarget.style.color = "#d1d1d6"; }}
+                onMouseLeave={(e) => { if (message.feedback !== "up") e.currentTarget.style.color = "#86868B"; }}
+              >
+                <ThumbsUp size={11} fill={message.feedback === "up" ? "#10b981" : "none"} />
+              </button>
+              <button
+                onClick={() => onFeedback("down")}
+                title={S.feedbackBadTitle}
+                style={{ color: message.feedback === "down" ? "#f87171" : "#86868B" }}
+                onMouseEnter={(e) => { if (message.feedback !== "down") e.currentTarget.style.color = "#d1d1d6"; }}
+                onMouseLeave={(e) => { if (message.feedback !== "down") e.currentTarget.style.color = "#86868B"; }}
+              >
+                <ThumbsDown size={11} fill={message.feedback === "down" ? "#f87171" : "none"} />
+              </button>
+            </>
+          )}
           {onRegenerate && !message.isStreaming && (
             <div className="relative flex items-center" ref={modelPickerRef}>
               <button
@@ -4245,6 +4281,23 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     streamingChatIdRef.current = null;
   }, []);
 
+  const submitFeedback = useCallback((messageId: string, question: string, answer: string, rating: "up" | "down", model: string | undefined, documentIds: string[]) => {
+    setChats((prev) => {
+      const updated = prev.map((c) => ({
+        ...c,
+        messages: c.messages.map((m) => (m.id === messageId ? { ...m, feedback: rating } : m)),
+      }));
+      saveChatsToStorage(updated, currentUser?.id);
+      return updated;
+    });
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, feedback: rating } : m)));
+    fetch("/chat/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, answer, rating, model, document_ids: documentIds }),
+    }).catch(() => {});
+  }, [currentUser?.id]);
+
   const deleteKbDoc = useCallback(async (docId: string, name: string) => {
     await fetch(`/ingest/documents/${docId}`, { method: "DELETE" });
     setKbDocs((prev) => prev.filter((d) => d.document_id !== docId));
@@ -5225,7 +5278,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         // know — so also check whether the answer itself admits that in its own words.
         const _noInfoPattern = /không (có|tìm thấy) (tài liệu|thông tin)|chưa có (tài liệu|thông tin)|không đề cập|no relevant information|no (internal )?document|don'?t have (information|data)|not (mentioned|available|found) in the document/i;
         const suggestWebSearch = !capturedWebSources && ((finalConfidence !== null && finalConfidence < 0.55) || _noInfoPattern.test(content));
-        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: capturedWebSources ? [] : finalSources, webSources: capturedWebSources, confidence: finalConfidence, isStreaming: false, suggestWebSearch };
+        const finalMsg: Message = { id: aiId, role: "assistant", content, sources: capturedWebSources ? [] : finalSources, webSources: capturedWebSources, confidence: finalConfidence, isStreaming: false, suggestWebSearch, model: migrateModel(modelForRequest) };
         return existing
           ? prev.map((m) => m.id === aiId ? finalMsg : m)
           : [...prev, finalMsg];
@@ -7060,6 +7113,11 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   onSuggestWebSearch={
                     messages[idx - 1]?.role === "user" && !isProcessing
                       ? () => sendMessage(messages[idx - 1].content, undefined, true)
+                      : undefined
+                  }
+                  onFeedback={
+                    msg.role === "assistant" && messages[idx - 1]?.role === "user"
+                      ? (rating) => submitFeedback(msg.id, messages[idx - 1].content, msg.content, rating, msg.model, (msg.sources || []).map((s) => s.documentId).filter((d): d is string => !!d))
                       : undefined
                   }
                 />
