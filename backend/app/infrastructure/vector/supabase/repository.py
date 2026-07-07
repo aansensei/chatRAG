@@ -257,6 +257,7 @@ def search_chunks(
     threshold: float = 0.3,
     collections: list[str] | None = None,
     exclude_confidential: bool = False,
+    expand_context: bool = True,
 ) -> list[dict]:
     params = {
         "query_embedding": query_vector,
@@ -294,8 +295,13 @@ def search_chunks(
         if not hits:
             return []
 
+    if not expand_context:
+        return [c for c in hits if not _is_junk_chunk(c.get("content"))]
+
     # Expand hits: for each hit, fetch all chunks in the same section (same doc + section_title).
-    # Falls back to fetching neighbors (+1..+5) when section_title is None.
+    # Falls back to fetching neighbors (+1..+5) when section_title is None. This is the single
+    # biggest latency cost in retrieval — up to 5 extra sequential queries PER hit with no
+    # section_title — so "fast" mode (expand_context=False) skips it entirely above.
     existing_ids = {c.get("id") for c in hits if c.get("id")}
     extras: list[dict] = []
 

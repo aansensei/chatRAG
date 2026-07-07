@@ -719,7 +719,10 @@ def _list_collection_names() -> list[str]:
         return []
 
 
-def _search_per_collection(vector: list[float], match_count: int, threshold: float) -> list[dict]:
+def _search_per_collection(
+    vector: list[float], match_count: int, threshold: float,
+    exclude_confidential: bool = False, expand_context: bool = True,
+) -> list[dict]:
     """
     Search each collection separately (in parallel) and merge by score, instead
     of one flat search across everything. A flat search lets a large collection's
@@ -731,7 +734,10 @@ def _search_per_collection(vector: list[float], match_count: int, threshold: flo
     """
     collections = _list_collection_names()
     if not collections:
-        return search_chunks(vector, match_count=match_count, threshold=threshold, collections=None)
+        return search_chunks(
+            vector, match_count=match_count, threshold=threshold, collections=None,
+            exclude_confidential=exclude_confidential, expand_context=expand_context,
+        )
     # pgvector's ANN index (ivfflat) approximates "nearest neighbors overall" before
     # the collection filter is applied, not "nearest within this collection" — verified
     # a genuinely-relevant chunk scoring 0.54 similarity was invisible to a
@@ -743,7 +749,10 @@ def _search_per_collection(vector: list[float], match_count: int, threshold: flo
     results: list[dict] = []
     seen_ids: set = set()
     with ThreadPoolExecutor(max_workers=min(8, len(collections))) as ex:
-        futures = [ex.submit(search_chunks, vector, per_collection_k, threshold, [c]) for c in collections]
+        futures = [
+            ex.submit(search_chunks, vector, per_collection_k, threshold, [c], exclude_confidential, expand_context)
+            for c in collections
+        ]
         for f in futures:
             try:
                 for h in f.result():
@@ -1471,8 +1480,11 @@ def stream_ask(
     chat_notes: str = "",
     user_id: str | None = None,
     exclude_confidential: bool = False,
+    effort: str = "balanced",
 ) -> Generator[str, None, None]:
     ollama_model = model or _OLLAMA_MODEL
+    if effort not in ("fast", "balanced", "reasoning"):
+        effort = "balanced"
 
     # Strip web search prefix early — before memory extraction and fast-paths
     # so they only see the real question, not injected web content
@@ -1653,9 +1665,10 @@ def stream_ask(
         vector = embed_text(embed_query)
 
         # HyDE: generate a hypothetical answer and blend its embedding with the query vector.
-        # Significantly improves recall for short or vague queries at the cost of one fast LLM call.
+        # Significantly improves recall for short or vague queries at the cost of one fast LLM call —
+        # skipped entirely in "fast" mode, where every extra sequential LLM round-trip counts.
         _hyde_key = api_key or _resolve_env_key(str(model or ""))
-        if _hyde_key and len(search_query.strip()) < 150:
+        if effort != "fast" and _hyde_key and len(search_query.strip()) < 150:
             _hyde_vec = _hyde_query_vector(search_query, lang, model, _hyde_key)
             if _hyde_vec and len(_hyde_vec) == len(vector):
                 vector = [(_a + _b) / 2 for _a, _b in zip(vector, _hyde_vec)]
@@ -1669,7 +1682,8 @@ def stream_ask(
                 if _detected_collections:
                     collections = _detected_collections
 
-            graph_block = _format_graph_block(question, collections)
+            # GraphRAG lookup costs an extra LLM call — skip it in "fast" mode.
+            graph_block = _format_graph_block(question, collections) if effort != "fast" else ""
 
             # Filename-first: if query looks like "summarize <filename>", fetch that doc directly.
             fn_tokens, fn_strong = _extract_filename_tokens(question)
@@ -1687,10 +1701,13 @@ def stream_ask(
             if collections:
                 chunks = search_chunks(
                     vector, match_count=_TOP_K, threshold=0.1, collections=collections,
-                    exclude_confidential=exclude_confidential,
+                    exclude_confidential=exclude_confidential, expand_context=(effort != "fast"),
                 )
             else:
-                chunks = _search_per_collection(vector, match_count=_TOP_K, threshold=0.1)
+                chunks = _search_per_collection(
+                    vector, match_count=_TOP_K, threshold=0.1,
+                    exclude_confidential=exclude_confidential, expand_context=(effort != "fast"),
+                )
 
             # Filename match: use only those chunks — no vector supplement from unrelated docs.
             if filename_doc_ids:
@@ -1705,15 +1722,22 @@ def stream_ask(
                         vec = embed_text(q)
                         return search_chunks(
                             vec, match_count=_TOP_K, threshold=0.1, collections=collections or None,
-                            exclude_confidential=exclude_confidential,
+                            exclude_confidential=exclude_confidential, expand_context=(effort != "fast"),
                         )
                     except Exception as exc:
                         logger.warning("supplementary search failed for %r: %s", q, exc)
                         return []
 
                 stripped_question = _strip_accents(question)
-                needs_stripped = stripped_question != question
-                needs_multi_query = bool(_hyde_key) and len(question.strip()) >= 15
+                # Skip the accent-stripped supplementary search too in "fast" mode — every
+                # extra search round-trip counts when the goal is a quick answer.
+                needs_stripped = effort != "fast" and stripped_question != question
+                # Multi-query paraphrasing is the priciest step (an LLM call plus N extra
+                # searches) — off in "fast" mode, on for shorter questions too in "reasoning"
+                # mode (normally gated to >=15 chars to avoid paraphrasing trivial queries).
+                needs_multi_query = effort != "fast" and bool(_hyde_key) and (
+                    effort == "reasoning" or len(question.strip()) >= 15
+                )
                 seen_ids = {c.get("id") for c in chunks if c.get("id")}
 
                 if needs_stripped or needs_multi_query:
@@ -1986,6 +2010,16 @@ def stream_ask(
                 )
             else:
                 system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN
+                if effort == "reasoning":
+                    system += (
+                        "\n\nTrước khi trả lời, hãy cân nhắc kỹ nhiều khía cạnh của câu hỏi và đối chiếu "
+                        "chéo giữa các nguồn tài liệu liên quan nếu có nhiều hơn một. Trình bày câu trả lời "
+                        "có chiều sâu, không chỉ dừng ở bề mặt."
+                        if lang == "vi"
+                        else "\n\nBefore answering, carefully consider multiple angles of the question and "
+                        "cross-reference across sources if more than one is relevant. Give a thorough, "
+                        "in-depth answer rather than a surface-level one."
+                    )
             web_supplement = (
                 f"\n\nNguồn bổ sung từ web ('{web_search_query}'):\n{web_extra_context}"
                 if web_extra_context else ""

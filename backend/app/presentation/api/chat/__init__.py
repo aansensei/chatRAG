@@ -50,15 +50,16 @@ class QuestionRequest(BaseModel):
     api_key: str | None = None
     history: list[HistoryMessage] | None = None
     chat_notes: str | None = None
+    effort: str = "balanced"  # "fast" | "balanced" | "reasoning"
 
 
-def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential):
+def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential, effort):
     t0 = time.time()
     success = True
     error: str | None = None
     seen_doc_ids: set[str] = set()
     try:
-        for chunk in stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential):
+        for chunk in stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential, effort):
             # Best-effort: pull document_ids out of "sources"/"done" SSE events as
             # they stream past, purely for the audit log below — never let a
             # malformed chunk break the actual response to the user.
@@ -108,7 +109,7 @@ def chat(body: QuestionRequest, dep_collections: list[str] | None = Depends(get_
     return StreamingResponse(
         _instrumented_stream_ask(
             body.question, active, body.hybrid, body.model, body.api_key, history,
-            body.chat_notes or "", user["id"], exclude_confidential,
+            body.chat_notes or "", user["id"], exclude_confidential, body.effort,
         ),
         media_type="text/event-stream",
     )

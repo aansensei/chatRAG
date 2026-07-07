@@ -48,6 +48,9 @@ import {
   Inbox,
   ThumbsUp,
   ThumbsDown,
+  Zap,
+  Gauge,
+  Brain,
 } from "lucide-react";
 
 type Toast = { id: string; msg: string; type: "success" | "error" | "info" };
@@ -100,6 +103,8 @@ const UI_STRINGS = {
     webSearchSuggestion: "Ciel cảm thấy thông tin nội bộ chưa đủ chắc chắn cho câu hỏi này — tham khảo thêm nguồn từ web có thể sẽ hữu ích. Bạn có muốn Ciel tìm trên web không?",
     webSearchSuggestionYes: "Có",
     webSearchSuggestionNo: "Không",
+    webSearchSuggestionConfirmed: "Đang tìm kiếm trên web…",
+    webSearchSuggestionDeclined: "Đã bỏ qua tìm kiếm web",
     deleteConfirmTitle: "Xóa chat này?",
     deleteConfirmDesc: "Hành động này không thể hoàn tác. Lịch sử và ghi nhớ sẽ bị xóa vĩnh viễn.",
     deleteBtn: "Xóa",
@@ -166,6 +171,12 @@ const UI_STRINGS = {
     noAnswerReturned: "Không nhận được phản hồi từ model — thử lại hoặc đổi sang model khác.",
     feedbackGoodTitle: "Câu trả lời hữu ích",
     feedbackBadTitle: "Câu trả lời chưa tốt",
+    effortFast: "Nhanh",
+    effortBalanced: "Trung bình",
+    effortReasoning: "Suy luận",
+    effortFastTitle: "Trả lời nhanh nhất — bỏ qua các bước phân tích sâu",
+    effortBalancedTitle: "Cân bằng tốc độ và độ chính xác (mặc định)",
+    effortReasoningTitle: "Phân tích kỹ hơn, đối chiếu nhiều nguồn — chậm hơn",
     promptTemplatesBtn: "Mẫu prompt có sẵn",
     promptTemplatesHeader: "Mẫu prompt",
     deleteTemplateTitle: "Xóa mẫu",
@@ -264,6 +275,8 @@ const UI_STRINGS = {
     webSearchSuggestion: "Ciel feels the internal documents may not be enough to confidently answer this — checking the web could help. Want Ciel to search online?",
     webSearchSuggestionYes: "Yes",
     webSearchSuggestionNo: "No",
+    webSearchSuggestionConfirmed: "Searching the web…",
+    webSearchSuggestionDeclined: "Web search skipped",
     deleteConfirmTitle: "Delete this chat?",
     deleteConfirmDesc: "This cannot be undone. Chat history and notes will be permanently deleted.",
     deleteBtn: "Delete",
@@ -330,6 +343,12 @@ const UI_STRINGS = {
     noAnswerReturned: "No response from the model — try again or switch to a different model.",
     feedbackGoodTitle: "Good response",
     feedbackBadTitle: "Bad response",
+    effortFast: "Fast",
+    effortBalanced: "Balanced",
+    effortReasoning: "Reasoning",
+    effortFastTitle: "Fastest response — skips deeper analysis steps",
+    effortBalancedTitle: "Balances speed and accuracy (default)",
+    effortReasoningTitle: "Deeper analysis, cross-references sources — slower",
     promptTemplatesBtn: "Prompt templates",
     promptTemplatesHeader: "Templates",
     deleteTemplateTitle: "Delete template",
@@ -428,6 +447,8 @@ const UI_STRINGS = {
     webSearchSuggestion: "Ciel 认为内部文档可能不足以确定地回答此问题——参考网络资料或许有帮助。需要 Ciel 联网搜索吗？",
     webSearchSuggestionYes: "需要",
     webSearchSuggestionNo: "不需要",
+    webSearchSuggestionConfirmed: "正在联网搜索…",
+    webSearchSuggestionDeclined: "已跳过联网搜索",
     deleteConfirmTitle: "删除此对话？",
     deleteConfirmDesc: "此操作无法撤销，聊天记录和笔记将被永久删除。",
     deleteBtn: "删除",
@@ -494,6 +515,12 @@ const UI_STRINGS = {
     noAnswerReturned: "模型未返回响应 — 请重试或切换其他模型。",
     feedbackGoodTitle: "回答很有帮助",
     feedbackBadTitle: "回答不太好",
+    effortFast: "快速",
+    effortBalanced: "均衡",
+    effortReasoning: "深度推理",
+    effortFastTitle: "最快响应 — 跳过深入分析步骤",
+    effortBalancedTitle: "兼顾速度与准确性（默认）",
+    effortReasoningTitle: "更深入分析，交叉核对多个来源 — 速度较慢",
     promptTemplatesBtn: "提示词模板",
     promptTemplatesHeader: "模板",
     deleteTemplateTitle: "删除模板",
@@ -592,6 +619,8 @@ const UI_STRINGS = {
     webSearchSuggestion: "Cielは、この質問には社内資料だけでは確信が持てないと感じています。ウェブで調べると役立つかもしれません。ウェブ検索を行いますか？",
     webSearchSuggestionYes: "はい",
     webSearchSuggestionNo: "いいえ",
+    webSearchSuggestionConfirmed: "ウェブを検索しています…",
+    webSearchSuggestionDeclined: "ウェブ検索をスキップしました",
     deleteConfirmTitle: "このチャットを削除しますか？",
     deleteConfirmDesc: "この操作は元に戻せません。チャット履歴とメモが完全に削除されます。",
     deleteBtn: "削除",
@@ -658,6 +687,12 @@ const UI_STRINGS = {
     noAnswerReturned: "モデルから応答がありませんでした — 再試行するか、別のモデルに切り替えてください。",
     feedbackGoodTitle: "役に立った回答",
     feedbackBadTitle: "不十分な回答",
+    effortFast: "高速",
+    effortBalanced: "バランス",
+    effortReasoning: "推論重視",
+    effortFastTitle: "最速の応答 — 深い分析ステップを省略します",
+    effortBalancedTitle: "速度と精度のバランス（デフォルト）",
+    effortReasoningTitle: "より深く分析し、複数の情報源を照合します — 低速",
     promptTemplatesBtn: "プロンプトテンプレート",
     promptTemplatesHeader: "テンプレート",
     deleteTemplateTitle: "テンプレートを削除",
@@ -1492,7 +1527,7 @@ function ChatMessage({
   const [copied, setCopied] = useState(false);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [webSearchSuggestionDismissed, setWebSearchSuggestionDismissed] = useState(false);
+  const [webSearchSuggestionState, setWebSearchSuggestionState] = useState<"pending" | "confirmed" | "declined" | "dismissed">("pending");
   const modelPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1559,28 +1594,49 @@ function ChatMessage({
           </div>
         )}
 
-        {message.suggestWebSearch && !webSearchSuggestionDismissed && onSuggestWebSearch && (
-          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl mb-3" style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.18)" }}>
-            <Globe size={13} style={{ color: "#93c5fd", flexShrink: 0 }} />
+        {message.suggestWebSearch && webSearchSuggestionState !== "dismissed" && onSuggestWebSearch && (
+          <div
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl mb-3 transition-colors duration-300"
+            style={{
+              background: webSearchSuggestionState === "confirmed" ? "rgba(34,197,94,0.06)" : webSearchSuggestionState === "declined" ? "rgba(239,68,68,0.06)" : "rgba(59,130,246,0.06)",
+              border: `1px solid ${webSearchSuggestionState === "confirmed" ? "rgba(34,197,94,0.18)" : webSearchSuggestionState === "declined" ? "rgba(239,68,68,0.18)" : "rgba(59,130,246,0.18)"}`,
+            }}
+          >
+            {webSearchSuggestionState === "confirmed" ? (
+              <Check size={13} style={{ color: "#4ade80", flexShrink: 0 }} className="animate-pop-in" />
+            ) : webSearchSuggestionState === "declined" ? (
+              <XIcon size={13} style={{ color: "#f87171", flexShrink: 0 }} className="animate-pop-in" />
+            ) : (
+              <Globe size={13} style={{ color: "#93c5fd", flexShrink: 0 }} />
+            )}
             <p className="flex-1 text-[12px]" style={{ color: "#c7c7cc" }}>
-              {S.webSearchSuggestion}
+              {webSearchSuggestionState === "confirmed" ? S.webSearchSuggestionConfirmed : webSearchSuggestionState === "declined" ? S.webSearchSuggestionDeclined : S.webSearchSuggestion}
             </p>
-            <div className="flex gap-1.5 shrink-0">
-              <button
-                onClick={() => { setWebSearchSuggestionDismissed(true); onSuggestWebSearch(); }}
-                className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
-                style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}
-              >
-                {S.webSearchSuggestionYes}
-              </button>
-              <button
-                onClick={() => setWebSearchSuggestionDismissed(true)}
-                className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
-                style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                {S.webSearchSuggestionNo}
-              </button>
-            </div>
+            {webSearchSuggestionState === "pending" && (
+              <div className="flex gap-1.5 shrink-0">
+                <button
+                  onClick={() => {
+                    setWebSearchSuggestionState("confirmed");
+                    onSuggestWebSearch();
+                    setTimeout(() => setWebSearchSuggestionState("dismissed"), 1400);
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                  style={{ background: "rgba(59,130,246,0.18)", color: "#93c5fd" }}
+                >
+                  {S.webSearchSuggestionYes}
+                </button>
+                <button
+                  onClick={() => {
+                    setWebSearchSuggestionState("declined");
+                    setTimeout(() => setWebSearchSuggestionState("dismissed"), 1400);
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium"
+                  style={{ color: "#86868B", border: "1px solid rgba(255,255,255,0.1)" }}
+                >
+                  {S.webSearchSuggestionNo}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -2948,7 +3004,7 @@ function ScopePicker({ scope, collections, onChange }: {
 }
 
 function ContextBar({
-  scope, collections, hybridMode, totalDocs, onScopeChange, onHybridChange,
+  scope, collections, hybridMode, totalDocs, onScopeChange, onHybridChange, effort, onEffortChange, uiLang,
 }: {
   scope: ChatScope;
   collections: Collection[];
@@ -2956,7 +3012,11 @@ function ContextBar({
   totalDocs: number;
   onScopeChange: (s: ChatScope) => void;
   onHybridChange: (h: boolean) => void;
+  effort: "fast" | "balanced" | "reasoning";
+  onEffortChange: (e: "fast" | "balanced" | "reasoning") => void;
+  uiLang: Lang;
 }) {
+  const S = UI_STRINGS[uiLang];
   const [open, setOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
@@ -3125,6 +3185,30 @@ function ContextBar({
         <span style={{ fontSize: 9 }}>⚡</span>
         Hybrid
       </button>
+
+      <div className="flex items-center rounded-lg overflow-hidden shrink-0" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+        {([
+          ["fast", Zap, S.effortFast, S.effortFastTitle],
+          ["balanced", Gauge, S.effortBalanced, S.effortBalancedTitle],
+          ["reasoning", Brain, S.effortReasoning, S.effortReasoningTitle],
+        ] as const).map(([key, Icon, label, title]) => (
+          <button
+            key={key}
+            onClick={() => onEffortChange(key)}
+            title={title}
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-all duration-150"
+            style={{
+              background: effort === key ? "rgba(59,130,246,0.18)" : "transparent",
+              color: effort === key ? "#93c5fd" : "rgba(134,134,139,0.6)",
+            }}
+            onMouseEnter={(e) => { if (effort !== key) e.currentTarget.style.color = "#c7c7cc"; }}
+            onMouseLeave={(e) => { if (effort !== key) e.currentTarget.style.color = "rgba(134,134,139,0.6)"; }}
+          >
+            <Icon size={10} />
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3838,6 +3922,10 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const [chatScope, setChatScope] = useState<ChatScope>({ type: "all" });
   const [collections, setCollections] = useState<Collection[]>([]);
   const [hybridMode, setHybridMode] = useState(() => localStorage.getItem("chatrag_hybrid") === "true");
+  const [effortMode, setEffortMode] = useState<"fast" | "balanced" | "reasoning">(() => {
+    const stored = localStorage.getItem("chatrag_effort");
+    return stored === "fast" || stored === "reasoning" ? stored : "balanced";
+  });
   const [activeModel, setActiveModel] = useState(() => {
     const stored = localStorage.getItem("chatrag_model") || "gemma3:4b";
     const migrated = MODEL_MIGRATIONS[stored];
@@ -5192,6 +5280,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
           chat_notes: (() => { const n = chats.find((c) => c.id === activeChatId)?.notes; return Array.isArray(n) ? n.join("\n") : (n as unknown as string) || ""; })(),
           api_key: getActiveApiKey(migrateModel(modelForRequest)),
+          effort: effortMode,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -7192,6 +7281,9 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
               totalDocs={kbDocs.length}
               onScopeChange={(s) => { setChatScope(s); fetchSuggestions(s, uiLang); }}
               onHybridChange={(h) => { setHybridMode(h); localStorage.setItem("chatrag_hybrid", String(h)); }}
+              effort={effortMode}
+              onEffortChange={(e) => { setEffortMode(e); localStorage.setItem("chatrag_effort", e); }}
+              uiLang={uiLang}
             />
             <div
               className="flex items-end gap-3 px-4 py-3 rounded-3xl transition-all duration-250"
@@ -8242,6 +8334,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                         <div className="flex items-center gap-2 mt-1" style={{ color: "#86868B", fontSize: 10 }}>
                           <span>{row.model}</span>
                           {row.document_ids.length > 0 && <span>· {S.auditDocsCount(row.document_ids.length)}</span>}
+                          {typeof row.latency_ms === "number" && <span>· {(row.latency_ms / 1000).toFixed(1)}s</span>}
                           {!row.success && <span style={{ color: "#f87171" }}>· error</span>}
                         </div>
                       </div>
@@ -8323,6 +8416,11 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           to   { transform: translateY(0); opacity: 1; }
         }
         .msg-animate { animation: msg-in 0.15s ease forwards; }
+        @keyframes pop-in {
+          from { transform: scale(0.4); opacity: 0; }
+          to   { transform: scale(1);   opacity: 1; }
+        }
+        .animate-pop-in { animation: pop-in 0.25s cubic-bezier(0.16,1,0.3,1) forwards; }
         textarea::placeholder { color: rgba(134,134,139,0.45); }
         body { -webkit-user-select: none; user-select: none; }
         .selectable-text, .selectable-text * { -webkit-user-select: text; user-select: text; }
