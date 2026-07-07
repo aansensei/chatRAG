@@ -6,9 +6,20 @@ from pathlib import Path
 _METRICS_FILE = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage")) / "metrics.jsonl"
 
 
-def log_query_metric(model: str | None, latency_ms: int, question_len: int, success: bool, error: str | None = None) -> None:
-    """Append one query's stats as a JSON line. Never raises — metrics logging
-    must not break the actual request if the write fails."""
+def log_query_metric(
+    model: str | None,
+    latency_ms: int,
+    question_len: int,
+    success: bool,
+    error: str | None = None,
+    user_id: str | None = None,
+    question: str | None = None,
+    collections: list[str] | None = None,
+    document_ids: list[str] | None = None,
+) -> None:
+    """Append one query's stats as a JSON line — doubles as the audit trail
+    (who asked what and which documents were surfaced), not just perf metrics.
+    Never raises — logging must not break the actual request if the write fails."""
     try:
         _METRICS_FILE.parent.mkdir(parents=True, exist_ok=True)
         entry = {
@@ -18,6 +29,10 @@ def log_query_metric(model: str | None, latency_ms: int, question_len: int, succ
             "question_len": question_len,
             "success": success,
             "error": (error or "")[:200] or None,
+            "user_id": user_id,
+            "question": (question or "")[:2000] or None,
+            "collections": collections or [],
+            "document_ids": document_ids or [],
         }
         with open(_METRICS_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")

@@ -222,6 +222,17 @@ const UI_STRINGS = {
     kbDeleteConfirmBtn: "Xóa vĩnh viễn",
     userMgmtBtn: "Quản lý người dùng",
     userMgmtTitle: "Quản lý người dùng",
+    auditBtn: "Nhật ký & Thống kê",
+    auditTitle: "Nhật ký & Thống kê sử dụng",
+    auditTotalQueries: "Tổng câu hỏi",
+    auditAvgLatency: "Độ trễ trung bình",
+    auditErrors: "Lỗi",
+    auditByModel: "Theo model",
+    auditByUser: "Theo người dùng",
+    auditLogHeading: "Nhật ký chi tiết",
+    auditNoData: "Chưa có dữ liệu",
+    auditFilterPlaceholder: "Lọc theo email...",
+    auditDocsCount: (n: number) => `${n} tài liệu`,
     userMgmtGenericError: "Có lỗi xảy ra. Thử lại sau.",
     userMgmtRoleUser: "Người dùng",
     userMgmtRoleAdmin: "Admin",
@@ -368,6 +379,17 @@ const UI_STRINGS = {
     kbDeleteConfirmBtn: "Delete permanently",
     userMgmtBtn: "Manage users",
     userMgmtTitle: "Manage users",
+    auditBtn: "Audit & Usage",
+    auditTitle: "Usage Audit Log",
+    auditTotalQueries: "Total queries",
+    auditAvgLatency: "Avg latency",
+    auditErrors: "Errors",
+    auditByModel: "By model",
+    auditByUser: "By user",
+    auditLogHeading: "Detailed log",
+    auditNoData: "No data yet",
+    auditFilterPlaceholder: "Filter by email...",
+    auditDocsCount: (n: number) => `${n} document${n === 1 ? "" : "s"}`,
     userMgmtGenericError: "Something went wrong. Try again.",
     userMgmtRoleUser: "User",
     userMgmtRoleAdmin: "Admin",
@@ -514,6 +536,17 @@ const UI_STRINGS = {
     kbDeleteConfirmBtn: "永久删除",
     userMgmtBtn: "用户管理",
     userMgmtTitle: "用户管理",
+    auditBtn: "审计与用量",
+    auditTitle: "使用审计日志",
+    auditTotalQueries: "总查询数",
+    auditAvgLatency: "平均延迟",
+    auditErrors: "错误数",
+    auditByModel: "按模型",
+    auditByUser: "按用户",
+    auditLogHeading: "详细日志",
+    auditNoData: "暂无数据",
+    auditFilterPlaceholder: "按邮箱筛选...",
+    auditDocsCount: (n: number) => `${n} 个文档`,
     userMgmtGenericError: "出错了，请重试。",
     userMgmtRoleUser: "普通用户",
     userMgmtRoleAdmin: "管理员",
@@ -660,6 +693,17 @@ const UI_STRINGS = {
     kbDeleteConfirmBtn: "完全に削除",
     userMgmtBtn: "ユーザー管理",
     userMgmtTitle: "ユーザー管理",
+    auditBtn: "監査とご利用状況",
+    auditTitle: "利用監査ログ",
+    auditTotalQueries: "合計質問数",
+    auditAvgLatency: "平均レイテンシ",
+    auditErrors: "エラー数",
+    auditByModel: "モデル別",
+    auditByUser: "ユーザー別",
+    auditLogHeading: "詳細ログ",
+    auditNoData: "データがありません",
+    auditFilterPlaceholder: "メールで絞り込み...",
+    auditDocsCount: (n: number) => `${n} 件の文書`,
     userMgmtGenericError: "エラーが発生しました。もう一度お試しください。",
     userMgmtRoleUser: "ユーザー",
     userMgmtRoleAdmin: "管理者",
@@ -3736,6 +3780,31 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   // with no undo if the source files aren't preserved elsewhere. Everything else
   // (rename, single-document delete, add-confirmation) approves in one click.
   const [confirmingApproveId, setConfirmingApproveId] = useState<string | null>(null);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditSummary, setAuditSummary] = useState<{
+    total_queries: number; avg_latency_ms: number; error_count: number;
+    by_model: Record<string, { count: number; avg_latency_ms: number; errors: number }>;
+    by_user: Record<string, number>;
+  } | null>(null);
+  const [auditRows, setAuditRows] = useState<{
+    ts: number; user_email: string | null; question: string | null; model: string;
+    collections: string[]; document_ids: string[]; latency_ms: number; success: boolean;
+  }[]>([]);
+  const [auditFilterUser, setAuditFilterUser] = useState("");
+  const loadAudit = useCallback(async (filterUser?: string) => {
+    setAuditLoading(true);
+    try {
+      const [summaryRes, auditRes] = await Promise.all([
+        fetch("/metrics/summary"),
+        fetch(`/metrics/audit${filterUser ? `?user_email=${encodeURIComponent(filterUser)}` : ""}`),
+      ]);
+      if (summaryRes.ok) setAuditSummary(await summaryRes.json());
+      if (auditRes.ok) setAuditRows((await auditRes.json()).rows);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
   const [userMgmtOpen, setUserMgmtOpen] = useState(false);
   const [userList, setUserList] = useState<AuthUser[]>([]);
   const [userListLoading, setUserListLoading] = useState(false);
@@ -6216,6 +6285,18 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                         {S.userMgmtBtn}
                       </button>
                     )}
+                    {currentUser?.role === "admin" && (
+                      <button
+                        onClick={() => { setProfileOpen(false); setAuditOpen(true); setAuditFilterUser(""); loadAudit(); }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
+                        style={{ color: "#c7c7cc" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <BarChart3 size={12} style={{ color: "#86868B" }} />
+                        {S.auditBtn}
+                      </button>
+                    )}
                     <button
                       onClick={() => { setProfileOpen(false); setClearDataConfirmOpen(true); setClearDataPassword(""); setClearDataError(""); }}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] transition-colors text-left"
@@ -7938,6 +8019,101 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                 {S.userMgmtAddBtn}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {auditOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
+          onClick={() => setAuditOpen(false)}
+        >
+          <div
+            className="rounded-2xl flex flex-col"
+            style={{ width: 720, maxHeight: "85vh", background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 24px 64px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 shrink-0" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <p className="text-[14px] font-semibold" style={{ color: "#f5f5f7" }}>{S.auditTitle}</p>
+              <button onClick={() => setAuditOpen(false)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: "#86868B" }}>
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-4">
+              {auditLoading && !auditSummary ? (
+                <p className="text-[12px]" style={{ color: "#86868B" }}>...</p>
+              ) : !auditSummary || auditSummary.total_queries === 0 ? (
+                <p className="text-[12px]" style={{ color: "#86868B" }}>{S.auditNoData}</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2 mb-5">
+                    <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <p className="text-[10px] mb-1" style={{ color: "#86868B" }}>{S.auditTotalQueries}</p>
+                      <p className="text-[18px] font-semibold" style={{ color: "#f5f5f7" }}>{auditSummary.total_queries}</p>
+                    </div>
+                    <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <p className="text-[10px] mb-1" style={{ color: "#86868B" }}>{S.auditAvgLatency}</p>
+                      <p className="text-[18px] font-semibold" style={{ color: "#f5f5f7" }}>{auditSummary.avg_latency_ms}ms</p>
+                    </div>
+                    <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <p className="text-[10px] mb-1" style={{ color: "#86868B" }}>{S.auditErrors}</p>
+                      <p className="text-[18px] font-semibold" style={{ color: auditSummary.error_count > 0 ? "#f87171" : "#f5f5f7" }}>{auditSummary.error_count}</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] font-medium uppercase tracking-widest mb-2" style={{ color: "#86868B" }}>{S.auditByModel}</p>
+                  <div className="flex flex-col gap-1 mb-5">
+                    {Object.entries(auditSummary.by_model).map(([model, stats]) => (
+                      <div key={model} className="flex items-center justify-between px-3 py-1.5 rounded-lg text-[11px]" style={{ background: "rgba(255,255,255,0.03)", color: "#c7c7cc" }}>
+                        <span>{model}</span>
+                        <span style={{ color: "#86868B" }}>{stats.count} · {stats.avg_latency_ms}ms{stats.errors > 0 ? ` · ${stats.errors} err` : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] font-medium uppercase tracking-widest mb-2" style={{ color: "#86868B" }}>{S.auditByUser}</p>
+                  <div className="flex flex-col gap-1 mb-5">
+                    {Object.entries(auditSummary.by_user).map(([email, count]) => (
+                      <button
+                        key={email}
+                        onClick={() => { setAuditFilterUser(email); loadAudit(email); }}
+                        className="flex items-center justify-between px-3 py-1.5 rounded-lg text-[11px] text-left transition-colors"
+                        style={{ background: auditFilterUser === email ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.03)", color: auditFilterUser === email ? "#93c5fd" : "#c7c7cc" }}
+                      >
+                        <span>{email}</span>
+                        <span style={{ color: "#86868B" }}>{count}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] font-medium uppercase tracking-widest" style={{ color: "#86868B" }}>{S.auditLogHeading}</p>
+                    {auditFilterUser && (
+                      <button onClick={() => { setAuditFilterUser(""); loadAudit(); }} className="text-[10px]" style={{ color: "#93c5fd" }}>
+                        ✕ {auditFilterUser}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {auditRows.map((row, i) => (
+                      <div key={i} className="rounded-lg p-2.5 text-[11px]" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span style={{ color: "#93c5fd" }}>{row.user_email || "?"}</span>
+                          <span style={{ color: "#52525b", fontSize: 10 }}>{new Date(row.ts * 1000).toLocaleString()}</span>
+                        </div>
+                        <p className="truncate" style={{ color: "#d1d1d6" }} title={row.question || ""}>{row.question || "—"}</p>
+                        <div className="flex items-center gap-2 mt-1" style={{ color: "#86868B", fontSize: 10 }}>
+                          <span>{row.model}</span>
+                          {row.document_ids.length > 0 && <span>· {S.auditDocsCount(row.document_ids.length)}</span>}
+                          {!row.success && <span style={{ color: "#f87171" }}>· error</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

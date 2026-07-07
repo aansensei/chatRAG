@@ -55,14 +55,31 @@ def _instrumented_stream_ask(question, active, hybrid, model, api_key, history, 
     t0 = time.time()
     success = True
     error: str | None = None
+    seen_doc_ids: set[str] = set()
     try:
-        yield from stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential)
+        for chunk in stream_ask(question, active, hybrid, model, api_key, history, chat_notes, user_id, exclude_confidential):
+            # Best-effort: pull document_ids out of "sources"/"done" SSE events as
+            # they stream past, purely for the audit log below — never let a
+            # malformed chunk break the actual response to the user.
+            try:
+                if chunk.startswith("data: "):
+                    payload = json.loads(chunk[len("data: "):])
+                    for s in payload.get("sources") or []:
+                        doc_id = s.get("document_id")
+                        if doc_id:
+                            seen_doc_ids.add(doc_id)
+            except Exception:
+                pass
+            yield chunk
     except Exception as exc:
         success = False
         error = str(exc)
         raise
     finally:
-        log_query_metric(model, int((time.time() - t0) * 1000), len(question), success, error)
+        log_query_metric(
+            model, int((time.time() - t0) * 1000), len(question), success, error,
+            user_id=user_id, question=question, collections=active, document_ids=sorted(seen_doc_ids),
+        )
 
 
 @router.post("")

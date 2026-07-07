@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends
 
+from app.infrastructure.storage.local.auth_store import get_user_by_id
 from app.presentation.api.auth import require_admin
 
 _METRICS_FILE = Path(os.environ.get("LOCAL_STORAGE_PATH", "./storage")) / "metrics.jsonl"
@@ -49,9 +50,58 @@ def get_metrics_summary():
     for stats in by_model.values():
         stats["avg_latency_ms"] = round(stats["avg_latency_ms"] / stats["count"])
 
+    by_user: dict[str, int] = defaultdict(int)
+    for e in entries:
+        uid = e.get("user_id")
+        if uid:
+            by_user[uid] += 1
+    by_user_named = {}
+    for uid, count in by_user.items():
+        u = get_user_by_id(uid)
+        by_user_named[u["email"] if u else uid] = count
+
     return {
         "total_queries": total,
         "avg_latency_ms": avg_latency,
         "error_count": errors,
         "by_model": dict(by_model),
+        "by_user": by_user_named,
     }
+
+
+@router.get("/audit")
+def get_audit_log(user_email: str | None = None, limit: int = 100, offset: int = 0):
+    """Raw query-level audit trail — who asked what, when, and which documents
+    were surfaced. Newest first."""
+    entries = _read_entries()
+    entries.sort(key=lambda e: e.get("ts", 0), reverse=True)
+
+    # Resolve user_id -> email once per unique id instead of per entry.
+    email_cache: dict[str, str] = {}
+
+    def _email_for(uid: str | None) -> str | None:
+        if not uid:
+            return None
+        if uid not in email_cache:
+            u = get_user_by_id(uid)
+            email_cache[uid] = u["email"] if u else uid
+        return email_cache[uid]
+
+    rows = []
+    for e in entries:
+        email = _email_for(e.get("user_id"))
+        if user_email and email != user_email:
+            continue
+        rows.append({
+            "ts": e.get("ts"),
+            "user_email": email,
+            "question": e.get("question"),
+            "model": e.get("model"),
+            "collections": e.get("collections", []),
+            "document_ids": e.get("document_ids", []),
+            "latency_ms": e.get("latency_ms"),
+            "success": e.get("success", True),
+        })
+
+    total = len(rows)
+    return {"total": total, "rows": rows[offset:offset + limit]}
