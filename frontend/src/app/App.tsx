@@ -1684,7 +1684,10 @@ function ChatMessage({
           </div>
         )}
 
-        <div className="mt-2 flex items-center gap-3 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-200">
+        <div
+          className="mt-2 flex items-center gap-3 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-200"
+          style={message.feedback ? { opacity: 1 } : undefined}
+        >
           <button
             onClick={() => copyText(message.content)}
             className="flex items-center gap-1.5"
@@ -4291,12 +4294,13 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       return updated;
     });
     setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, feedback: rating } : m)));
+    addToast(rating === "up" ? S.feedbackGoodTitle : S.feedbackBadTitle, "success");
     fetch("/chat/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, answer, rating, model, document_ids: documentIds }),
-    }).catch(() => {});
-  }, [currentUser?.id]);
+    }).then((r) => { if (!r.ok) addToast("Feedback lưu thất bại", "error"); }).catch(() => addToast("Feedback lưu thất bại", "error"));
+  }, [currentUser?.id, addToast, S]);
 
   const deleteKbDoc = useCallback(async (docId: string, name: string) => {
     await fetch(`/ingest/documents/${docId}`, { method: "DELETE" });
