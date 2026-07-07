@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv; load_dotenv()
 
-from app.application.graph.extract_graph import GRAPH_ENABLED_COLLECTIONS, extract_entities_relations
+from app.application.graph.extract_graph import is_graph_enabled, extract_entities_relations
 from app.domain.entities.chunk import Chunk
 from app.infrastructure.queue.redis.consumer import consume
 from app.infrastructure.queue.redis.publisher import set_job_status
@@ -37,7 +37,7 @@ def _extract_graph_for_chunks(rows: list[dict], collection: str) -> None:
     must never fail the ingest job, since the chunk is already embedded and
     usable for normal retrieval regardless of graph extraction succeeding.
     """
-    if collection not in GRAPH_ENABLED_COLLECTIONS or not _GRAPH_API_KEY:
+    if not is_graph_enabled(collection) or not _GRAPH_API_KEY:
         return
     for row in rows:
         try:

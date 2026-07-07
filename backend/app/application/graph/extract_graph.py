@@ -15,14 +15,16 @@ logger = logging.getLogger(__name__)
 # Single source of truth for which collections pay the extra LLM-call cost of
 # graph extraction — checked both at ingest time (embedding_worker) and at
 # retrieval time (ask_question), so the two can never drift out of sync.
-GRAPH_ENABLED_COLLECTIONS = {
-    "AanJSC_Documents/Engineering",
-    "AanJSC_Documents/Executive",
-    "AanJSC_Documents/Finance",
-    "AanJSC_Documents/HR",
-    "AanJSC_Documents/Marketing",
-    "AanJSC_Documents/Sales",
-}
+#
+# Deliberately NOT a hardcoded per-company allowlist: this app is meant to be
+# reusable across different companies with their own department/folder names,
+# so hardcoding e.g. "AanJSC_Documents/Engineering" would mean a new customer's
+# freshly-uploaded folders silently never get graphed. "default" is the one
+# universal exception — it's the collection ad-hoc single-file chat uploads
+# land in (not a real department/project folder), so it's not worth the extra
+# LLM call per chunk.
+def is_graph_enabled(collection: str) -> bool:
+    return collection != "default"
 
 _MAX_CHUNK_CHARS = 3000
 

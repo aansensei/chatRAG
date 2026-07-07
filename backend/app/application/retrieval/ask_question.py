@@ -225,8 +225,8 @@ def _format_graph_block(question: str, collections: list[str] | None) -> str:
         return ""
     # Imported lazily (not at module top) to avoid a circular import: extract_graph
     # imports _call_llm_once from this module.
-    from app.application.graph.extract_graph import GRAPH_ENABLED_COLLECTIONS
-    target = [c for c in collections if c in GRAPH_ENABLED_COLLECTIONS]
+    from app.application.graph.extract_graph import is_graph_enabled
+    target = [c for c in collections if is_graph_enabled(c)]
     if not target:
         return ""
     try:
