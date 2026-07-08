@@ -815,6 +815,10 @@ type KBDocument = {
   has_file?: boolean;
   file_path?: string;
   sensitivity?: "public" | "internal" | "confidential" | "secret";
+  // Which page to jump to on open — distinct from `pages` (the document's
+  // total page count). Set when opening from a chat citation whose retrieved
+  // chunk started at a known PDF page.
+  openAtPage?: number;
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -2011,7 +2015,7 @@ const _NOTE_STRINGS: Record<Lang, { heading: string; loading: string; error: str
   ja: { heading: "要約ノート", loading: "ドキュメントを要約中…", error: "現在要約を生成できません。" },
 };
 
-function SourcePanel({ source, uiLang = "vi", onClose, onOpenDoc, onViewInApp }: { source: Source; uiLang?: Lang; onClose: () => void; onOpenDoc?: (title: string) => void; onViewInApp?: (doc: { document_id: string; source: string }) => void }) {
+function SourcePanel({ source, uiLang = "vi", onClose, onOpenDoc, onViewInApp }: { source: Source; uiLang?: Lang; onClose: () => void; onOpenDoc?: (title: string) => void; onViewInApp?: (doc: { document_id: string; source: string; openAtPage?: number }) => void }) {
   const [copied, setCopied] = useState(false);
   const [note, setNote] = useState<{ kind: "loading" | "ready" | "error"; text?: string }>({ kind: "loading" });
   const copyExcerpt = () => {
@@ -2139,7 +2143,7 @@ function SourcePanel({ source, uiLang = "vi", onClose, onOpenDoc, onViewInApp }:
                   // (renders PDF/image inline, docx/xlsx via mammoth/xlsx) instead of
                   // opening a raw blob in a new tab — which forces a download prompt
                   // for docx/xlsx since browsers can't render those natively.
-                  onViewInApp({ document_id: source.documentId, source: source.filename || source.title });
+                  onViewInApp({ document_id: source.documentId, source: source.filename || source.title, openAtPage: source.page });
                   onClose();
                 } else {
                   onOpenDoc?.(source.title);
@@ -5321,7 +5325,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       const decoder = new TextDecoder();
       let buffer = "";
 
-      const mapSrc = (s: { id: string; content: string; section?: string; similarity: number; filename: string; document_id?: string; sensitivity?: Source["sensitivity"] }, i: number): Source => ({
+      const mapSrc = (s: { id: string; content: string; section?: string; similarity: number; filename: string; document_id?: string; sensitivity?: Source["sensitivity"]; page?: number | null }, i: number): Source => ({
         id: `src-${Date.now()}-${i}`,
         title: s.section ?? s.filename ?? `Source ${i + 1}`,
         type: (s.filename?.endsWith(".pdf") ? "pdf" : "doc") as Source["type"],
@@ -5331,6 +5335,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
         documentId: s.document_id,
         filename: s.filename,
         sensitivity: s.sensitivity,
+        page: s.page ?? undefined,
       });
 
       const handleLine = (line: string) => {
@@ -7135,7 +7140,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                     </div>
                   ) : kbViewerContent.kind === "pdf" ? (
                     <iframe
-                      src={`${kbViewerContent.url}#toolbar=1&navpanes=0&scrollbar=1`}
+                      src={`${kbViewerContent.url}#toolbar=1&navpanes=0&scrollbar=1${kbViewerDoc?.openAtPage ? `&page=${kbViewerDoc.openAtPage}` : ""}`}
                       className="w-full h-full border-0"
                       title={filename}
                     />

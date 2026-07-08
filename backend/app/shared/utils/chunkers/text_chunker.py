@@ -45,6 +45,30 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+_LEADING_PAGE_MARKER_RE = re.compile(r"^\[Page (\d+)\]\n?")
+_ANY_PAGE_MARKER_RE = re.compile(r"\[Page \d+\]\n?")
+
+
+def _extract_page_number(content: str) -> tuple[int | None, str]:
+    """A chunk that starts right where a PDF page begins carries an
+    OCR-inserted "[Page N]" marker (see ocr_extractor.py) as its first line.
+    Pull that leading page number out for citation purposes ("open the
+    source PDF at page N") — it's the chunk's own starting page. Chunks that
+    start mid-page (a long page split across several chunks) have no leading
+    marker and get page_number=None; there's no reliable way to attribute
+    those without tracking page boundaries as real chunk boundaries, which
+    would fragment unrelated content unnecessarily.
+
+    Strips every "[Page N]" marker in the chunk, not just the leading one —
+    several short pages can end up merged into a single chunk, and any
+    marker after the first would otherwise leak into the LLM prompt and the
+    text shown to the user as literal, meaningless text."""
+    m = _LEADING_PAGE_MARKER_RE.match(content)
+    page_number = int(m.group(1)) if m else None
+    cleaned = _ANY_PAGE_MARKER_RE.sub("", content)
+    return page_number, cleaned
+
+
 def _split_into_sections(text: str) -> list[tuple[str | None, str]]:
     """
     Split text on heading boundaries.
@@ -140,14 +164,16 @@ def chunk_text(
             for part in _split_by_paragraph(body, config.max_tokens):
                 raw_chunks.append((section_title, part))
 
-    return [
-        Chunk(
+    chunks = []
+    for index, (title, content) in enumerate(raw_chunks):
+        page_number, content = _extract_page_number(content)
+        chunks.append(Chunk(
             document_id=document_id,
             content=content,
             chunk_index=index,
             token_count=_estimate_tokens(content),
             char_count=len(content),
             section_title=title,
-        )
-        for index, (title, content) in enumerate(raw_chunks)
-    ]
+            page_number=page_number,
+        ))
+    return chunks

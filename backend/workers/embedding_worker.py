@@ -77,7 +77,10 @@ def handle(message: dict) -> None:
                 "content": chunk.content,
                 "section_title": chunk.section_title,
                 "token_count": chunk.token_count,
-                "metadata": {**source_metadata, **chunk.metadata},
+                "metadata": {
+                    **source_metadata, **chunk.metadata,
+                    **({"page_number": chunk.page_number} if chunk.page_number else {}),
+                },
                 "embedding": vector,
                 "collection": collection,
             })

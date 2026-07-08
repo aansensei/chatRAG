@@ -1975,6 +1975,7 @@ def stream_ask(
                     "filename": filename,
                     "document_id": doc_id,
                     "sensitivity": meta.get("sensitivity", "internal") if isinstance(meta, dict) else "internal",
+                    "page": meta.get("page_number") if isinstance(meta, dict) else None,
                 })
                 header = f"[{i + 1}]" + (f" [{section}]" if section else "")
                 parts.append(f"{header}\n{c['content'][:_MAX_CHUNK_CHARS * 2]}")
