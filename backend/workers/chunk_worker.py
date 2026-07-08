@@ -46,6 +46,7 @@ def handle(message: dict) -> None:
             "chunks": [c.model_dump(mode="json") for c in chunks],
             "source_metadata": message.get("metadata", {}),
             "collection": message.get("collection", "default"),
+            "replaces_document_ids": message.get("replaces_document_ids") or [],
         })
 
     except Exception as exc:

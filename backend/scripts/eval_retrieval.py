@@ -9,8 +9,9 @@ should be stable, so that's the signal worth catching regressions on.
 Usage (server must be running on localhost:8000):
   python scripts/eval_retrieval.py
 
-Exit code is non-zero if any case fails, so this can be wired into CI once a
-DB connection is available there.
+Exit code is non-zero if any case fails. Runs nightly + on manual trigger via
+.github/workflows/retrieval-eval.yml against the real Supabase KB (needs
+SUPABASE_URL/SUPABASE_SERVICE_KEY secrets configured on the repo).
 """
 import json
 import os

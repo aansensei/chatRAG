@@ -29,13 +29,29 @@ def extract_xlsx(file_path: str) -> ExtractResult:
             "data": data
         })
 
-        # flat text per sheet for embedding
+        # Flat text per sheet for embedding. Joined with a blank line between
+        # rows (not a single newline) so the chunker's paragraph-boundary
+        # splitting — which only breaks on "\n\n" — treats each row as an
+        # atomic unit instead of packing the whole sheet into one run-on
+        # paragraph. Without this, a sheet that exceeds the chunk token
+        # budget gets sliced by the chunker's word-level fallback, which can
+        # cut a row (or even a single cell's number) in half; a small/medium
+        # table (the common case for KPI/budget sheets) now fits in one
+        # chunk intact, so sum/average questions over it see every row.
+        sheet_lines = []
         for row in non_empty:
-            line = " | ".join(str(c) for c in row if c is not None)
+            # Two spaces around the separator, not one — matches
+            # office_extractor.py's docx/csv table formatting, which
+            # ask_question.py's has_tabular detection ("  |  ") relies on to
+            # keep a table's chunks intact instead of putting them through
+            # relevance reranking that could drop/reorder rows.
+            line = "  |  ".join(str(c) for c in row if c is not None)
             if line.strip():
-                text_parts.append(line)
+                sheet_lines.append(line)
+        if sheet_lines:
+            text_parts.append("\n\n".join(sheet_lines))
 
-    result.text = "\n".join(text_parts)
+    result.text = "\n\n".join(text_parts)
     result.tables = tables
     result.metadata = {"sheets": wb.sheetnames, "source": str(path)}
 

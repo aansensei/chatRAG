@@ -117,49 +117,60 @@ def _sweep_orphaned_jobs():
     # crashed, hung, or was force-killed before it could report failure. Left
     # alone, the frontend keeps polling that job_id and shows a progress bar
     # frozen at whatever % it last reported, forever.
-    swept = 0
-    for job_id, status in iter_jobs():
-        if status.get("status") not in ("completed", "failed"):
-            set_job_status(job_id, status="failed", error="Interrupted by server restart — please re-upload")
-            swept += 1
-    if swept:
-        logger.warning(f"[lifespan] marked {swept} orphaned job(s) from a previous run as failed")
+    try:
+        swept = 0
+        for job_id, status in iter_jobs():
+            if status.get("status") not in ("completed", "failed"):
+                set_job_status(job_id, status="failed", error="Interrupted by server restart — please re-upload")
+                swept += 1
+        if swept:
+            logger.warning(f"[lifespan] marked {swept} orphaned job(s) from a previous run as failed")
+    except Exception as exc:
+        # Redis being briefly unreachable at startup shouldn't take the whole
+        # app down — this sweep is a best-effort cleanup, not a hard dependency.
+        logger.warning(f"[lifespan] orphaned-job sweep skipped (Redis unavailable?): {exc}")
 
 
 def _watchdog():
     while not _stop.is_set():
-        for i, proc in enumerate(_procs):
-            if proc.poll() is not None:
-                module = _WORKER_MODULES[i % len(_WORKER_MODULES)]
-                logger.warning(f"[watchdog] {module} (pid {proc.pid}) died, restarting")
-                _procs[i] = _spawn(module)
+        try:
+            for i, proc in enumerate(_procs):
+                if proc.poll() is not None:
+                    module = _WORKER_MODULES[i % len(_WORKER_MODULES)]
+                    logger.warning(f"[watchdog] {module} (pid {proc.pid}) died, restarting")
+                    _procs[i] = _spawn(module)
 
-        # A worker can hang forever inside a blocking call without exiting or
-        # raising — proc.poll() above stays None, so that check alone never
-        # catches it. Detect it from the job side instead: a job whose status
-        # hasn't moved in _STALE_JOB_SECONDS is either being processed by a
-        # dead-but-not-exited worker, or was abandoned mid-flight some other
-        # way — either way, force the matching worker to restart and fail the
-        # job so the upload doesn't stay stuck at the same % indefinitely.
-        now = time.time()
-        for job_id, status in iter_jobs():
-            if status.get("status") not in ("extracting", "chunking", "embedding"):
-                continue
-            try:
-                updated_at = float(status.get("updated_at", 0))
-            except ValueError:
-                continue
-            if now - updated_at < _STALE_JOB_SECONDS:
-                continue
-            module = _STEP_TO_MODULE.get(status.get("step", ""))
-            logger.warning(f"[watchdog] job {job_id} stale for {now - updated_at:.0f}s on step={status.get('step')} — killing {module}")
-            set_job_status(job_id, status="failed", error="Worker timed out — please re-upload")
-            if module:
-                for i, m in enumerate(_WORKER_MODULES):
-                    if m == module and i < len(_procs):
-                        _procs[i].kill()
-                        _procs[i] = _spawn(module)
-                        break
+            # A worker can hang forever inside a blocking call without exiting or
+            # raising — proc.poll() above stays None, so that check alone never
+            # catches it. Detect it from the job side instead: a job whose status
+            # hasn't moved in _STALE_JOB_SECONDS is either being processed by a
+            # dead-but-not-exited worker, or was abandoned mid-flight some other
+            # way — either way, force the matching worker to restart and fail the
+            # job so the upload doesn't stay stuck at the same % indefinitely.
+            now = time.time()
+            for job_id, status in iter_jobs():
+                if status.get("status") not in ("extracting", "chunking", "embedding"):
+                    continue
+                try:
+                    updated_at = float(status.get("updated_at", 0))
+                except ValueError:
+                    continue
+                if now - updated_at < _STALE_JOB_SECONDS:
+                    continue
+                module = _STEP_TO_MODULE.get(status.get("step", ""))
+                logger.warning(f"[watchdog] job {job_id} stale for {now - updated_at:.0f}s on step={status.get('step')} — killing {module}")
+                set_job_status(job_id, status="failed", error="Worker timed out — please re-upload")
+                if module:
+                    for i, m in enumerate(_WORKER_MODULES):
+                        if m == module and i < len(_procs):
+                            _procs[i].kill()
+                            _procs[i] = _spawn(module)
+                            break
+        except Exception as exc:
+            # A transient Redis hiccup must not silently kill this thread —
+            # that would mean losing both the dead-process restart and the
+            # stale-job detection for the rest of the process's lifetime.
+            logger.warning(f"[watchdog] iteration failed, will retry: {exc}")
         time.sleep(3)
 
 

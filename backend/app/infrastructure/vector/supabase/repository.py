@@ -73,6 +73,40 @@ def find_duplicate_document(collection: str, content_hash: str) -> dict | None:
     return {"document_id": rows[0]["document_id"], "filename": meta.get("source", "")}
 
 
+def find_documents_by_filename(collection: str, filename: str, exclude_document_id: str | None = None) -> list[str]:
+    """Finds every existing document with the same filename in the same
+    folder, regardless of content — used to detect "this upload is a new
+    version of an existing document" (edited content, same name) so stale
+    chunks can be retired once the new version's chunks are confirmed
+    persisted, instead of old versions lingering side by side forever.
+    Returns every match, not just one — a document can have accumulated more
+    than one stale prior version (e.g. a re-upload that itself was never
+    cleaned up before this function existed).
+
+    Matches on basename, not an exact string match on the stored "source"
+    value — older documents (ingested via the original bulk-seeding script)
+    have the full "Collection/Sub/file.xlsx" path stamped as source, while
+    uploads through the API store just the bare filename. A plain equality
+    check silently misses every one of those older documents."""
+    rows = (
+        _get_client().table("chunks")
+        .select("document_id, metadata")
+        .eq("collection", collection)
+        .filter("metadata->>source", "ilike", f"%{filename}")
+        .limit(50)
+        .execute()
+        .data or []
+    )
+    matches: set[str] = set()
+    for row in rows:
+        if row["document_id"] == exclude_document_id:
+            continue
+        source = (row.get("metadata") or {}).get("source", "")
+        if source.split("/")[-1].split("\\")[-1] == filename:
+            matches.add(row["document_id"])
+    return list(matches)
+
+
 def set_document_sensitivity(document_id: str, sensitivity: str) -> int:
     """Sensitivity lives inside each chunk's metadata JSON (no dedicated documents
     table exists), so this patches every chunk belonging to the document."""

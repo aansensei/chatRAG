@@ -17,7 +17,7 @@ from app.domain.entities.chunk import Chunk
 from app.infrastructure.queue.redis.consumer import consume
 from app.infrastructure.queue.redis.publisher import set_job_status
 from app.infrastructure.vector.supabase.graph_repository import insert_relation, upsert_entity
-from app.infrastructure.vector.supabase.repository import upsert_chunks
+from app.infrastructure.vector.supabase.repository import upsert_chunks, delete_document
 from app.shared.utils.embedders.text_embedder import embed_chunks
 
 QUEUE_IN = "queue:embed"
@@ -86,6 +86,14 @@ def handle(message: dict) -> None:
 
         upsert_chunks(rows)
         logger.info(f"job={job_id} upserted {len(rows)} chunks to Supabase")
+
+        # Only retire previous versions now that the new one's chunks are
+        # confirmed persisted — deleting them earlier risks leaving zero
+        # copies of the document if this job had failed partway through.
+        for old_id in message.get("replaces_document_ids") or []:
+            delete_document(old_id)
+            logger.info(f"job={job_id} retired stale version {old_id}")
+
         set_job_status(job_id, status="completed", step="done", progress=100)
 
         _extract_graph_for_chunks(rows, collection)

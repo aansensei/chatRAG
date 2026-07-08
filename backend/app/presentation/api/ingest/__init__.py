@@ -15,7 +15,7 @@ from app.infrastructure.vector.supabase.repository import (
     list_documents, delete_document, list_collections,
     rename_collection, delete_collection_docs, move_document_collection,
     get_document_file_path, relink_document_file, get_document_collection,
-    set_document_sensitivity, find_duplicate_document,
+    set_document_sensitivity, find_duplicate_document, find_documents_by_filename,
 )
 from app.presentation.api.auth import get_collections, get_current_user, require_admin_or_executive
 from app.shared.security.permissions import (
@@ -81,6 +81,14 @@ async def upload(
 
     file_path.write_bytes(bytes(content))
 
+    # Same filename, different content (an edited re-upload, not a byte-identical
+    # duplicate) — the old version's chunks would otherwise linger in the KB
+    # forever alongside the new ones, answering questions with stale info. Mark
+    # it for cleanup once the new version's chunks are confirmed persisted (see
+    # embedding_worker.py) rather than deleting it up front, so a failed
+    # re-upload doesn't leave zero copies of the document behind.
+    replaces_document_ids = find_documents_by_filename(collection, file.filename, exclude_document_id=document_id)
+
     set_job_status(job_id, status="queued", step="ocr", progress=0)
     publish("queue:ocr", {
         "job_id": job_id,
@@ -90,6 +98,7 @@ async def upload(
         "collection": collection,
         "sensitivity": sensitivity,
         "content_hash": content_hash,
+        "replaces_document_ids": replaces_document_ids,
     })
 
     # Uploads go live immediately (no upload-blocking review), but anyone without
