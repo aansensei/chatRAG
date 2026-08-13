@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends
 
+from app.infrastructure.storage.local.admin_audit_store import list_admin_actions
 from app.infrastructure.storage.local.auth_store import get_user_by_id
 from app.presentation.api.auth import require_admin
 
@@ -105,3 +106,10 @@ def get_audit_log(user_email: str | None = None, limit: int = 100, offset: int =
 
     total = len(rows)
     return {"total": total, "rows": rows[offset:offset + limit]}
+
+
+@router.get("/admin-audit")
+def get_admin_audit_log(limit: int = 100, offset: int = 0):
+    """Who did what to which user account, and when — create/delete/edit
+    actions taken by admins on other users' accounts."""
+    return list_admin_actions(limit, offset)

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
+from app.infrastructure.storage.local.admin_audit_store import log_admin_action
 from app.infrastructure.storage.local.auth_store import (
     count_users,
     create_user,
@@ -168,37 +169,42 @@ def get_users(_admin: dict = Depends(require_admin)):
 
 
 @router.post("/users")
-def add_user(body: CreateUserBody, _admin: dict = Depends(require_admin)):
+def add_user(body: CreateUserBody, admin: dict = Depends(require_admin)):
     if get_user_by_email(body.email):
         raise HTTPException(status_code=409, detail="Email đã tồn tại")
     if body.role not in ("admin", "user"):
         raise HTTPException(status_code=400, detail="role phải là 'admin' hoặc 'user'")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Mật khẩu phải có ít nhất 8 ký tự")
-    return create_user(body.email, body.password, body.role, body.department, body.is_department_head, body.expires_at)
+    created = create_user(body.email, body.password, body.role, body.department, body.is_department_head, body.expires_at)
+    log_admin_action(admin, "create_user", created["id"], created["email"], {"role": body.role, "department": body.department})
+    return created
 
 
 @router.patch("/users/{user_id}/expiry")
-def update_user_expiry(user_id: str, body: UpdateExpiryBody, _admin: dict = Depends(require_admin)):
+def update_user_expiry(user_id: str, body: UpdateExpiryBody, admin: dict = Depends(require_admin)):
     updated = set_user_expiry(user_id, body.expires_at)
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
+    log_admin_action(admin, "update_expiry", user_id, updated["email"], {"expires_at": body.expires_at})
     return updated
 
 
 @router.patch("/users/{user_id}/department")
-def update_user_department(user_id: str, body: UpdateDepartmentBody, _admin: dict = Depends(require_admin)):
+def update_user_department(user_id: str, body: UpdateDepartmentBody, admin: dict = Depends(require_admin)):
     updated = set_user_department(user_id, body.department)
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
+    log_admin_action(admin, "update_department", user_id, updated["email"], {"department": body.department})
     return updated
 
 
 @router.patch("/users/{user_id}/department-head")
-def update_user_department_head(user_id: str, body: UpdateDepartmentHeadBody, _admin: dict = Depends(require_admin)):
+def update_user_department_head(user_id: str, body: UpdateDepartmentHeadBody, admin: dict = Depends(require_admin)):
     updated = set_department_head(user_id, body.is_department_head)
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
+    log_admin_action(admin, "update_department_head", user_id, updated["email"], {"is_department_head": body.is_department_head})
     return updated
 
 
@@ -206,6 +212,8 @@ def update_user_department_head(user_id: str, body: UpdateDepartmentHeadBody, _a
 def remove_user(user_id: str, admin: dict = Depends(require_admin)):
     if user_id == admin["id"]:
         raise HTTPException(status_code=400, detail="Không thể tự xóa tài khoản đang đăng nhập")
-    if delete_user(user_id) == 0:
+    target = get_user_by_id(user_id)
+    if not target or delete_user(user_id) == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    log_admin_action(admin, "delete_user", user_id, target["email"])
     return {"ok": True}

@@ -16,7 +16,7 @@ _MAX_REQUESTS = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "30"))
 _history: dict[str, deque[float]] = defaultdict(deque)
 
 
-_LIMITED_PREFIXES = ("/chat", "/ingest", "/memory")
+_LIMITED_PREFIXES = ("/chat", "/ingest", "/memory", "/auth")
 
 # Job-status polling is a cheap, read-only cache lookup (no LLM/embedding cost) and is
 # legitimately called at high frequency when uploading many files at once — e.g.

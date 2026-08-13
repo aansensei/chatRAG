@@ -63,5 +63,13 @@ Deterministic, no LLM call.
   similarity: number,     // 0..1, rounded to 3 decimals
   filename: string,
   document_id: string,
+  page: number | null,    // source PDF page — citation click jumps here
 }
 ```
+
+Each request requires `Authorization: Bearer <jwt>` (see
+`presentation/api/auth`); `collections` is further narrowed server-side to
+the caller's department + shared folders regardless of what the client
+sends. Requests are rate-limited (`presentation/middleware/rate_limit.py`)
+and logged to `storage/metrics.jsonl` after each turn for the admin audit
+dashboard (`GET /metrics/audit`).

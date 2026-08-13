@@ -1,5 +1,11 @@
 # domain/entities
 
-Domain entities (Document, Chunk, ChatSession...).
+Dataclasses shared across the ingestion pipeline and workers:
 
-**Empty.** `Chunk` is defined in `app/domain/entities/chunk.py` if it exists; otherwise chunk shape is implicit in `chunkers/`. Move to formal entities when multi-user state needs it.
+| Entity | File | Used by |
+|---|---|---|
+| `Chunk` | `chunk.py` | `text_chunker.py`, `embedding_worker.py` — carries `content`, `page_number`, `metadata` |
+| `KBDocument` | `document.py` | `repository.py`, `ingest/__init__.py` |
+| `IngestJob` | `ingest_job.py` | `publisher.py` job-status tracking |
+| `User` | `user.py` | `auth_store.py` shape reference |
+| `Review` | `review.py` | reserved — no reviewer workflow wired up yet |

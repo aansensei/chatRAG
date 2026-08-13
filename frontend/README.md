@@ -54,15 +54,19 @@ immediately.
 | Feature | Notes |
 |---|---|
 | SSE streaming chat | Reads `text/event-stream` from `POST /chat`, renders tokens as they arrive |
-| Multi-turn memory | Sends last 6 messages as `history` so Ciel understands follow-ups |
-| Folder scope | ContextBar above the input limits retrieval to selected folders |
+| Multi-turn memory | Sends last 6 messages as `history` so Ciel understands follow-ups; persisted server-side via `/memory` |
+| Login / auth | JWT login screen; requests carry `Authorization: Bearer` |
+| Folder scope | ContextBar above the input limits retrieval to selected folders (further scoped server-side by department) |
 | Hybrid mode | Toggle to blend KB results with general LLM knowledge |
-| Model switcher | Ollama (local) vs Groq cloud, with API key field |
+| Model switcher | Ollama (local) or cloud providers (Groq, OpenAI, Gemini, OpenRouter, Cerebras, Anthropic), with per-provider API key field; `GET /chat/providers` shows which have a server-side key configured |
+| Effort selector | Fast / medium / reasoning — trades latency for retrieval depth |
+| Web search suggestion | When local KB has weak coverage, offers to fall back to a web search with confirm/decline |
 | Stop button | Aborts in-flight fetch and saves the partial response |
-| Sources panel | Click a citation chip to see the chunk and open the source file |
+| Sources panel | Click a citation chip to see the chunk and open the source file; PDF opens jumped to the cited page |
 | KB sidebar | Browse / move / rename / delete docs and folders inline |
 | Background streaming | Stays alive when user navigates to a different chat |
 | File viewer | PDFs and images render inline in the browser; office docs download |
+| Admin dashboard | User management (create/edit/expire/department) + query-level audit log + usage metrics |
 
 ---
 
@@ -94,13 +98,16 @@ Figma exports. Components get extracted as the codebase grows.
 ```ts
 {
   question: string,
-  collections: string[] | null,    // null = search all folders
+  collections: string[] | null,    // null = search all folders (server still applies department scope)
   hybrid: boolean,
   model: string,                   // e.g. "gemma3:12b" or "llama-3.3-70b-versatile"
   api_key?: string,                // Groq key, only when model is a Groq one
+  effort?: "fast" | "medium" | "reasoning",
   history: { role: "user"|"assistant", content: string }[],  // last 6 messages
 }
 ```
+
+Requires `Authorization: Bearer <jwt>` header (from `POST /auth/login`).
 
 Response: `text/event-stream` with events:
 

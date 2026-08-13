@@ -31,6 +31,8 @@ from app.presentation.api.memory import router as memory_router, migrate_legacy_
 from app.presentation.api.metrics import router as metrics_router
 from app.presentation.api.chat import _OLLAMA_URL, _OLLAMA_MODEL
 from app.presentation.middleware.rate_limit import RateLimitMiddleware
+from app.presentation.middleware.upload_limit import MaxUploadSizeMiddleware
+from app.presentation.middleware.security_headers import SecurityHeadersMiddleware
 from app.infrastructure.queue.redis.publisher import iter_jobs, set_job_status
 from app.shared.utils.embedders.text_embedder import embed_text
 
@@ -227,6 +229,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(MaxUploadSizeMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(chat_router)

@@ -26,18 +26,28 @@ stream_ask(question, collections, hybrid, model, api_key, history)
   +--> is_rag_query?       -> RAG-explainer system prompt -> LLM, done
   |
   | retrieval:
-  |   1. embed(question)                     multilingual-e5-base
-  |   2. extract_filename_tokens(question)   returns (tokens, has_strong)
+  |   1. query rewriting                    follow-up resolved to a standalone
+  |                                          query against `history` before embedding
+  |   2. embed(question)                     multilingual-e5-base (BGE-M3), plus
+  |                                          HyDE + multi-query expansion
+  |   3. extract_filename_tokens(question)   returns (tokens, has_strong)
   |        strong tokens = underscore-joined ("14_BangLuong_T12_2025")
   |                       or alphanumeric codes ("Cam7", "N5", "NASA")
-  |   3. filename_search_chunks              tries longest token first,
+  |   4. filename_search_chunks              tries longest token first,
   |                                          stops at first hit
   |        if strong tokens + no match -> "file not found" early-return
   |        (fires even in hybrid mode)
-  |   4. search_chunks (pgvector cosine)     supplemented with accent-stripped
+  |        skips tokens matching >3 distinct documents — too generic to
+  |        trust as a fast path (bypasses ranking otherwise)
+  |   5. search_chunks (hybrid BM25 + pgvector cosine, RRF fusion)
+  |                                          supplemented with accent-stripped
   |                                          query if Vietnamese
-  |   5. keyword_search_chunks (ilike)       skipped when filename hit found
-  |   6. detect tabular chunks ("  |  " separator from CSV/XLSX)
+  |   6. keyword_search_chunks (ilike)       skipped when filename hit found
+  |   7. detect tabular chunks ("  |  " separator from CSV/XLSX)
+  |   8. _bge_rerank cross-encoder + fetch_context_windows (parent-child
+  |      expansion) — skipped for the filename/tabular fast paths
+  |   9. GraphRAG block (_format_graph_block) appended as supplementary
+  |      context — not yet fused into the ranking/scoring itself
   |
   | answer:
   |   if filename_doc_ids or has_tabular:
@@ -47,7 +57,9 @@ stream_ask(question, collections, hybrid, model, api_key, history)
   |        _llm_filter_chunks drops irrelevant chunks
   |        use _SYSTEM_VI / _SYSTEM_EN
   |
-  |   stream LLM tokens, then emit sources event
+  |   stream LLM tokens, then emit sources event (each source carries the
+  |   originating PDF page number, so citations jump to the exact page)
+  |   query + result metadata logged to storage/metrics.jsonl for audit
 ```
 
 ---
@@ -94,9 +106,9 @@ prepends them to the user prompt as `Người dùng: ... / Ciel: ...` lines.
 Each message is capped at 400 chars; total block capped at 1500 chars.
 This unlocks follow-ups like "nó là gì", "thêm chi tiết", "ngắn hơn nữa".
 
-Note: history is currently NOT used to rewrite the embedding query, so
-queries like "đề bài hỏi gì?" won't recover the previous filename
-("Cam7"). Query rewriting is a planned improvement.
+Query rewriting resolves follow-ups against `history` into a standalone
+query before embedding — so "đề bài hỏi gì?" after a message about "Cam7"
+recovers the filename context instead of embedding the bare follow-up.
 
 ---
 

@@ -11,7 +11,7 @@ original file back for the in-app viewer.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/ingest/upload` | Upload a file. Multipart form with `file` and optional `collection` (default `"default"`). Returns `{job_id, document_id, status}`. |
+| POST | `/ingest/upload` | Upload a file. Multipart form with `file` and optional `collection` (default `"default"`). Returns `{job_id, document_id, status}`. Re-uploading a file with the same filename queues deletion of the stale version(s) once the new one finishes embedding (`replaces_document_ids`). |
 | GET | `/ingest/jobs/{job_id}` | Poll job progress. Returns Redis hash: `status`, `step`, `progress`, `error`. |
 
 ### Documents

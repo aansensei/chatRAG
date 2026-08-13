@@ -23,10 +23,11 @@ Developed during internship at **SADEC Technology JSC**.
 
 ```
 chatRAG/
-  backend/    FastAPI server + retrieval engine + Redis worker
+  backend/    FastAPI server + retrieval engine + Redis workers
   frontend/   React + Vite chat UI (built into backend/app/static for serving)
   start.ps1   One-command dev bootstrap (Windows PowerShell)
   start.bat   One-command dev bootstrap (Windows CMD)
+  stop.ps1    Stop backend/worker/frontend processes, optionally stop Ollama (frees GPU/RAM)
 ```
 
 ---
@@ -40,20 +41,25 @@ React UI (frontend/)
     v
 FastAPI (backend/)
     |
+    |-- JWT auth gate -> department-scoped collection filter
+    |
     |-- Identity / wake-up / RAG-explainer  short-circuits  -> LLM
     |
     |-- Normal query:
-    |     1. query rewriting   (follow-up resolved via history before embedding)
-    |     2. embed question    (intfloat/multilingual-e5-base)
-    |     3. filename-aware search   (exact file match via metadata->source)
-    |     4. vector search           (pgvector cosine, threshold 0.1)
-    |     5. keyword fallback        (ilike for codes, IDs, VI diacritic-stripped)
-    |     6. table-aware bypass      (skip LLM filter for tabular chunks)
-    |     7. LLM relevance filter    (drops noise)
-    |     8. directive or strict-context prompt -> LLM stream
+    |     1. query rewriting        (follow-up resolved via history before embedding)
+    |     2. HyDE + multi-query expansion, embed with multilingual-e5-base (BGE-M3)
+    |     3. filename-aware search        (exact file match via metadata->source)
+    |     4. hybrid search                (BM25 + pgvector cosine, RRF fusion)
+    |     5. keyword fallback              (ilike for codes, IDs, VI diacritic-stripped)
+    |     6. table-aware bypass            (skip reranker/LLM filter for tabular chunks)
+    |     7. BGE cross-encoder reranking + parent-child context window expansion
+    |     8. GraphRAG block (supplementary context, not yet fused into ranking)
+    |     9. LLM relevance filter          (drops noise)
+    |     10. directive or strict-context prompt -> LLM stream, citations track source page
     |
     |-- Upload pipeline:
-          file  -> Redis queue  -> OCR worker  -> chunker  -> embedder  -> Supabase
+          file -> Redis queue -> OCR worker -> chunker -> embedder -> Supabase
+          (stale versions of the same filename are deleted on re-upload)
 ```
 
 ---
@@ -67,7 +73,7 @@ FastAPI (backend/)
 | Queue | Redis pub/sub |
 | OCR | PaddleOCR, python-docx, openpyxl, csv (multi-encoding: utf-8-sig → cp1258 → latin-1) |
 | Embedding | `intfloat/multilingual-e5-base` via sentence-transformers |
-| LLM | Ollama (default `gemma3:4b`) or Groq (Llama 3.3 · 70B / Llama 3.1 · 8B / Gemma 2 · 9B) |
+| LLM | Ollama (local, default `gemma3:4b`) or cloud: Groq, OpenAI, Gemini, OpenRouter, Cerebras, Anthropic — server-side key or per-request key from the UI |
 | Frontend | React 18, Vite, TypeScript, Tailwind |
 
 ---
@@ -91,15 +97,17 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env       # fill SUPABASE_URL, SUPABASE_SERVICE_KEY, REDIS_URL
-uvicorn app.main:app --reload
+cp .env.example .env       # fill SUPABASE_URL, SUPABASE_SERVICE_KEY, REDIS_URL, JWT_SECRET_KEY
+uvicorn main:app --reload
 ```
 
-In a second terminal, start the OCR worker:
+`uvicorn main:app` auto-spawns the OCR/chunk/embedding workers as subprocesses
+(with a watchdog that restarts them if they crash or stall). To run a worker
+standalone instead:
 
 ```bash
 cd backend
-python -m app.workers.ocr_worker
+python -m workers.ocr_worker
 ```
 
 API: `http://localhost:8000`  /  Docs: `http://localhost:8000/docs`
@@ -134,7 +142,11 @@ pnpm run build:deploy
 | `OLLAMA_MODEL` | Default Ollama model | `gemma3:4b` |
 | `RETRIEVAL_TOP_K` | Chunks per query | `8` |
 | `MAX_CHUNK_CHARS` | Chars per chunk in prompt | `1200` |
-| `DEV_MODE` | Skip API-key auth | `true` |
+| `JWT_SECRET_KEY` | Signs login tokens | required |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-run bootstrap admin account | `admin@aanjsc.vn` / none |
+| `GROQ_API_KEY` | Server-side Groq key (optional; UI can also send a per-request key) | `""` |
+| `EMBEDDING_DEVICE` | Force the main process's embedder onto `cpu`/`cuda` (workers ignore this, always GPU) | unset (auto) |
+| `RATE_LIMIT_PER_MINUTE` | Per-IP request budget on `/chat`, `/ingest`, `/memory`, `/auth` | `30` |
 
 ---
 
@@ -162,23 +174,33 @@ pnpm run build:deploy
 | Feature | State |
 |---|---|
 | Multi-folder knowledge base | ✅ done |
-| Filename-aware + vector + keyword retrieval | ✅ done |
-| Table / CSV-aware retrieval | ✅ done |
-| Multi-turn chat memory (history inject) | ✅ done |
-| Query rewriting from chat history | ✅ done |
+| Filename-aware + hybrid (BM25+vector) + keyword retrieval | ✅ done |
+| Table / CSV / XLSX-aware retrieval | ✅ done |
+| Multi-turn chat memory (history inject + persisted across reloads) | ✅ done |
+| Query rewriting, HyDE, multi-query expansion | ✅ done |
+| BGE cross-encoder reranking | ✅ done |
+| GraphRAG context block (supplementary — not yet fused into ranking) | partial |
 | Strict context-only answers (no hallucination) | ✅ done |
-| Inline citations `[N]` clickable in answer | ✅ done |
+| Inline citations `[N]`, click jumps to exact page in source PDF | ✅ done |
 | Ciel persona (VI / EN / JA) | ✅ done |
 | Hybrid mode (KB + general knowledge) | ✅ done |
 | Source citations + file viewer (PDF inline / DOCX download) | ✅ done |
 | CSV upload with multi-encoding support | ✅ done |
 | Ollama model availability detection | ✅ done |
+| Effort selector (fast / medium / reasoning) | ✅ done |
+| Stale document cleanup on re-upload | ✅ done |
+| Retrieval quality eval wired into CI (nightly + manual) | ✅ done |
+| JWT auth, per-department folder permissions, admin user management | ✅ done |
+| Query-level audit log (admin dashboard) | ✅ done |
 | build:deploy script (vite build → static/) | ✅ done |
-| start.ps1 one-command bootstrap | ✅ done |
-| Reranker (BGE / Cohere) | planned |
-| Multi-user auth + per-user folders | planned |
+| start.ps1 / stop.ps1 one-command bootstrap | ✅ done |
+| Login rate-limiting | ✅ done |
+| Admin-action audit trail (who edited/deleted which user account) | ✅ done |
+| Upload size cap (413 before oversized files hit disk) | ✅ done |
+| Security response headers (nosniff, deny-framing, referrer-policy) | ✅ done |
 | Image / vision input | planned |
-| Session memory across browser reloads | planned |
+| Multi-tenant (multiple separate companies on one deployment) | planned |
+| Self-service password reset, bulk user import, session/device visibility | planned |
 
 ---
 
