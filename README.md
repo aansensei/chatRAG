@@ -206,4 +206,4 @@ pnpm run build:deploy
 
 ## License
 
-Internal project — SADEC Technology JSC.
+MIT — see [LICENSE](LICENSE).
