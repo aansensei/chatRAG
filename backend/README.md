@@ -118,7 +118,7 @@ backend/
 ```
 
 Other folders (`app/application/{auth,ingestion,jobs,permission,review}`,
-`app/domain/{enums,events,repositories}`,
+`app/domain/{events,repositories}`,
 `app/infrastructure/{classifier,database,embedding,llm,ocr,parser}`,
 `app/infrastructure/{queue/kafka,storage/minio,vector/milvus,vector/qdrant}`,
 `app/presentation/{websocket,api/admin,api/chunks,api/documents,api/jobs,api/reviews}`,
