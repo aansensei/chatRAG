@@ -3,6 +3,7 @@ pymupdf>=1.24
 pdfplumber>=0.11
 python-docx>=1.1
 openpyxl>=3.1
+python-pptx>=1.0
 easyocr>=1.7
 
 # Chunking / Embedding
