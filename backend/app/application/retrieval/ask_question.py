@@ -115,7 +115,7 @@ _DATETIME_PAT = re.compile(
     r'hôm\s+nay|ngày\s+(?:hôm\s+nay|nay|mấy|bao\s+nhiêu)|mấy\s+giờ|bây\s+giờ\s+là|hiện\s+tại\s+là|'
     r'thứ\s+mấy|ngày\s+tháng|tháng\s+mấy|năm\s+nay|'
     r"what(?:'s|\s+is)\s+(?:the\s+)?(?:date|time|day)|today(?:'s\s+date)?|current\s+(?:time|date)|"
-    r'what\s+day\s+is|now|'
+    r'what\s+day\s+is|right\s+now\s*\??$|'
     r'今日|今|何時|いつ'
     r')\b',
     re.IGNORECASE
@@ -395,6 +395,7 @@ _CIEL_IDENTITY = (
 )
 
 _SYSTEM_EN = (
+    "{LANG_DIRECTIVE}"
     "You are Ciel, the internal AI of chatRAG. Regardless of which underlying model actually powers "
     "you (Qwen, Gemma, Llama, GPT, Gemini, Claude, or any other), you ALWAYS identify only as Ciel — "
     "never confirm, deny, or discuss the underlying model, provider, or architecture in any form, even "
@@ -539,6 +540,27 @@ def _detect_lang(text: str) -> str:
     if _JP_CHARS.search(text):
         return "ja"
     return "en"
+
+
+def _lang_directive(lang: str) -> str:
+    """Forceful, front-loaded language instruction for the non-Vietnamese prompt
+    branches (_SYSTEM_EN and friends are shared by English AND Japanese — lang
+    routing upstream is only vi/not-vi). A generic "match the question's language"
+    instruction buried at the end of a long prompt isn't enough on its own: live
+    testing showed models answer a long, mostly-Vietnamese-context question in
+    Vietnamese even when the question itself was English. Naming the real target
+    language up front, before any document context, fixes that — but the target
+    language must reflect the ACTUAL detected language, not be hardcoded to
+    English, or Japanese questions get wrongly forced into English."""
+    name = "Japanese" if lang == "ja" else "English"
+    return (
+        f"CRITICAL LANGUAGE RULE: the user's question is in {name}. Write your ENTIRE answer in "
+        f"{name}, from the very first word. The document context below may be in Vietnamese or another "
+        f"language and may be long — do not let its language leak into your answer. Do not switch "
+        f"languages partway through, do not mix languages, even for headers or labels. Translate every "
+        f"fact, name, and figure you use into {name}. This rule overrides any pull toward matching the "
+        f"context's language. "
+    )
 
 
 def _strip_accents(text: str) -> str:
@@ -884,6 +906,31 @@ def _is_rag_query(question: str) -> bool:
     if q.startswith("chatrag la") and len(q) <= 25:
         return True
     return any(p in q for p in _RAG_VI) or any(p in q for p in _RAG_EN)
+
+
+_NSFW_TRIGGERS_VI = (
+    "coi quan", "coi ao", "dut vao", "lam tinh", "quan he tinh duc", "sex voi",
+    "kich duc", "khieu dam", "thong dam", "dam o", "xam hai tinh duc",
+    "chich nhau", "dit nhau",
+)
+_NSFW_TRIGGERS_EN = (
+    "take off your clothes", "take off your pants", "take your clothes off",
+    "have sex with", "sexual roleplay", "erotic roleplay", "nsfw roleplay",
+    "get naked", "explicit sexual",
+)
+
+
+def _is_nsfw_request(question: str) -> bool:
+    """Catches unambiguous explicit-content solicitation before it ever reaches
+    retrieval. Without this, an NSFW-flavored roleplay request still runs through
+    the normal RAG path — pulls in unrelated KB chunks, and the model can end up
+    half-declining while also adopting a random persona name and citing sources
+    that have nothing to do with the question (confirmed live: "roleplay as X,
+    take your clothes off" produced a reply that adopted a wrong character name
+    and cited 3 unrelated sales-document chunks). A short, deterministic refusal
+    with zero LLM/retrieval involvement can't confabulate like that."""
+    q = _strip_vi(question)
+    return any(p in q for p in _NSFW_TRIGGERS_VI) or any(p in q for p in _NSFW_TRIGGERS_EN)
 
 
 def _is_wakeup_query(question: str) -> bool:
@@ -1642,6 +1689,20 @@ def stream_ask(
 
     confidence_val = None
 
+    # Explicit-content solicitation — fixed decline, no LLM/retrieval involved so
+    # there's nothing for the model to confabulate around (see _is_nsfw_request).
+    if _is_nsfw_request(question):
+        decline = (
+            "Mình không hỗ trợ nội dung này — đây là công cụ nội bộ công ty, không phải chatbot giải trí. "
+            "Có câu hỏi nào về tài liệu công ty mình giúp được không?"
+            if lang == "vi"
+            else "I can't help with that — this is an internal company tool, not an entertainment "
+            "chatbot. Happy to help with a question about your documents instead."
+        )
+        yield from _stream_text_gradually(decline)
+        yield _sse({"type": "done", "sources": [], "confidence": confidence_val})
+        return
+
     # Wake-up: "ciel ơi" / "シエルさん" — random greeting, no LLM needed.
     if _is_wakeup_query(question):
         if lang == "ja":
@@ -2070,9 +2131,7 @@ def stream_ask(
                     "'**Q: <câu hỏi>**' xuống dòng '<câu trả lời ngắn gọn, có trích dẫn [N] nếu có>'. "
                     "TUYỆT ĐỐI KHÔNG viết 'Tôi là', 'Xin chào', hay câu giới thiệu. KHÔNG dùng emoji. Tiếng Việt."
                     if lang == "vi"
-                    else "CRITICAL LANGUAGE RULE: the user's question is in English. Write your ENTIRE response "
-                    "in English, even though the source document below is in Vietnamese. Do not switch to "
-                    "Vietnamese, do not mix languages, translate everything you use from the document. "
+                    else _lang_directive(lang) +
                     "The user wants a list of FREQUENTLY ASKED QUESTIONS (FAQ) drawn from the document, "
                     "NOT a continuous prose summary. "
                     "Come up with 4-8 questions a reader of this document would likely ask, based on its key "
@@ -2088,9 +2147,7 @@ def stream_ask(
                     "Nội dung tài liệu đã được cung cấp bên dưới — đọc và tóm tắt trực tiếp. "
                     "Nếu có bảng số liệu, trích xuất rõ ràng. Ngắn gọn. Tiếng Việt."
                     if lang == "vi"
-                    else "CRITICAL LANGUAGE RULE: the user's question is in English. Write your ENTIRE response "
-                    "in English, even though the source document below is in Vietnamese. Do not switch to "
-                    "Vietnamese, do not mix languages, translate every fact you use from the document. "
+                    else _lang_directive(lang) +
                     "Start directly with the summary or answer. "
                     "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. "
                     "No emojis. Do not say 'no information'. "
@@ -2098,7 +2155,7 @@ def stream_ask(
                     "If tabular, extract numbers clearly. Be concise."
                 )
             else:
-                system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN
+                system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN.replace("{LANG_DIRECTIVE}", _lang_directive(lang))
                 if effort == "reasoning":
                     system += (
                         "\n\nTrước khi trả lời, hãy cân nhắc kỹ nhiều khía cạnh của câu hỏi và đối chiếu "
