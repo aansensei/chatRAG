@@ -1,6 +1,6 @@
 # chatRAG
 
-Retrieval-Augmented Generation chatbot named **Ciel** — built as an internal AI assistant for SADEC Technology. Upload company documents, ask in natural language, get answers grounded in your files with inline citations.
+Retrieval-Augmented Generation chatbot named **Ciel**, built as an internal AI assistant for SADEC Technology. Upload company documents, ask in natural language, get answers grounded in your files with inline citations.
 
 Developed during internship at **SADEC Technology JSC**.
 
@@ -13,7 +13,7 @@ Developed during internship at **SADEC Technology JSC**.
 - Get answers cited back to the source document with inline `[N]` clickable citations
 - Multi-turn chat with conversation memory and **query rewriting** (follow-up questions resolved against history before embedding)
 - Hybrid mode: blend internal docs with general knowledge when KB is empty
-- Strict context-only answers — will not hallucinate names, figures, or project names outside the uploaded documents
+- Strict context-only answers: will not hallucinate names, figures, or project names outside the uploaded documents
 - Run locally with Ollama or fast via Groq cloud (Llama 3.3 / Gemma 2 / etc.)
 - Model availability detection: UI shows ⚠ "Not installed" badge for Ollama models not yet pulled
 
@@ -73,14 +73,14 @@ FastAPI (backend/)
 | Queue | Redis pub/sub |
 | OCR | PaddleOCR, python-docx, openpyxl, csv (multi-encoding: utf-8-sig → cp1258 → latin-1) |
 | Embedding | `intfloat/multilingual-e5-base` via sentence-transformers |
-| LLM | Ollama (local, default `gemma3:4b`) or cloud: Groq, OpenAI, Gemini, OpenRouter, Cerebras, Anthropic — server-side key or per-request key from the UI |
+| LLM | Ollama (local, default `gemma3:4b`) or cloud: Groq, OpenAI, Gemini, OpenRouter, Cerebras, Anthropic; server-side key or per-request key from the UI |
 | Frontend | React 18, Vite, TypeScript, Tailwind |
 
 ---
 
 ## Quick start
 
-### Option A — One command (PowerShell)
+### Option A: One command (PowerShell)
 
 ```powershell
 .\start.ps1
@@ -88,7 +88,7 @@ FastAPI (backend/)
 
 Opens two terminal windows: backend on `:8000`, frontend on `:5173`.
 
-### Option B — Manual
+### Option B: Manual
 
 **Backend:**
 
@@ -112,6 +112,8 @@ python -m workers.ocr_worker
 
 API: `http://localhost:8000`  /  Docs: `http://localhost:8000/docs`
 
+Default login (seeded on first run from `ADMIN_EMAIL`/`ADMIN_PASSWORD` in `.env`): **`admin@aanjsc.vn` / `000000`**. Change it after logging in.
+
 **Frontend (dev mode):**
 
 ```bash
@@ -125,7 +127,7 @@ pnpm dev          # http://localhost:5173 (proxies /chat, /ingest to :8000)
 ```bash
 cd frontend
 pnpm run build:deploy
-# Builds and copies dist/* into ../backend/app/static — served by FastAPI at :8000
+# Builds and copies dist/* into ../backend/app/static, served by FastAPI at :8000
 ```
 
 ---
@@ -143,7 +145,7 @@ pnpm run build:deploy
 | `RETRIEVAL_TOP_K` | Chunks per query | `8` |
 | `MAX_CHUNK_CHARS` | Chars per chunk in prompt | `1200` |
 | `JWT_SECRET_KEY` | Signs login tokens | required |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-run bootstrap admin account | `admin@aanjsc.vn` / none |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-run bootstrap admin account | `admin@aanjsc.vn` / `000000` |
 | `GROQ_API_KEY` | Server-side Groq key (optional; UI can also send a per-request key) | `""` |
 | `EMBEDDING_DEVICE` | Force the main process's embedder onto `cpu`/`cuda` (workers ignore this, always GPU) | unset (auto) |
 | `RATE_LIMIT_PER_MINUTE` | Per-IP request budget on `/chat`, `/ingest`, `/memory`, `/auth` | `30` |
@@ -179,7 +181,7 @@ pnpm run build:deploy
 | Multi-turn chat memory (history inject + persisted across reloads) | ✅ done |
 | Query rewriting, HyDE, multi-query expansion | ✅ done |
 | BGE cross-encoder reranking | ✅ done |
-| GraphRAG context block (supplementary — not yet fused into ranking) | partial |
+| GraphRAG context block (supplementary, not yet fused into ranking) | partial |
 | Strict context-only answers (no hallucination) | ✅ done |
 | Inline citations `[N]`, click jumps to exact page in source PDF | ✅ done |
 | Ciel persona (VI / EN / JA) | ✅ done |
@@ -206,4 +208,4 @@ pnpm run build:deploy
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
