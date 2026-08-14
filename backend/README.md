@@ -24,6 +24,7 @@ python -m workers.ocr_worker
 - API: `http://localhost:8000`
 - OpenAPI docs: `http://localhost:8000/docs`
 - Static UI (after `pnpm build` in `../frontend`): `http://localhost:8000`
+- Default login (seeded on first run): `admin@aanjsc.vn` / `000000` — change after logging in.
 
 ---
 
@@ -146,7 +147,7 @@ removal if they stay unused — see project notes.)
 | `JWT_SECRET_KEY` | Signs login tokens | required |
 | `JWT_ALGORITHM` | JWT signing algorithm | `HS256` |
 | `JWT_EXPIRE_MINUTES` | Token lifetime | `1440` |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-run bootstrap admin (only used when `users.db` is empty) | `admin@aanjsc.vn` / none |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | First-run bootstrap admin (only used when `users.db` is empty) | `admin@aanjsc.vn` / `000000` |
 | `EMBEDDING_DEVICE` | Forces the main process's embedder onto this device; NOT inherited by spawned workers (always GPU) | unset |
 | `RATE_LIMIT_PER_MINUTE` | Per-IP request budget on rate-limited routes | `30` |
 | `MAX_UPLOAD_MB` | Reject uploads above this size (413) before the body is parsed | `50` |
