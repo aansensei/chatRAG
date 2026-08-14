@@ -1009,6 +1009,13 @@ _CEREBRAS_MODEL_IDS = {"gpt-oss-120b", "gemma-4-31b", "zai-glm-4.7", "llama-3.3-
 def _resolve_env_key(model: str) -> str:
     """Pick the right env API key based on the model name when no key was supplied by the client."""
     m = model.lower()
+    # Ollama tags look like "name:tag" (gemma3:4b, qwen2.5-coder:7b) and never contain "/" —
+    # OpenRouter's ":free" suffix always comes with a "/" first, so this doesn't collide with
+    # that case below. Without this check, a server-side GROQ_API_KEY silently hijacked every
+    # Ollama-selected request (no client key) by handing back a Groq key for a model name Groq
+    # has never heard of, turning "use my local model" into a 404 from Groq's API instead.
+    if ":" in m and "/" not in m:
+        return ""
     if "gemini" in m:
         return os.environ.get("GEMINI_API_KEY", "")
     if "claude" in m:
@@ -1997,7 +2004,8 @@ def stream_ask(
                     "Come up with 4-8 questions a reader of this document would likely ask, based on its key "
                     "points/data, then answer each from the document content. Format each entry as "
                     "'**Q: <question>**' on its own line, followed by '<concise answer, with [N] citation if available>'. "
-                    "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. No emojis."
+                    "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. No emojis. "
+                    "Write the questions and answers in English, even if the source document is in a different language."
                 )
             elif filename_doc_ids or has_tabular:
                 system = (
@@ -2011,7 +2019,8 @@ def stream_ask(
                     "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. "
                     "No emojis. Do not say 'no information'. "
                     "The document content is provided below — read and summarize it directly. "
-                    "If tabular, extract numbers clearly. Be concise."
+                    "If tabular, extract numbers clearly. Be concise. "
+                    "Respond in English, even if the source document is in a different language."
                 )
             else:
                 system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN
