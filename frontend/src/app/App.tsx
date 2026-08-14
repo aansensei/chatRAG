@@ -197,6 +197,9 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "VD: Tôi tên Phong, làm AI engineer...",
     copyBtn: "Sao chép",
     copiedBtn: "Đã chép",
+    editPromptTitle: "Chỉnh sửa câu lệnh",
+    editSendBtn: "Gửi",
+    editCancelBtn: "Hủy",
     useAndSendTitle: "Dùng và gửi ngay",
     editTemplateTitle: "Sửa mẫu",
     txCharCount: (n: number) => `${n} ký tự`,
@@ -373,6 +376,9 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "E.g. My name is Phong, I work as an AI engineer...",
     copyBtn: "Copy",
     copiedBtn: "Copied",
+    editPromptTitle: "Edit prompt",
+    editSendBtn: "Send",
+    editCancelBtn: "Cancel",
     useAndSendTitle: "Use and send now",
     editTemplateTitle: "Edit template",
     txCharCount: (n: number) => `${n} chars`,
@@ -549,6 +555,9 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "例：我叫阿峰，是一名 AI 工程师...",
     copyBtn: "复制",
     copiedBtn: "已复制",
+    editPromptTitle: "编辑提示词",
+    editSendBtn: "发送",
+    editCancelBtn: "取消",
     useAndSendTitle: "使用并立即发送",
     editTemplateTitle: "编辑模板",
     txCharCount: (n: number) => `${n} 字符`,
@@ -725,6 +734,9 @@ const UI_STRINGS = {
     memoryExamplePlaceholder: "例：私はPhongです、AIエンジニアをしています...",
     copyBtn: "コピー",
     copiedBtn: "コピー済み",
+    editPromptTitle: "プロンプトを編集",
+    editSendBtn: "送信",
+    editCancelBtn: "キャンセル",
     useAndSendTitle: "使用してすぐに送信",
     editTemplateTitle: "テンプレートを編集",
     txCharCount: (n: number) => `${n} 文字`,
@@ -1530,6 +1542,7 @@ function ChatMessage({
   onRegenerate,
   onSuggestWebSearch,
   onFeedback,
+  onEdit,
   uiLang,
   availableModels,
 }: {
@@ -1540,6 +1553,7 @@ function ChatMessage({
   onSuggestWebSearch?: () => void;
   onRegenerate?: (modelId?: string) => void;
   onFeedback?: (rating: "up" | "down") => void;
+  onEdit?: (newContent: string) => void;
   uiLang: Lang;
   availableModels?: { id: string; label: string; providerLabel: string }[];
 }) {
@@ -1548,7 +1562,20 @@ function ChatMessage({
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [webSearchSuggestionState, setWebSearchSuggestionState] = useState<"pending" | "confirmed" | "declined" | "dismissed">("pending");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(message.content);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isEditing || !editTextareaRef.current) return;
+    const el = editTextareaRef.current;
+    el.focus();
+    el.select();
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+    el.style.overflowY = el.scrollHeight > 300 ? "auto" : "hidden";
+  }, [isEditing]);
 
   useEffect(() => {
     if (!modelPickerOpen) return;
@@ -1588,13 +1615,93 @@ function ChatMessage({
   };
 
   if (message.role === "user") {
+    const startEdit = () => { setEditValue(message.content); setIsEditing(true); };
+    const cancelEdit = () => { setIsEditing(false); setEditValue(message.content); };
+    const submitEdit = () => {
+      const trimmed = editValue.trim();
+      if (!trimmed || !onEdit || trimmed === message.content.trim()) { setIsEditing(false); return; }
+      onEdit(trimmed);
+      setIsEditing(false);
+    };
+
+    if (isEditing) {
+      return (
+        <div className="flex justify-end mb-6 msg-animate">
+          <div className="max-w-[70%] w-full flex flex-col items-end gap-2">
+            <textarea
+              ref={editTextareaRef}
+              value={editValue}
+              onChange={(e) => {
+                setEditValue(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${e.target.scrollHeight}px`;
+                e.target.style.overflowY = e.target.scrollHeight > 300 ? "auto" : "hidden";
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitEdit(); }
+                if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+              }}
+              rows={1}
+              className="selectable-text w-full px-4 py-3 text-sm leading-relaxed resize-none outline-none"
+              style={{ background: "#2C2C2E", borderRadius: "18px", color: "#F5F5F7", border: "1px solid rgba(59,130,246,0.4)", maxHeight: "300px", overflowY: "hidden" }}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={cancelEdit}
+                className="px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#d1d1d6" }}
+              >
+                {S.editCancelBtn}
+              </button>
+              <button
+                onClick={submitEdit}
+                disabled={!editValue.trim() || editValue.trim() === message.content.trim()}
+                className="px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors"
+                style={{
+                  background: (editValue.trim() && editValue.trim() !== message.content.trim()) ? "linear-gradient(135deg, #0A66C2 0%, #3B82F6 100%)" : "rgba(255,255,255,0.06)",
+                  color: (editValue.trim() && editValue.trim() !== message.content.trim()) ? "#fff" : "rgba(255,255,255,0.25)",
+                  cursor: (editValue.trim() && editValue.trim() !== message.content.trim()) ? "pointer" : "not-allowed",
+                }}
+              >
+                {S.editSendBtn}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="flex justify-end mb-6 msg-animate">
+      <div className="flex flex-col items-end mb-6 msg-animate group/msg">
         <div
           className="selectable-text max-w-[70%] px-4 py-3 text-sm leading-relaxed"
-          style={{ background: "#2C2C2E", borderRadius: "18px 18px 4px 18px", color: "#F5F5F7" }}
+          style={{ background: "#2C2C2E", borderRadius: "18px 18px 4px 18px", color: "#F5F5F7", overflowWrap: "anywhere", wordBreak: "break-word" }}
         >
           {message.content}
+        </div>
+        <div className="flex items-center gap-1.5 mt-1.5 mr-1 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-200">
+          <button
+            onClick={() => copyText(message.content)}
+            title="Copy"
+            className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+            style={{ background: "rgba(255,255,255,0.06)", color: "#86868B" }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+          >
+            {copied ? <Check size={13} style={{ color: "#10b981" }} /> : <Copy size={13} />}
+          </button>
+          {onEdit && (
+            <button
+              onClick={startEdit}
+              title={S.editPromptTitle}
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+              style={{ background: "rgba(255,255,255,0.06)", color: "#86868B" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+            >
+              <Pencil size={13} />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -4317,6 +4424,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const kbSectionRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const sendLockRef = useRef(false);
   const pollIntervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -4406,6 +4514,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     setIsStreaming(false);
     setReadingSources([]);
     streamingChatIdRef.current = null;
+    sendLockRef.current = false;
   }, []);
 
   const submitFeedback = useCallback((messageId: string, question: string, answer: string, rating: "up" | "down", model: string | undefined, documentIds: string[]) => {
@@ -5140,9 +5249,14 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     });
   }, []);
 
-  const sendMessage = async (text?: string, modelOverride?: string, forceWeb?: boolean) => {
+  const sendMessage = async (text?: string, modelOverride?: string, forceWeb?: boolean, baseMessages?: Message[]) => {
     const content = (text ?? input).trim();
-    if (!content || isProcessing) return;
+    // sendLockRef closes the gap between this check and setIsProcessing(true)
+    // actually committing — without it, a fast double Enter (or key-repeat while
+    // holding Enter) can both read isProcessing as still false and fire two
+    // concurrent requests for the same question.
+    if (!content || isProcessing || sendLockRef.current) return;
+    sendLockRef.current = true;
     const modelForRequest = modelOverride ?? activeModel;
 
     flushSync(() => {
@@ -5150,8 +5264,9 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
     });
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
+    const base = baseMessages ?? messages;
     const userMsg: Message = { id: Date.now().toString(), role: "user", content };
-    const nextMessages = [...messages, userMsg];
+    const nextMessages = [...base, userMsg];
     setMessages(nextMessages);
     userScrolledRef.current = false;
     setShowScrollBtn(false);
@@ -5172,10 +5287,21 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           const data = await browseRes.json();
           if (data.text) {
             questionToSend = `[Nội dung trang ${url}:\n${data.text}]\n\n${content}`;
+          } else {
+            questionToSend = `[Không thể đọc được nội dung trang ${url} (trang không có văn bản trích xuất được). Hãy báo cho người dùng biết trang này không đọc được, đừng tìm kiếm trong tài liệu nội bộ để thay thế.]\n\n${content}`;
           }
+        } else {
+          // Common cause: the target site's bot-detection blocks the fetch (e.g.
+          // Wikipedia 403s automated clients even with a browser User-Agent).
+          // Falling through to send the raw pasted URL as a bare question used to
+          // make Ciel search the knowledge base for "a document about this URL"
+          // instead of reporting the real problem — tell it what actually happened.
+          const errData = await browseRes.json().catch(() => ({} as { detail?: string }));
+          const reason = errData.detail || "trang từ chối truy cập, có thể do trang chặn truy cập tự động";
+          questionToSend = `[Không thể tải trang ${url}: ${reason}. Hãy báo cho người dùng biết lý do cụ thể này, đừng tìm kiếm trong tài liệu nội bộ để thay thế.]\n\n${content}`;
         }
       } catch {
-        // browse failed — send original question
+        questionToSend = `[Không thể tải trang ${url} do lỗi kết nối. Hãy báo cho người dùng biết trang này không tải được, đừng tìm kiếm trong tài liệu nội bộ để thay thế.]\n\n${content}`;
       }
       setIsBrowsing(false);
       setBrowsePreview(null);
@@ -5313,7 +5439,7 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
           collections: chatScope.type === "selected" ? chatScope.collections : null,
           hybrid: hybridMode,
           model: migrateModel(modelForRequest),
-          history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          history: base.slice(-6).map((m) => ({ role: m.role, content: m.content })),
           chat_notes: (() => { const n = chats.find((c) => c.id === activeChatId)?.notes; return Array.isArray(n) ? n.join("\n") : (n as unknown as string) || ""; })(),
           api_key: getActiveApiKey(migrateModel(modelForRequest)),
           effort: effortMode,
@@ -5470,7 +5596,17 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
       setIsStreaming(false);
       setReadingSources([]);
       streamingChatIdRef.current = null;
+      sendLockRef.current = false;
     }
+  };
+
+  const editMessage = (msgId: string, newContent: string) => {
+    const idx = messages.findIndex((m) => m.id === msgId);
+    if (idx === -1) return;
+    // Drop the edited message and everything after it — sendMessage re-appends
+    // the edited question as a fresh turn and streams a new answer for it.
+    const truncated = messages.slice(0, idx);
+    sendMessage(newContent, undefined, undefined, truncated);
   };
 
   const loadChat = (chat: Chat) => {
@@ -7248,6 +7384,11 @@ function AuthedApp({ currentUser, onLogout }: { currentUser: AuthUser | null; on
                   onFeedback={
                     msg.role === "assistant" && messages[idx - 1]?.role === "user"
                       ? (rating) => submitFeedback(msg.id, messages[idx - 1].content, msg.content, rating, msg.model, (msg.sources || []).map((s) => s.documentId).filter((d): d is string => !!d))
+                      : undefined
+                  }
+                  onEdit={
+                    msg.role === "user" && !isProcessing
+                      ? (newContent: string) => editMessage(msg.id, newContent)
                       : undefined
                   }
                 />
