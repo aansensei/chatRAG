@@ -1999,13 +1999,15 @@ def stream_ask(
                     "'**Q: <câu hỏi>**' xuống dòng '<câu trả lời ngắn gọn, có trích dẫn [N] nếu có>'. "
                     "TUYỆT ĐỐI KHÔNG viết 'Tôi là', 'Xin chào', hay câu giới thiệu. KHÔNG dùng emoji. Tiếng Việt."
                     if lang == "vi"
-                    else "The user wants a list of FREQUENTLY ASKED QUESTIONS (FAQ) drawn from the document, "
+                    else "CRITICAL LANGUAGE RULE: the user's question is in English. Write your ENTIRE response "
+                    "in English, even though the source document below is in Vietnamese. Do not switch to "
+                    "Vietnamese, do not mix languages, translate everything you use from the document. "
+                    "The user wants a list of FREQUENTLY ASKED QUESTIONS (FAQ) drawn from the document, "
                     "NOT a continuous prose summary. "
                     "Come up with 4-8 questions a reader of this document would likely ask, based on its key "
                     "points/data, then answer each from the document content. Format each entry as "
                     "'**Q: <question>**' on its own line, followed by '<concise answer, with [N] citation if available>'. "
-                    "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. No emojis. "
-                    "Write the questions and answers in English, even if the source document is in a different language."
+                    "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. No emojis."
                 )
             elif filename_doc_ids or has_tabular:
                 system = (
@@ -2015,12 +2017,14 @@ def stream_ask(
                     "Nội dung tài liệu đã được cung cấp bên dưới — đọc và tóm tắt trực tiếp. "
                     "Nếu có bảng số liệu, trích xuất rõ ràng. Ngắn gọn. Tiếng Việt."
                     if lang == "vi"
-                    else "Start directly with the summary or answer. "
+                    else "CRITICAL LANGUAGE RULE: the user's question is in English. Write your ENTIRE response "
+                    "in English, even though the source document below is in Vietnamese. Do not switch to "
+                    "Vietnamese, do not mix languages, translate every fact you use from the document. "
+                    "Start directly with the summary or answer. "
                     "ABSOLUTELY DO NOT write 'I am', 'Hello', or any self-introduction. "
                     "No emojis. Do not say 'no information'. "
                     "The document content is provided below — read and summarize it directly. "
-                    "If tabular, extract numbers clearly. Be concise. "
-                    "Respond in English, even if the source document is in a different language."
+                    "If tabular, extract numbers clearly. Be concise."
                 )
             else:
                 system = _SYSTEM_VI if lang == "vi" else _SYSTEM_EN
